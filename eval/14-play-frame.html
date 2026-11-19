@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Eval 14 — the play screen on a scripted feed</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<link rel="stylesheet" href="/src/client/ui/app.css" />
+</head>
+<body>
+<!-- The same shell as index.html, so the task 13 layout applies unchanged. -->
+<div class="shell">
+  <header class="masthead">
+    <h1>Dawn Squad</h1>
+    <div id="link"></div>
+  </header>
+  <div id="strip"></div>
+  <main id="screen" data-screen="play"></main>
+</div>
+<script type="module">
+  // The real play screen (src/client/ui/screens/play.ts), unchanged, on a feed
+  // that is scripted in this page instead of coming from the server: there is
+  // no socket. What the feed says is not made up, though. The lever's orders
+  // go through the real `validateOrders` and `resolve`, and the screen is sent
+  // the `rejected` or `resolve` message the server would have sent.
+  //
+  //   ?foe=hold     the enemy never does anything (default)
+  //   ?foe=ambush   the enemy's rifleman at G5 lies in ambush every round
+  //   ?slot=...     keeps this frame's draft apart from the others' (sessionStorage)
+  import { playScreen } from '/src/client/ui/screens/play.ts';
+  import { lamp } from '/src/client/ui/components.ts';
+  import { resolve, validateOrders, viewFor } from '/src/rules/index.ts';
+  import { stageLesson, tinyMap } from '/src/manual/lesson.ts';
+
+  const foe = new URLSearchParams(location.search).get('foe') ?? 'hold';
+
+  const map = tinyMap({
+    id: 'eval14',
+    terrain: [
+      '. . . . w . . . .',
+      ' . . . w . . . . .',
+      '. . . . . . . . .',
+      ' . w . . . . . . .',
+      '. . . . . . . . .',
+      ' . . . . . . w . .',
+      '. . . . . . . . .',
+    ],
+    marks: [
+      '. . . . . . . . .',
+      ' . . . . . . . . .',
+      '. . . . . . . . .',
+      ' . . . . A . . . .',
+      '. . . . . . . . .',
+      ' . . . . . . . . .',
+      '. . . . . . . . .',
+    ],
+    objectiveValues: { A: 1 },
+  });
+
+  // Blue is the player. The riflemen start 6 and 7 hexes from the enemy: out of rifle range until they have walked.
+  // Pvt. at B3 stands right in front of the man at A3; the man at C5 starts pinned, next to nobody.
+  function start() {
+    return stageLesson({
+      id: 'eval14', group: 'Moving', title: '', text: '', map,
+      units: [
+        { owner: 0, type: 'rifleman', at: 'A3' },
+        { owner: 0, type: 'rifleman', at: 'B3' },
+        { owner: 0, type: 'rifleman', at: 'B4' },
+        { owner: 0, type: 'medic', at: 'A5' },
+        { owner: 0, type: 'rifleman', at: 'C5', status: 'pinned' },
+        { owner: 0, type: 'gunner', at: 'B6' },
+        { owner: 1, type: 'rifleman', at: 'H3' },
+        { owner: 1, type: 'rifleman', at: 'G5' },
+        { owner: 1, type: 'rifleman', at: 'I6' },
+      ],
+      rounds: [], viewAs: 0, fogMatters: true, expect: [],
+    });
+  }
+
+  let state = start();
+  const listeners = new Map();
+  const emit = (msg) => setTimeout(() => { for (const cb of listeners.get(msg.t) ?? []) cb(msg); }, 0);
+  const seats = (ready) => [
+    { seat: 0, name: 'You', connected: true, ready, out: state.eliminated[0] },
+    { seat: 1, name: 'Script', connected: true, ready: true, out: state.eliminated[1] },
+  ];
+  const foeOrders = () => (foe === 'ambush' ? [{ unit: '1-1', kind: 'ambush' }] : []);
+
+  const net = {
+    send(msg) {
+      window.parent?.postMessage({ eval14: 'sent', slot: new URLSearchParams(location.search).get('slot'), msg }, '*');
+      if (msg.t === 'recall') { emit({ t: 'seats', seats: seats(false) }); return; }
+      if (msg.t !== 'orders') return;
+      const errors = validateOrders(state, 0, msg.orders);
+      if (errors.length > 0) { emit({ t: 'rejected', errors }); return; }
+      const r = resolve(state, [msg.orders, foeOrders()]);
+      state = r.state;
+      window.parent?.postMessage({ eval14: 'resolved', slot: new URLSearchParams(location.search).get('slot'), events: r.events }, '*');
+      emit({ t: 'resolve', events: r.playerEvents[0], view: viewFor(state, 0), seats: seats(false), timer: null });
+    },
+    on(t, cb) {
+      if (!listeners.has(t)) listeners.set(t, new Set());
+      listeners.get(t).add(cb);
+      return () => listeners.get(t).delete(cb);
+    },
+    onStatus(cb) { cb(true); },
+  };
+
+  document.getElementById('link').append(lamp('Scripted feed', 'planning'));
+  const stage = document.getElementById('screen');
+  let unmount = null;
+  const app = {
+    net, seat: 0, host: true,
+    go(name, data) {
+      // The match is over (or the screen asked for another): start the scenario again.
+      unmount?.();
+      state = start();
+      app.data = { t: 'plan', view: viewFor(state, 0), seats: seats(false), timer: null };
+      unmount = playScreen.mount(stage, app);
+      void name; void data;
+    },
+  };
+  app.data = { t: 'plan', view: viewFor(state, 0), seats: seats(false), timer: null };
+  unmount = playScreen.mount(stage, app);
+  // For the checks in eval/14-move-then-act.html and for whoever drives this from a console.
+  window.eval14 = { state: () => state, view: () => viewFor(state, 0) };
+</script>
+</body>
+</html>

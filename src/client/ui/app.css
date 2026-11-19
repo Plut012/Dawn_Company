@@ -1,0 +1,391 @@
+/* App shell and lobby layout. Only kit tokens and kit components; nothing new here but placement. */
+
+/* Phone safe areas (the viewport is viewport-fit=cover). They are 0 where there is no notch, so nothing moves there. */
+:root { --safe-t: env(safe-area-inset-top, 0px); --safe-r: env(safe-area-inset-right, 0px); --safe-b: env(safe-area-inset-bottom, 0px); --safe-l: env(safe-area-inset-left, 0px); }
+body {
+  min-height: 100vh;
+  padding: max(var(--s-3), var(--safe-t)) max(var(--s-3), var(--safe-r)) max(var(--s-3), var(--safe-b)) max(var(--s-3), var(--safe-l));
+}
+.shell { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: var(--s-3); }
+.masthead { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); }
+.masthead h1 { font-size: var(--t-4); }
+.masthead .lamp { color: var(--paper); }
+#strip:empty, #strip > [hidden] { display: none; }
+#strip .report { max-width: none; }
+[hidden] { display: none !important; }
+.panel { box-shadow: 4px 4px 0 var(--ink); }
+.panel > p { max-width: none; }
+
+/* ---------- lobby ---------- */
+.lobby { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--s-3); align-items: start; }
+.lobby > .join { max-width: 480px; }
+.stack { display: flex; flex-direction: column; gap: var(--s-3); min-width: 0; }
+@media (min-width: 820px) {
+  .lobby.joined { grid-template-columns: 340px minmax(0, 1fr); }
+}
+.lobby .report { max-width: none; }
+main > .report { margin-bottom: var(--s-3); max-width: none; }
+
+.join-form { display: flex; flex-direction: column; gap: var(--s-3); margin-top: var(--s-2); }
+.join-form .key { align-self: flex-start; min-width: 140px; }
+
+.signals { display: flex; flex-direction: column; gap: var(--s-2); margin-bottom: var(--s-3); }
+.signal { display: flex; align-items: center; gap: var(--s-2); min-height: 28px; }
+.mark { width: 20px; height: 20px; flex: none; }
+.signals-line { margin: 0; font-size: var(--t-2); opacity: 1; }
+
+.ready-body { display: flex; gap: var(--s-3); align-items: stretch; }
+.lever-box { display: flex; gap: var(--s-2); align-items: stretch; flex: none; }
+.lever-legends { display: flex; flex-direction: column; justify-content: space-between; padding: var(--s-1) 0; }
+.ready-side { display: flex; flex-direction: column; justify-content: space-between; gap: var(--s-3); flex: 1; min-width: 0; align-items: flex-start; }
+.ready-text { margin: 0; }
+.ready-side .key { min-width: 120px; }
+
+.builder-top { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: center; }
+.preset-keys { display: flex; flex-wrap: wrap; gap: var(--s-3) var(--s-2); flex: 1 1 200px; padding-bottom: 4px; }
+.preset-keys .key { min-width: 0; padding: 0 var(--s-2); font-size: var(--t-1); }
+.preset-note { margin: var(--s-2) 0 var(--s-3); max-width: none; min-height: 2.9em; }
+
+.roster { display: flex; flex-direction: column; }
+.roster-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); padding: var(--s-2) 0; border-top: var(--w-divider) solid rgba(233,223,198,0.3); }
+.roster-info { flex: 1 1 200px; min-width: 0; }
+.roster-info b { font-family: var(--font-display); font-size: var(--t-3); letter-spacing: 0.06em; text-transform: uppercase; }
+.roster-info b span { font-size: var(--t-1); letter-spacing: 0.1em; opacity: 0.8; }
+.roster-info .blurb { margin: 0; font-size: var(--t-1); max-width: none; opacity: 0.9; }
+.roster-row .stepper { flex: none; }
+
+.panel > h3 { margin-top: var(--s-4); }
+.panel > .note { max-width: none; }
+.squad-list { display: flex; flex-direction: column; gap: var(--s-2); margin: var(--s-2) 0 var(--s-3); }
+.squad-row { display: flex; gap: var(--s-2); align-items: stretch; }
+.squad-row .unit { width: auto; flex: 1; min-width: 0; }
+.squad-row .unit b { overflow-wrap: anywhere; }
+.squad-row .key { min-width: 44px; width: 44px; height: auto; min-height: 44px; padding: 0; align-self: center; display: grid; place-items: center; }
+.squad-row .key .arrow { width: 16px; height: 16px; fill: var(--ink); }
+.panel .report { margin-top: var(--s-2); }
+.roster-row .stepper { width: min(284px, 100%); grid-template-columns: 40px 44px 40px 1fr; }
+
+/* ---------- play screen ----------
+   Placement only: kit components on kit tokens. The board has the middle; the kit sits at the edges.
+   Phone: a thin bar on top, the report strip and the tray below. Wide: the kit moves to a side panel. */
+.play {
+  position: fixed; inset: 0; z-index: 1;
+  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "top" "board" "report" "tray";
+  padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l);
+  background: var(--slate); overflow: hidden;
+}
+.play-top {
+  grid-area: top; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2);
+  padding: var(--s-1) var(--s-2);
+  background: var(--ink); border-bottom: var(--w-frame) solid var(--ink);
+}
+.play-readouts { display: flex; gap: var(--s-1); flex: 1 1 100%; }
+.play .readout { min-width: 64px; padding: 2px var(--s-2); flex-direction: row; align-items: baseline; gap: var(--s-2); }
+.play .readout b { font-size: var(--t-4); }
+.play-lamps { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); flex: 1 1 100%; min-width: 0; min-height: 24px; align-items: center; }
+.play-lamp { display: flex; align-items: center; gap: var(--s-1); min-width: 0; }
+.play-lamp .lamp { min-width: 0; gap: var(--s-1); }
+.play-lamp .lamp .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 6ch; }
+.play-lamp.own .lamp .text { font-weight: 700; }
+.play-lamp .lamp b { font-family: var(--font-display); font-size: var(--t-3); letter-spacing: 0.04em; }
+
+.play-board { grid-area: board; position: relative; min-height: 0; min-width: 0; }
+.play-board canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+.play-report { grid-area: report; position: relative; min-width: 0; border-top: var(--w-frame) solid var(--ink); }
+.play-strip {
+  display: flex; align-items: stretch; width: 100%; height: 48px; padding: 0; border: 0;   /* fixed: the board must not shift as lines change */
+  background: var(--paper); color: var(--ink); text-align: left; cursor: pointer;
+}
+.play-strip .report { max-width: none; flex: 1; min-width: 0; padding: 6px var(--s-2); line-height: 18px; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
+.play-count {
+  flex: none; display: grid; place-items: center; padding: 0 var(--s-2);
+  font-family: var(--font-display); font-size: var(--t-1); letter-spacing: 0.1em; text-transform: uppercase;
+  border-left: var(--w-divider) solid var(--ink);
+}
+.play-count:empty { display: none; }
+.play-log {
+  position: absolute; left: 0; right: 0; bottom: 100%; max-height: 40vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 1px;
+  background: var(--ink); border-top: var(--w-frame) solid var(--ink);
+}
+.play-log .report { max-width: none; padding: var(--s-1) var(--s-3); }
+
+.play-tray {
+  grid-area: tray; min-width: 0; box-shadow: none; border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0;
+  padding: 26px var(--s-2) var(--s-2);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "squad lever" "chits lever";
+  gap: var(--s-2);
+}
+.play-squad {
+  grid-area: squad; display: flex; gap: var(--s-2); overflow-x: auto; min-width: 0;
+  padding: 3px; margin: -3px; scroll-padding: 3px;     /* room for the selection outline */
+  scrollbar-width: none;
+}
+.play-squad::-webkit-scrollbar { display: none; }
+.play .unit { flex: none; width: 176px; padding: var(--s-1); grid-template-columns: 40px minmax(0, 1fr); cursor: pointer; user-select: none; }
+.play .unit .face { width: 40px; height: 40px; }
+.play .unit .face svg { width: 30px; height: 30px; }
+.play .unit .mark { display: none; }     /* every card here is the player's own; the mark is on their lamp */
+.play .unit b, .play .unit small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.25; }
+.play .unit .play-order { font-weight: 700; }
+.play .unit .play-order.danger { color: var(--rust); }
+.play .unit.down { cursor: default; }
+.play .unit.selected { outline-offset: 0; }
+.play-chits { grid-area: chits; display: flex; gap: var(--s-1); min-width: 0; padding-bottom: 3px; }
+.play .chit { width: 56px; height: 56px; flex: none; font-size: 11px; letter-spacing: 0.04em; }
+.play .chit svg { width: 24px; height: 24px; }
+.play .lever-box { grid-area: lever; align-self: end; }
+.play .lever-legends, .play-ready-text { display: none; }
+.play-lever-word { position: absolute; top: var(--s-1); right: var(--s-4); }
+.play-out { grid-column: 1 / -1; margin: 0; max-width: none; font-size: var(--t-2); }
+.play-tray.out { padding-bottom: var(--s-3); }
+
+@media (min-width: 900px) and (min-height: 501px) {
+  .play {
+    grid-template-columns: minmax(0, 1fr) 372px; grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas: "board top" "board tray" "report tray";
+  }
+  .play-top { border-left: var(--w-frame) solid var(--ink); padding: var(--s-2); gap: var(--s-2); }
+  .play-lamps { flex-basis: 100%; flex-direction: column; align-items: stretch; gap: var(--s-1); }
+  .play-lamp .lamp .text { max-width: 22ch; }
+  .play-lamp .lamp { flex: 1; }
+  .play-lamp .lamp b { margin-left: auto; }
+  .play .readout { min-width: 88px; padding: var(--s-1) var(--s-2); flex-direction: column; align-items: center; gap: 0; }
+  .play-readouts { flex: none; }
+  .play .readout b { font-size: var(--t-5); }
+  .play-tray {
+    border-left: var(--w-frame) solid var(--ink); border-top: 0;
+    padding: var(--s-4) var(--s-3) var(--s-3);
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto;
+    grid-template-areas: "squad" "chits" "lever"; gap: var(--s-3);
+  }
+  .play-squad { flex-direction: column; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
+  .play .unit { width: auto; grid-template-columns: 40px minmax(0, 1fr) 20px; padding: var(--s-1) var(--s-2); }
+  .play .unit .mark { display: block; }
+  .play-chits { gap: var(--s-2); }
+  .play .chit { width: 60px; height: 60px; }
+  .play .chit svg { width: 28px; height: 28px; }
+  .play .lever-legends { display: flex; }
+  .play-lever-word { display: none; }
+  .play-ready-text { display: block; margin: 0; align-self: center; padding-left: var(--s-2); }
+  .play-strip { height: 44px; }
+  .play-strip .report { padding: 13px var(--s-3); -webkit-line-clamp: 1; line-clamp: 1; }
+}
+
+/* ---------- results ---------- */
+.results-head { margin: var(--s-2) 0 var(--s-1); border-bottom: 0; padding: 0; }
+.results-sub { margin-bottom: var(--s-3); }
+.results-table { display: flex; flex-direction: column; gap: var(--s-2); margin-bottom: var(--s-3); }
+.results-row {
+  display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center;
+  padding: var(--s-2) var(--s-3);
+  background: var(--paper); color: var(--ink);
+  border: var(--w-outline) solid var(--ink); border-radius: var(--radius);
+}
+.results-row.winner { outline: var(--w-frame) solid var(--amber); outline-offset: 2px; box-shadow: 4px 4px 0 var(--ink); }
+.results-who b { display: block; font-family: var(--font-text); font-size: var(--t-3); overflow-wrap: anywhere; }
+.results-who small { display: block; font-family: var(--font-display); font-size: var(--t-1); letter-spacing: 0.1em; text-transform: uppercase; }
+.results-who p { margin: var(--s-1) 0 0; max-width: none; }
+.results-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); }
+.results-note { margin: 0; flex: 1 1 200px; max-width: none; }
+.play .lever { flex: none; }
+
+/* ---------- field manual ----------
+   Placement only: kit components on kit tokens. The board has the room; the kit sits round it.
+   Phone: bar, lesson, board, phase line and strip, keys; the lesson list is a drawer over all but the bar.
+   Wide: the kit and the list move to a side panel. */
+.lobby-manual { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: var(--s-2) var(--s-3); margin-bottom: var(--s-3); padding-bottom: 4px; }
+.lobby-manual .note { margin: 0; opacity: 1; font-size: var(--t-2); }
+
+.manual {
+  position: fixed; inset: 0; z-index: 1;
+  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  grid-template-areas: "top" "head" "board" "status" "kit";
+  padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l);
+  background: var(--slate); overflow: hidden;
+}
+.manual .panel { box-shadow: none; border-radius: 0; border-left: 0; border-right: 0; border-bottom: 0; min-width: 0; }
+.manual .key { min-width: 0; padding: 0 var(--s-2); }
+
+.manual-top { grid-area: top; display: flex; align-items: center; gap: var(--s-3); padding: var(--s-1) var(--s-2) var(--s-2); background: var(--ink); min-width: 0; }
+.manual-name { display: none; font-size: var(--t-4); }
+.manual-keys { display: flex; gap: var(--s-2); flex: 1; min-width: 0; }
+.manual-keys .key { flex: 1 1 0; }
+
+.manual-head { grid-area: head; padding: 26px var(--s-3) var(--s-2); }
+.manual-title { font-size: var(--t-3); margin: 0 0 var(--s-1); padding: 0; border: 0; }
+.manual-text { margin: 0; max-width: 60ch; line-height: 1.35; }
+
+.manual-board { grid-area: board; position: relative; min-height: 0; min-width: 0; }
+.manual-board canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+
+.manual-status { grid-area: status; min-width: 0; border-top: var(--w-frame) solid var(--ink); background: var(--ink); }
+.manual-phases {
+  display: flex; flex-wrap: wrap; gap: 0 var(--s-2); align-items: center; height: 24px; overflow: hidden; padding: 0 var(--s-2);
+  font-family: var(--font-display); font-size: var(--t-1); letter-spacing: 0.1em; text-transform: uppercase; color: var(--paper);
+}
+.manual-phases span { opacity: 0.45; line-height: 24px; }
+.manual-phases .done { opacity: 1; }
+.manual-phases .now { opacity: 1; color: var(--amber); }
+.manual-phases .manual-round { opacity: 1; }
+.manual-phases .manual-round:empty { display: none; }
+/* Fixed height: the board must not change size as lines change. */
+.manual-status .report {
+  max-width: none; height: 66px; padding: 6px var(--s-2); line-height: 18px; overflow: hidden;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3;
+}
+
+.manual-kit { grid-area: kit; padding: 26px var(--s-2) var(--s-2); display: flex; flex-direction: column; gap: var(--s-2); }
+.manual-run, .manual-view { display: flex; gap: var(--s-2); align-items: center; padding-bottom: 4px; }
+.manual-run .key, .manual-view .key { flex: 1 1 0; }
+.manual-view .key { display: flex; align-items: center; justify-content: center; gap: var(--s-1); }
+.manual-view .key .mark { width: 16px; height: 16px; }
+.manual-view-word { font-family: var(--font-display); font-size: var(--t-1); letter-spacing: 0.1em; text-transform: uppercase; flex: none; }
+
+.manual-list { display: none; }
+.manual.list-open .manual-list {
+  display: block; grid-row: 2 / -1; grid-column: 1; z-index: 2; overflow-y: auto;
+  padding: var(--s-4) var(--s-3) var(--s-3);
+}
+.manual-list-body { display: flex; flex-direction: column; gap: var(--s-2); padding-bottom: 4px; }
+.manual-list-body h3 { font-size: var(--t-2); letter-spacing: 0.1em; margin: var(--s-2) 0 0; }
+.manual-list-body h3:first-child { margin-top: 0; }
+.manual-list-body .key { text-align: left; flex: none; min-height: 44px; height: auto; padding: var(--s-1) var(--s-3); margin-bottom: 4px; }
+
+@media (min-width: 900px) and (min-height: 501px) {
+  .manual {
+    grid-template-columns: minmax(0, 1fr) 372px; grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-areas: "board top" "board head" "board kit" "board list" "status list";
+  }
+  .manual .panel { border-left: var(--w-frame) solid var(--ink); }
+  .manual-top { flex-direction: column; align-items: stretch; gap: var(--s-2); padding: var(--s-2) var(--s-3) var(--s-3); border-left: var(--w-frame) solid var(--ink); }
+  .manual-name { display: block; color: var(--paper); }
+  .manual-list-key { display: none; }
+  .manual-head { padding: var(--s-4) var(--s-3) var(--s-3); }
+  .manual-title { font-size: var(--t-4); }
+  .manual-kit { padding: var(--s-4) var(--s-3) var(--s-3); }
+  .manual-list, .manual.list-open .manual-list {
+    display: block; grid-area: list; overflow-y: auto; min-height: 0; scrollbar-width: thin;
+    padding: var(--s-4) var(--s-3) var(--s-3);
+  }
+  .manual-phases { height: 28px; padding: 0 var(--s-3); gap: 0 var(--s-3); font-size: var(--t-2); }
+  .manual-phases span { line-height: 28px; }
+  .manual-status .report { height: 48px; padding: 6px var(--s-3); -webkit-line-clamp: 2; line-clamp: 2; }
+}
+
+/* ---------- a phone on its side ----------
+   Wide and short (under about 500 px tall): the stacked bars of the upright layout would leave the board
+   a sliver. Here the board takes the left and the whole height, and the kit is one column on the right.
+   Same parts, same tokens; only their placement changes. */
+@media (orientation: landscape) and (max-height: 500px) {
+  :root { --kit: clamp(264px, 35vw, 304px); }
+
+  /* ---- lobby and results: the manual key joins the title row; the lever and the roll stay at the left
+     while the squad builder scrolls past them */
+  body { padding-top: max(var(--s-2), var(--safe-t)); padding-bottom: max(var(--s-2), var(--safe-b)); }
+  .shell { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--s-2) var(--s-3); align-content: start; }
+  .masthead { grid-column: 1; grid-row: 1; }
+  .masthead h1 { font-size: var(--t-4); white-space: nowrap; }
+  #strip { grid-column: 1 / -1; }
+  #screen[data-screen="lobby"], #screen[data-screen="results"] { display: contents; }
+  #screen[data-screen] > * { grid-column: 1 / -1; }
+  #screen[data-screen] > .lobby-manual { grid-column: 2; grid-row: 1; margin: 0; padding-bottom: 4px; }
+  .lobby-manual .note { display: none; }
+  main > .report { margin-bottom: 0; }
+
+  .lobby.joined { grid-template-columns: 250px minmax(0, 1fr); gap: var(--s-2) var(--s-3); }
+  .lobby.joined > .stack:first-of-type {
+    position: sticky; top: var(--s-2); gap: var(--s-2); padding: 0 4px 4px 0;
+    max-height: calc(100dvh - var(--s-4) - var(--safe-t) - var(--safe-b)); overflow-y: auto; scrollbar-width: none;
+  }
+  .lobby.joined > .stack:first-of-type > :last-child { order: -1; }       /* the lever and the Start key first */
+  .lever-legends { display: none; }
+  .ready-body { gap: var(--s-2); }
+  .ready-side { gap: var(--s-2); }
+  .ready-side .key { min-width: 0; width: 100%; }
+  .panel > h3 { margin-top: var(--s-3); }
+  .roster-info .blurb { font-size: var(--t-1); }
+
+  /* ---- results */
+  .results-head { margin: 0 0 var(--s-1); }
+  .results-sub { margin-bottom: var(--s-2); }
+  .results-table { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-2) var(--s-3); margin-bottom: var(--s-2); }
+  .results-row { padding: var(--s-2); gap: var(--s-2); }
+
+  /* ---- play */
+  .play {
+    grid-template-columns: minmax(0, 1fr) var(--kit); grid-template-rows: auto auto minmax(0, 1fr);
+    grid-template-areas: "board top" "board report" "board tray";
+  }
+  .play-top { border-bottom: 0; border-left: var(--w-frame) solid var(--ink); padding: var(--s-1) var(--s-2); gap: var(--s-1) var(--s-2); }
+  .play-readouts { flex: 1 1 100%; gap: var(--s-1); }
+  .play .readout { flex: 1 1 0; min-width: 0; flex-direction: column; align-items: center; gap: 0; padding: 2px var(--s-1); }
+  .play .readout b { font-size: var(--t-3); line-height: 1.2; }
+  .play .readout span { line-height: 1.2; }
+  .play-lamps { gap: 0 var(--s-2); min-height: 0; }
+  .play-lamp .lamp .text { max-width: 5ch; }
+
+  .play-report { border-top: 0; border-left: var(--w-frame) solid var(--ink); background: var(--paper); }
+  .play-strip { flex-direction: column; height: 86px; }
+  .play-strip .report { flex: 1; -webkit-line-clamp: 3; line-clamp: 3; padding: 6px var(--s-2); }
+  .play-count { flex: none; height: 20px; padding: 0 var(--s-2); justify-content: end; border-left: 0; border-top: var(--w-divider) solid var(--ink); }
+  .play-log {
+    left: auto; right: 100%; bottom: 0; width: min(420px, 60vw); max-height: calc(100dvh - var(--safe-t) - var(--safe-b));
+    border-top: 0; border-left: 0; border-right: var(--w-frame) solid var(--ink);
+  }
+
+  .play-tray {
+    border-top: var(--w-frame) solid var(--ink); border-left: var(--w-frame) solid var(--ink); border-right: 0; border-bottom: 0;
+    padding: 26px var(--s-2) var(--s-2);
+    grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas: "squad lever" "chits chits"; gap: var(--s-2);
+  }
+  .play-squad { flex-direction: column; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
+  .play .unit { width: auto; grid-template-columns: 32px minmax(0, 1fr); padding: 2px var(--s-1); gap: var(--s-1); }
+  .play .unit .face { width: 32px; height: 32px; }
+  .play .unit .face svg { width: 24px; height: 24px; }
+  .play-chits { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-1); padding-bottom: 3px; }
+  .play .chit { width: auto; height: 48px; padding: 2px 1px; letter-spacing: -0.02em; }
+  .play .lever-box { align-self: start; }
+  /* the ready lever, a little shorter (56 x 92 rather than 64 x 112): the same part, travelling the same way */
+  .play .lever { width: 56px; height: 92px; }
+  .play .lever .handle { left: 6px; right: 6px; }
+  .play .lever.down .handle, .play .lever.locked .handle { top: 48px; }
+  .play-lever-word { display: none; }
+
+  /* ---- field manual: the keys and the playback on top, then what is being said, then the lesson */
+  .manual {
+    grid-template-columns: minmax(0, 1fr) var(--kit); grid-template-rows: auto auto auto minmax(0, 1fr);
+    grid-template-areas: "board top" "board kit" "board status" "board head";
+  }
+  .manual .panel { border-left: var(--w-frame) solid var(--ink); }
+  .manual-top { padding: var(--s-1) var(--s-2) var(--s-2); border-left: var(--w-frame) solid var(--ink); }
+  .manual .key { letter-spacing: 0.04em; }
+  .manual-keys { gap: var(--s-1); }
+  .manual-keys .key { flex: 1 1 auto; padding: 0 var(--s-1); }
+  .manual-status { border-top: 0; border-left: var(--w-frame) solid var(--ink); }
+  .manual-phases { height: auto; min-height: 24px; padding: 0 var(--s-2); gap: 0 var(--s-1); letter-spacing: 0.02em; }
+  .manual-status .report { height: 66px; -webkit-line-clamp: 3; line-clamp: 3; padding: 6px var(--s-2); }
+  .manual-kit { padding: 26px var(--s-2) var(--s-1); gap: var(--s-1); }
+  .manual-head { padding: 26px var(--s-2) var(--s-2); overflow-y: auto; scrollbar-width: thin; }
+  .manual-text { font-size: var(--t-1); line-height: 1.35; }
+  .manual.list-open .manual-list { grid-column: 2; grid-row: 2 / -1; padding: 26px var(--s-2) var(--s-2); }
+  .manual-view { gap: var(--s-1); }
+  .manual-view .key { padding: 0 var(--s-1); letter-spacing: 0.04em; }
+  .manual-list-body { gap: var(--s-1); }
+  .manual-list-body h3 { margin-top: var(--s-1); }
+  .manual-list-body .key { min-height: 40px; padding: var(--s-1) var(--s-2); margin-bottom: 0; }
+
+  /* room enough: the line about the manual stands beside its key */
+  @media (min-width: 900px) {
+    .lobby-manual .note { display: block; }
+  }
+
+  /* too narrow for the chit words: the icons carry it (the words stay in the page for screen readers) */
+  @media (max-width: 719px) {
+    .play .chit { font-size: 0; height: 44px; }
+    .play .chit svg { width: 24px; height: 24px; }
+  }
+}

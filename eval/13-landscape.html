@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 13 — Phone landscape layout</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the frames hold the real client and the real manual */
+  body { padding: var(--s-3); }
+  main { max-width: 1500px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  h3 { font-size: var(--t-2); }
+  h4 { font-family: var(--font-display); font-size: var(--t-2); letter-spacing: 0.08em; text-transform: uppercase; margin: 0 0 var(--s-1); }
+  p, li { max-width: 100ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  a { color: var(--amber); }
+  .frames { display: flex; gap: var(--s-3); flex-wrap: wrap; align-items: flex-start; }
+  .frame { display: flex; flex-direction: column; gap: var(--s-1); }
+  .frame iframe { box-sizing: content-box; border: var(--w-frame) solid var(--ink); background: var(--slate); display: block; max-width: 100%; }
+  .bar { display: flex; gap: var(--s-2); align-items: center; flex-wrap: wrap; margin-bottom: var(--s-2); }
+  .key.small { min-width: 0; height: 40px; padding: 0 var(--s-2); font-size: var(--t-1); }
+  table { border-collapse: collapse; width: 100%; max-width: 1400px; margin-bottom: var(--s-3); }
+  th, td { text-align: left; vertical-align: top; padding: var(--s-1) var(--s-2); border-top: var(--w-divider) solid rgba(233,223,198,0.25); font-size: var(--t-1); }
+  thead th { font-family: var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; }
+  tbody th { font-weight: 400; white-space: nowrap; }
+  td small { display: block; opacity: 0.8; }
+  td.ok { font-weight: 700; }
+  td.bad, td.warn { background: var(--rust); font-weight: 700; }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 110ch; margin-bottom: var(--s-3); }
+  .observed.bad { border-left-color: var(--rust); }
+  .pairs { display: flex; flex-direction: column; gap: var(--s-3); }
+  .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--s-2); max-width: 1300px; }
+  figure { margin: 0; display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
+  figure img { display: block; border: var(--w-frame) solid var(--ink); max-width: 100%; height: auto; }
+  figure .none { border: var(--w-frame) dashed var(--ink); padding: var(--s-3); }
+  figcaption { font-size: var(--t-1); }
+  .shots { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  .shots figure { width: 420px; }
+  .shots figure.p { width: 200px; }
+  .scroll { overflow-x: auto; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 13 — Phone landscape layout</h1>
+<p>A phone held on its side (the screen is wider than it is tall and under about 500 px tall) now has its own layout on every screen.
+The board takes the left and the whole height; the kit is one column on the right. Same parts, same tokens, same look; only the
+placement changed. Portrait and laptop are as they were (section 5). Everything on this page was measured on the real client in
+headless Chromium with device emulation, real touch events and real screenshots; there is no physical phone (section 7).</p>
+<p>Needs <code>npx vite</code> (port 5173) and, for the client frame, the game server (<code>npm run server</code>); the manual frame needs
+neither. The two keys below turn the frames, which is what turning a phone does: the page is not reloaded, only resized.</p>
+
+<h2>1. The real client and the real manual, in frames</h2>
+<div class="bar"><span class="cap">Frames</span>
+  <button class="key small" id="land">Landscape 844 × 390</button>
+  <button class="key small" id="small">667 × 375</button>
+  <button class="key small" id="wide">932 × 430</button>
+  <button class="key small" id="port">Portrait 390 × 844</button>
+  <span class="note">Join in the left frame (it holds the seat in its own slot, <code>?slot=eval13</code>); the right frame is the manual.</span></div>
+<div class="frames">
+  <div class="frame"><span class="cap">Game client <span id="c1"></span></span><iframe id="game" title="Game client" width="844" height="390" src="/?slot=eval13"></iframe></div>
+  <div class="frame"><span class="cap">Field manual <span id="c2"></span></span><iframe id="manual" title="Field manual" width="844" height="390" src="/?manual"></iframe></div>
+</div>
+<p class="note">To get to the play screen you need a second seat: open <a href="/dev.html" target="_blank" rel="noopener"><code>/dev.html</code></a> (all seats on one page) or a second window at <code>/?slot=eval13b</code>.</p>
+
+<h2>2. What was measured</h2>
+<div class="observed">At 844 × 390 the play screen's board was <b>844 × 102</b> (26% of the height) and the field manual's <b>844 × 14</b> on its first lesson.
+Now it is <b>549 × 390</b> (65% of the width, all of the height) on both. At 667 × 375 it is 403 × 375 (60%); at 932 × 430, 628 × 430 (67%).
+The smallest control anywhere is 40 × 40 (the squad builder's steppers, which were already so); in play it is 44 × 44 (the chits at 667 wide, where
+they carry an icon and no word) or 48 (with a word). No screen scrolls sideways; play and the manual do not scroll at all.</div>
+<p>Board (before &rarr; after) on every screen, with the smallest control after. Cells with no board show the page's scroll
+(the lobby is a page: its builder scrolls; see section 7). A red cell is a board under 60% of the width.
+<span class="note">* the eliminated spectator is the real client fed a plan with the player marked out (a doctored feed), since a two-seat match cannot show it.</span></p>
+<div class="scroll"><table><thead><tr><th>Screen</th><th>844 × 390</th><th>667 × 375</th><th>932 × 430</th></tr></thead><tbody>
+<tr><th>Lobby: join</th><td>- &rarr; -<small>smallest control 154.8x44 &rarr; 154.8x44</small></td><td>- &rarr; -<small>smallest control 154.8x44 &rarr; 154.8x44</small></td><td>- &rarr; -<small>smallest control 154.8x44 &rarr; 154.8x44</small></td></tr><tr><th>Lobby: joined, top</th><td>- &rarr; -<small>smallest control 40x40 &rarr; 40x40; page height 1816 &rarr; 1727 px</small></td><td>- &rarr; -<small>smallest control 40x40 &rarr; 40x40; page height 1935 &rarr; 1833 px</small></td><td>- &rarr; -<small>smallest control 40x40 &rarr; 40x40; page height 1826 &rarr; 1484 px</small></td></tr><tr><th>Lobby: squad builder (scrolled)</th><td>- &rarr; -<small>smallest control 40x40 &rarr; 40x40; page height 1816 &rarr; 1727 px</small></td><td>- &rarr; -<small>smallest control 40x40 &rarr; 40x40; page height 1935 &rarr; 1833 px</small></td><td>- &rarr; -<small>smallest control 40x40 &rarr; 40x40; page height 1826 &rarr; 1484 px</small></td></tr><tr><th>Lobby: ready, Start</th><td>- &rarr; -<small>smallest control 40x40 &rarr; 40x40; page height 1816 &rarr; 1727 px</small></td><td>- &rarr; -<small>smallest control 40x40 &rarr; 40x40; page height 1935 &rarr; 1833 px</small></td><td>- &rarr; -<small>smallest control 40x40 &rarr; 40x40; page height 1826 &rarr; 1484 px</small></td></tr><tr><th>Play: planning</th><td>844x102 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 52.1x48</small></td><td>667x87 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 45.8x44</small></td><td>560x383 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 53.8x48</small></td></tr><tr><th>Play: aiming a move</th><td>844x102 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 52.1x48</small></td><td>667x87 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 45.8x44</small></td><td>560x383 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 53.8x48</small></td></tr><tr><th>Play: move ordered</th><td>844x102 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 52.1x48</small></td><td>667x87 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 45.8x44</small></td><td>560x383 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 53.8x48</small></td></tr><tr><th>Play: aiming a fire</th><td>844x102 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 52.1x48</small></td><td>667x87 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 45.8x44</small></td><td>560x383 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 53.8x48</small></td></tr><tr><th>Play: ambush</th><td>844x102 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 52.1x48</small></td><td>667x87 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 45.8x44</small></td><td>560x383 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 53.8x48</small></td></tr><tr><th>Play: medic selected</th><td>844x102 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 52.1x48</small></td><td>667x87 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 45.8x44</small></td><td>560x383 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 53.8x48</small></td></tr><tr><th>Play: lever down, waiting</th><td>844x102 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 52.1x48</small></td><td>667x87 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 45.8x44</small></td><td>560x383 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 53.8x48</small></td></tr><tr><th>Play: playback (early)</th><td>844x102 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 52.1x48</small></td><td>667x87 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 45.8x44</small></td><td>n/a &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 53.8x48</small></td></tr><tr><th>Play: playback (later)</th><td>844x102 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 52.1x48</small></td><td>667x87 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 45.8x44</small></td><td>n/a &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 53.8x48</small></td></tr><tr><th>Play: next plan</th><td>844x102 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 52.1x48</small></td><td>667x87 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 45.8x44</small></td><td>n/a &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 53.8x48</small></td></tr><tr><th>Play: report log open</th><td>844x102 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 52.1x48</small></td><td>667x87 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 45.8x44</small></td><td>n/a &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 53.8x48</small></td></tr><tr><th>Play: eliminated spectator*</th><td>844x193 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 292.4x86</small></td><td>667x178 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 261x86</small></td><td>560x383 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 301x86</small></td></tr><tr><th>Results</th><td>- &rarr; -<small>smallest control 114.8x44 &rarr; 114.8x44</small></td><td>- &rarr; -<small>smallest control 114.8x44 &rarr; 114.8x44</small></td><td>n/a &rarr; -<small>smallest control  &rarr; 114.8x44</small></td></tr><tr><th>Manual: first lesson</th><td>844x14 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 67.3x44</small></td><td>667x0 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 59.5x44</small></td><td>560x412 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 69.5x44</small></td></tr><tr><th>Manual: lesson list</th><td>844x14 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 276.4x40</small></td><td>667x0 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 245x40</small></td><td>560x412 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 285x40</small></td></tr><tr><th>Manual: another lesson</th><td>844x70 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 67.3x44</small></td><td>667x36 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 59.5x44</small></td><td>560x356 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 69.5x44</small></td></tr><tr><th>Manual: after Step</th><td>844x70 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 67.3x44</small></td><td>667x36 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 59.5x44</small></td><td>560x356 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 69.5x44</small></td></tr><tr><th>Manual: Play running</th><td>844x70 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 67.3x44</small></td><td>667x36 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 59.5x44</small></td><td>560x356 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 69.5x44</small></td></tr><tr><th>Manual: lesson ended</th><td>844x70 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 67.3x44</small></td><td>667x36 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 59.5x44</small></td><td>560x356 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 69.5x44</small></td></tr><tr><th>Manual: fog lesson, View as</th><td>844x14 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 67.3x44</small></td><td>667x0 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 59.5x44</small></td><td>560x412 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 69.5x44</small></td></tr><tr><th>Manual: other viewpoint</th><td>844x14 &rarr; <b>549x390</b><small>after: 65% wide, 100% tall; smallest control 67.3x44</small></td><td>667x0 &rarr; <b>403x375</b><small>after: 60% wide, 100% tall; smallest control 59.5x44</small></td><td>560x412 &rarr; <b>628x430</b><small>after: 67% wide, 100% tall; smallest control 69.5x44</small></td></tr>
+</tbody></table></div>
+
+<h2>3. Before and after, side by side</h2>
+<p>Every state was reached by touch (real touch events at the elements' coordinates, hexes tapped at positions computed from the camera):
+join, the squad builder (preset, steppers, reorder), the lever, a move, a dash, a fire, an ambush, the medic's Treat chit, the lever
+in play, playback, the report log, twelve rounds to the results, the manual's lesson list, Step, Play, Restart and View as.</p>
+<h3>844x390</h3><div class="pairs"><div class="pair"><h4>Lobby: join</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-lobby-join-before.png" alt="before: lobby-join at 844x390" /><figcaption><b>Before.</b> no board; smallest control 154.8x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-lobby-join-after.png" alt="after: lobby-join at 844x390"/><figcaption><b>After.</b> no board; smallest control 154.8x44</figcaption></figure></div></div>
+<div class="pair"><h4>Lobby: joined, top</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-lobby-joined-before.png" alt="before: lobby-joined at 844x390" /><figcaption><b>Before.</b> no board; smallest control 40x40, page scrolls (1816 px tall)</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-lobby-joined-after.png" alt="after: lobby-joined at 844x390"/><figcaption><b>After.</b> no board; smallest control 40x40, page scrolls (1727 px tall)</figcaption></figure></div></div>
+<div class="pair"><h4>Lobby: squad builder (scrolled)</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-lobby-builder-before.png" alt="before: lobby-builder at 844x390" /><figcaption><b>Before.</b> no board; smallest control 40x40, page scrolls (1816 px tall)</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-lobby-builder-after.png" alt="after: lobby-builder at 844x390"/><figcaption><b>After.</b> no board; smallest control 40x40, page scrolls (1727 px tall)</figcaption></figure></div></div>
+<div class="pair"><h4>Lobby: ready, Start</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-lobby-ready-before.png" alt="before: lobby-ready at 844x390" /><figcaption><b>Before.</b> no board; smallest control 40x40, page scrolls (1816 px tall)</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-lobby-ready-after.png" alt="after: lobby-ready at 844x390"/><figcaption><b>After.</b> no board; smallest control 40x40, page scrolls (1727 px tall)</figcaption></figure></div></div>
+<div class="pair"><h4>Play: planning</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-plan-before.png" alt="before: play-plan at 844x390" /><figcaption><b>Before.</b> board 844x102 (100% wide); smallest control 844x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-plan-after.png" alt="after: play-plan at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 52.1x48</figcaption></figure></div></div>
+<div class="pair"><h4>Play: aiming a move</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-aim-move-before.png" alt="before: play-aim-move at 844x390" /><figcaption><b>Before.</b> board 844x102 (100% wide); smallest control 844x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-aim-move-after.png" alt="after: play-aim-move at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 52.1x48</figcaption></figure></div></div>
+<div class="pair"><h4>Play: move ordered</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-ordered-move-before.png" alt="before: play-ordered-move at 844x390" /><figcaption><b>Before.</b> board 844x102 (100% wide); smallest control 844x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-ordered-move-after.png" alt="after: play-ordered-move at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 52.1x48</figcaption></figure></div></div>
+<div class="pair"><h4>Play: aiming a fire</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-aim-fire-before.png" alt="before: play-aim-fire at 844x390" /><figcaption><b>Before.</b> board 844x102 (100% wide); smallest control 844x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-aim-fire-after.png" alt="after: play-aim-fire at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 52.1x48</figcaption></figure></div></div>
+<div class="pair"><h4>Play: ambush</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-ambush-before.png" alt="before: play-ambush at 844x390" /><figcaption><b>Before.</b> board 844x102 (100% wide); smallest control 844x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-ambush-after.png" alt="after: play-ambush at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 52.1x48</figcaption></figure></div></div>
+<div class="pair"><h4>Play: medic selected</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-medic-selected-before.png" alt="before: play-medic-selected at 844x390" /><figcaption><b>Before.</b> board 844x102 (100% wide); smallest control 844x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-medic-selected-after.png" alt="after: play-medic-selected at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 52.1x48</figcaption></figure></div></div>
+<div class="pair"><h4>Play: lever down, waiting</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-sent-before.png" alt="before: play-sent at 844x390" /><figcaption><b>Before.</b> board 844x102 (100% wide); smallest control 844x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-sent-after.png" alt="after: play-sent at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 52.1x48</figcaption></figure></div></div>
+<div class="pair"><h4>Play: playback (early)</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-playback-a-before.png" alt="before: play-playback-a at 844x390" /><figcaption><b>Before.</b> board 844x102 (100% wide); smallest control 844x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-playback-a-after.png" alt="after: play-playback-a at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 52.1x48</figcaption></figure></div></div>
+<div class="pair"><h4>Play: playback (later)</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-playback-b-before.png" alt="before: play-playback-b at 844x390" /><figcaption><b>Before.</b> board 844x102 (100% wide); smallest control 844x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-playback-b-after.png" alt="after: play-playback-b at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 52.1x48</figcaption></figure></div></div>
+<div class="pair"><h4>Play: report log open</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-log-before.png" alt="before: play-log at 844x390" /><figcaption><b>Before.</b> board 844x102 (100% wide); smallest control 844x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-log-after.png" alt="after: play-log at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 52.1x48</figcaption></figure></div></div>
+<div class="pair"><h4>Play: eliminated spectator*</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-spectator-before.png" alt="before: play-spectator at 844x390" /><figcaption><b>Before.</b> board 844x193 (100% wide); smallest control 844x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-play-spectator-after.png" alt="after: play-spectator at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 292.4x86</figcaption></figure></div></div>
+<div class="pair"><h4>Results</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-results-before.png" alt="before: results at 844x390" /><figcaption><b>Before.</b> no board; smallest control 114.8x44, page scrolls (479 px tall)</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-results-after.png" alt="after: results at 844x390"/><figcaption><b>After.</b> no board; smallest control 114.8x44</figcaption></figure></div></div>
+<div class="pair"><h4>Manual: first lesson</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-manual-start-before.png" alt="before: manual-start at 844x390" /><figcaption><b>Before.</b> board 844x14 (100% wide); smallest control 201x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-manual-start-after.png" alt="after: manual-start at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 67.3x44</figcaption></figure></div></div>
+<div class="pair"><h4>Manual: lesson list</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-manual-lessons-before.png" alt="before: manual-lessons at 844x390" /><figcaption><b>Before.</b> board 844x14 (100% wide); smallest control 201x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-manual-lessons-after.png" alt="after: manual-lessons at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 276.4x40</figcaption></figure></div></div>
+<div class="pair"><h4>Manual: another lesson</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-manual-cover-before.png" alt="before: manual-cover at 844x390" /><figcaption><b>Before.</b> board 844x70 (100% wide); smallest control 201x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-manual-cover-after.png" alt="after: manual-cover at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 67.3x44</figcaption></figure></div></div>
+<div class="pair"><h4>Manual: Play running</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-manual-playing-before.png" alt="before: manual-playing at 844x390" /><figcaption><b>Before.</b> board 844x70 (100% wide); smallest control 201x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-manual-playing-after.png" alt="after: manual-playing at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 67.3x44</figcaption></figure></div></div>
+<div class="pair"><h4>Manual: fog lesson, View as</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-manual-fog-before.png" alt="before: manual-fog at 844x390" /><figcaption><b>Before.</b> board 844x14 (100% wide); smallest control 201x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/844x390-manual-fog-after.png" alt="after: manual-fog at 844x390"/><figcaption><b>After.</b> board 549x390 (65% wide); smallest control 67.3x44</figcaption></figure></div></div></div>
+<h3>667x375</h3><div class="pairs"><div class="pair"><h4>Lobby: joined, top</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-lobby-joined-before.png" alt="before: lobby-joined at 667x375" /><figcaption><b>Before.</b> no board; smallest control 40x40, page scrolls (1935 px tall)</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-lobby-joined-after.png" alt="after: lobby-joined at 667x375"/><figcaption><b>After.</b> no board; smallest control 40x40, page scrolls (1833 px tall)</figcaption></figure></div></div>
+<div class="pair"><h4>Play: planning</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-play-plan-before.png" alt="before: play-plan at 667x375" /><figcaption><b>Before.</b> board 667x87 (100% wide); smallest control 667x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-play-plan-after.png" alt="after: play-plan at 667x375"/><figcaption><b>After.</b> board 403x375 (60% wide); smallest control 45.8x44</figcaption></figure></div></div>
+<div class="pair"><h4>Play: lever down, waiting</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-play-sent-before.png" alt="before: play-sent at 667x375" /><figcaption><b>Before.</b> board 667x87 (100% wide); smallest control 667x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-play-sent-after.png" alt="after: play-sent at 667x375"/><figcaption><b>After.</b> board 403x375 (60% wide); smallest control 45.8x44</figcaption></figure></div></div>
+<div class="pair"><h4>Play: report log open</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-play-log-before.png" alt="before: play-log at 667x375" /><figcaption><b>Before.</b> board 667x87 (100% wide); smallest control 667x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-play-log-after.png" alt="after: play-log at 667x375"/><figcaption><b>After.</b> board 403x375 (60% wide); smallest control 45.8x44</figcaption></figure></div></div>
+<div class="pair"><h4>Play: eliminated spectator*</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-play-spectator-before.png" alt="before: play-spectator at 667x375" /><figcaption><b>Before.</b> board 667x178 (100% wide); smallest control 667x48</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-play-spectator-after.png" alt="after: play-spectator at 667x375"/><figcaption><b>After.</b> board 403x375 (60% wide); smallest control 261x86</figcaption></figure></div></div>
+<div class="pair"><h4>Results</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-results-before.png" alt="before: results at 667x375" /><figcaption><b>Before.</b> no board; smallest control 114.8x44, page scrolls (479 px tall)</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-results-after.png" alt="after: results at 667x375"/><figcaption><b>After.</b> no board; smallest control 114.8x44</figcaption></figure></div></div>
+<div class="pair"><h4>Manual: first lesson</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-manual-start-before.png" alt="before: manual-start at 667x375" /><figcaption><b>Before.</b> board 667x0 (100% wide); smallest control 156.8x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-manual-start-after.png" alt="after: manual-start at 667x375"/><figcaption><b>After.</b> board 403x375 (60% wide); smallest control 59.5x44</figcaption></figure></div></div>
+<div class="pair"><h4>Manual: lesson list</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-manual-lessons-before.png" alt="before: manual-lessons at 667x375" /><figcaption><b>Before.</b> board 667x0 (100% wide); smallest control 156.8x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-manual-lessons-after.png" alt="after: manual-lessons at 667x375"/><figcaption><b>After.</b> board 403x375 (60% wide); smallest control 245x40</figcaption></figure></div></div>
+<div class="pair"><h4>Manual: fog lesson, View as</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-manual-fog-before.png" alt="before: manual-fog at 667x375" /><figcaption><b>Before.</b> board 667x0 (100% wide); smallest control 156.8x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/667x375-manual-fog-after.png" alt="after: manual-fog at 667x375"/><figcaption><b>After.</b> board 403x375 (60% wide); smallest control 59.5x44</figcaption></figure></div></div></div>
+<h3>932x430</h3><div class="pairs"><div class="pair"><h4>Lobby: joined, top</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-lobby-joined-before.png" alt="before: lobby-joined at 932x430" /><figcaption><b>Before.</b> no board; smallest control 40x40, page scrolls (1826 px tall)</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-lobby-joined-after.png" alt="after: lobby-joined at 932x430"/><figcaption><b>After.</b> no board; smallest control 40x40, page scrolls (1484 px tall)</figcaption></figure></div></div>
+<div class="pair"><h4>Play: planning</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-play-plan-before.png" alt="before: play-plan at 932x430" /><figcaption><b>Before.</b> board 560x383 (60% wide); smallest control 560x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-play-plan-after.png" alt="after: play-plan at 932x430"/><figcaption><b>After.</b> board 628x430 (67% wide); smallest control 53.8x48</figcaption></figure></div></div>
+<div class="pair"><h4>Play: lever down, waiting</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-play-sent-before.png" alt="before: play-sent at 932x430" /><figcaption><b>Before.</b> board 560x383 (60% wide); smallest control 560x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-play-sent-after.png" alt="after: play-sent at 932x430"/><figcaption><b>After.</b> board 628x430 (67% wide); smallest control 53.8x48</figcaption></figure></div></div>
+<div class="pair"><h4>Play: report log open</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-play-log-before.png" alt="before: play-log at 932x430" hidden/><div class="none">not captured before</div><figcaption><b>Before.</b> not captured</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-play-log-after.png" alt="after: play-log at 932x430"/><figcaption><b>After.</b> board 628x430 (67% wide); smallest control 53.8x48</figcaption></figure></div></div>
+<div class="pair"><h4>Play: eliminated spectator*</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-play-spectator-before.png" alt="before: play-spectator at 932x430" /><figcaption><b>Before.</b> board 560x383 (60% wide); smallest control 560x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-play-spectator-after.png" alt="after: play-spectator at 932x430"/><figcaption><b>After.</b> board 628x430 (67% wide); smallest control 301x86</figcaption></figure></div></div>
+<div class="pair"><h4>Results</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-results-before.png" alt="before: results at 932x430" hidden/><div class="none">not captured before</div><figcaption><b>Before.</b> not captured</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-results-after.png" alt="after: results at 932x430"/><figcaption><b>After.</b> no board; smallest control 114.8x44</figcaption></figure></div></div>
+<div class="pair"><h4>Manual: first lesson</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-manual-start-before.png" alt="before: manual-start at 932x430" /><figcaption><b>Before.</b> board 560x412 (60% wide); smallest control 107x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-manual-start-after.png" alt="after: manual-start at 932x430"/><figcaption><b>After.</b> board 628x430 (67% wide); smallest control 69.5x44</figcaption></figure></div></div>
+<div class="pair"><h4>Manual: lesson list</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-manual-lessons-before.png" alt="before: manual-lessons at 932x430" /><figcaption><b>Before.</b> board 560x412 (60% wide); smallest control 107x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-manual-lessons-after.png" alt="after: manual-lessons at 932x430"/><figcaption><b>After.</b> board 628x430 (67% wide); smallest control 285x40</figcaption></figure></div></div>
+<div class="pair"><h4>Manual: fog lesson, View as</h4><div class="two">
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-manual-fog-before.png" alt="before: manual-fog at 932x430" /><figcaption><b>Before.</b> board 560x412 (60% wide); smallest control 107x44</figcaption></figure>
+  <figure><img loading="lazy" src="/eval/assets/13/932x430-manual-fog-after.png" alt="after: manual-fog at 932x430"/><figcaption><b>After.</b> board 628x430 (67% wide); smallest control 69.5x44</figcaption></figure></div></div></div>
+
+<h2>4. Rotation</h2>
+<p>Portrait &rarr; landscape &rarr; portrait in the middle of a plan (a draft of two orders, a third unit mid-aim at a fire order), with the
+lever down, in the middle of a playback, and in the middle of a lesson. <code>board.resize()</code> is called by the screens'
+<code>ResizeObserver</code>; after every rotation a computed tap on four hexes named the right hex.</p>
+<div class="scroll"><table><thead><tr><th></th><th>Check</th><th>Detail</th></tr></thead><tbody><tr><td class="ok">pass</td><td>plan kept at 844x390</td><td><small></small></td></tr><tr><td class="ok">pass</td><td>canvas fits its box at 844x390</td><td><small>549x390 buffer 1098x780</small></td></tr><tr><td class="ok">pass</td><td>no page scroll at 844x390</td><td><small></small></td></tr><tr><td class="ok">pass</td><td>picking lands on the hex tapped at 844x390</td><td><small>4/4 </small></td></tr><tr><td class="ok">pass</td><td>plan kept at 667x375</td><td><small></small></td></tr><tr><td class="ok">pass</td><td>canvas fits its box at 667x375</td><td><small>403x375 buffer 806x750</small></td></tr><tr><td class="ok">pass</td><td>no page scroll at 667x375</td><td><small></small></td></tr><tr><td class="ok">pass</td><td>picking lands on the hex tapped at 667x375</td><td><small>4/4 </small></td></tr><tr><td class="ok">pass</td><td>plan kept at 932x430</td><td><small></small></td></tr><tr><td class="ok">pass</td><td>canvas fits its box at 932x430</td><td><small>628x430 buffer 1256x860</small></td></tr><tr><td class="ok">pass</td><td>no page scroll at 932x430</td><td><small></small></td></tr><tr><td class="ok">pass</td><td>picking lands on the hex tapped at 932x430</td><td><small>4/4 </small></td></tr><tr><td class="ok">pass</td><td>plan kept at 390x844</td><td><small></small></td></tr><tr><td class="ok">pass</td><td>canvas fits its box at 390x844</td><td><small>390x556 buffer 780x1112</small></td></tr><tr><td class="ok">pass</td><td>no page scroll at 390x844</td><td><small></small></td></tr><tr><td class="ok">pass</td><td>picking lands on the hex tapped at 390x844</td><td><small>4/4 </small></td></tr><tr><td class="ok">pass</td><td>plan kept at 844x390</td><td><small></small></td></tr><tr><td class="ok">pass</td><td>canvas fits its box at 844x390</td><td><small>549x390 buffer 1098x780</small></td></tr><tr><td class="ok">pass</td><td>no page scroll at 844x390</td><td><small></small></td></tr><tr><td class="ok">pass</td><td>picking lands on the hex tapped at 844x390</td><td><small>4/4 </small></td></tr><tr><td class="ok">pass</td><td>lever down</td><td><small></small></td></tr><tr><td class="ok">pass</td><td>lever stays down at 844x390</td><td><small>lever down</small></td></tr><tr><td class="ok">pass</td><td>lever stays down at 390x844</td><td><small>lever down</small></td></tr><tr><td class="ok">pass</td><td>playback goes on across a rotation (lever locked)</td><td><small>lever locked</small></td></tr><tr><td class="ok">pass</td><td>next round planned after a playback that was rotated</td><td><small>2/12Round</small></td></tr><tr><td class="ok">pass</td><td>the board refits at the end</td><td><small>403x375 vs 403x375</small></td></tr><tr><td class="ok">pass</td><td>picking after a rotated playback</td><td><small>3/3 </small></td></tr><tr><td class="ok">pass</td><td>no exceptions on the play page</td><td><small></small></td></tr><tr><td class="ok">pass</td><td>manual keeps lesson, step and phase bar at 844x390</td><td><small>{&quot;lesson&quot;:&quot;phases&quot;,&quot;state&quot;:&quot;ready&quot;,&quot;strip&quot;:&quot;Fire. Now he can fire: the man at E2 is pinned. The mortar launches.&quot;,&quot;phase</small></td></tr><tr><td class="ok">pass</td><td>manual board fits its box at 844x390</td><td><small>549x390</small></td></tr><tr><td class="ok">pass</td><td>manual keeps lesson, step and phase bar at 667x375</td><td><small>{&quot;lesson&quot;:&quot;phases&quot;,&quot;state&quot;:&quot;ready&quot;,&quot;strip&quot;:&quot;Fire. Now he can fire: the man at E2 is pinned. The mortar launches.&quot;,&quot;phase</small></td></tr><tr><td class="ok">pass</td><td>manual board fits its box at 667x375</td><td><small>403x375</small></td></tr><tr><td class="ok">pass</td><td>manual keeps lesson, step and phase bar at 390x844</td><td><small>{&quot;lesson&quot;:&quot;phases&quot;,&quot;state&quot;:&quot;ready&quot;,&quot;strip&quot;:&quot;Fire. Now he can fire: the man at E2 is pinned. The mortar launches.&quot;,&quot;phase</small></td></tr><tr><td class="ok">pass</td><td>manual board fits its box at 390x844</td><td><small>390x486</small></td></tr><tr><td class="ok">pass</td><td>manual keeps lesson, step and phase bar at 932x430</td><td><small>{&quot;lesson&quot;:&quot;phases&quot;,&quot;state&quot;:&quot;ready&quot;,&quot;strip&quot;:&quot;Fire. Now he can fire: the man at E2 is pinned. The mortar launches.&quot;,&quot;phase</small></td></tr><tr><td class="ok">pass</td><td>manual board fits its box at 932x430</td><td><small>628x430</small></td></tr><tr><td class="ok">pass</td><td>Step after a rotation carries on</td><td><small>Movement. A rifleman walks onto objective A.</small></td></tr><tr><td class="ok">pass</td><td>Play is still running after a rotation</td><td><small>[&quot;end&quot;,&quot;end&quot;]</small></td></tr><tr><td class="ok">pass</td><td>Play finishes after a rotation, on the same lesson</td><td><small>Pvt. Archer: pinned.</small></td></tr><tr><td class="ok">pass</td><td>viewpoint kept across a rotation</td><td><small>Plum</small></td></tr><tr><td class="ok">pass</td><td>no exceptions on the manual page</td><td><small></small></td></tr></tbody></table></div>
+<div class="shots">
+  <figure class="p"><img src="/eval/assets/13/rot-plan-portrait.png" alt="plan, portrait" /><figcaption>Portrait: draft, selection, fire being aimed.</figcaption></figure>
+  <figure><img src="/eval/assets/13/rot-plan-844.png" alt="same plan, landscape" /><figcaption>Turned to 844 × 390: the same selection, orders and chit.</figcaption></figure>
+  <figure><img src="/eval/assets/13/rot-plan-667.png" alt="same plan, 667" /><figcaption>667 × 375.</figcaption></figure>
+  <figure><img src="/eval/assets/13/rot-playback-land.png" alt="playback, landscape" /><figcaption>Playback, turned mid-way, and (next) the end of it.</figcaption></figure>
+  <figure class="p"><img src="/eval/assets/13/rot-playback-portrait.png" alt="playback, portrait" /><figcaption>The same playback in portrait.</figcaption></figure>
+  <figure class="p"><img src="/eval/assets/13/rot-manual-portrait.png" alt="manual, portrait" /><figcaption>Manual, lesson "The five phases", two steps in.</figcaption></figure>
+  <figure><img src="/eval/assets/13/rot-manual-844.png" alt="manual, landscape" /><figcaption>Turned: same lesson, same phase, same line.</figcaption></figure>
+</div>
+<p><b>One render fix was needed for this.</b> <code>board.resize()</code> kept the zoom, so the field manual had to rebuild the lesson (back to the
+start of the round) to re-frame its tiny maps; a turned phone lost its step. <code>resize()</code> now frames the map again by itself
+when the camera was still where the map was framed, and leaves it alone when the player has panned or zoomed
+(<code>src/client/render/index.ts</code>, <code>isFramed</code>), so the manual only calls <code>resize()</code>.</p>
+
+<h2>5. Portrait and laptop</h2>
+<div class="observed">Compared with screenshots from before the change, every screen at 390 × 844 and at 1280 × 800: <b>52 of 56 pixel-identical</b>;
+the other four were caught in mid-animation (a playback frame and the manual after Step, the two pairs below differ only by where
+the animation was at that instant). Element geometry (every box, to a tenth of a pixel) is identical on <b>58 of 58</b> screens; the
+eight that differ by name differ only in the new class <code>builder</code> on the squad panel. There is no deliberate difference. (The viewport meta now has
+<code>viewport-fit=cover</code>; safe areas are 0 without a notch, so nothing moves.)</div>
+<div class="shots">
+  <figure class="p"><img src="/eval/assets/13/id-390x844-play-plan-before.png" alt="" /><figcaption>390 × 844 before</figcaption></figure>
+  <figure class="p"><img src="/eval/assets/13/id-390x844-play-plan-after.png" alt="" /><figcaption>after</figcaption></figure>
+  <figure class="p"><img src="/eval/assets/13/id-390x844-manual-start-before.png" alt="" /><figcaption>manual, before</figcaption></figure>
+  <figure class="p"><img src="/eval/assets/13/id-390x844-manual-start-after.png" alt="" /><figcaption>after</figcaption></figure>
+  <figure><img src="/eval/assets/13/id-1280x800-play-plan-before.png" alt="" /><figcaption>1280 × 800 before</figcaption></figure>
+  <figure><img src="/eval/assets/13/id-1280x800-play-plan-after.png" alt="" /><figcaption>after</figcaption></figure>
+</div>
+
+<h2>6. Safe areas, four seats and the clock</h2>
+<p>With the safe area emulated at 47 px left and right and 21 px at the bottom (<code>Emulation.setSafeAreaInsetsOverride</code>, a notched phone
+in landscape), no control sits in the unsafe strips on the play screen; the page background shows in them. The board loses the strips,
+so at 844 it is 455 × 369 (54% wide): the cost of a notch. With four seats and a running clock the status plate holds three readouts and
+two rows of lamps, and the lever and the chits still fit.</p>
+<div class="shots">
+  <figure><img src="/eval/assets/13/insets-play-844.png" alt="" /><figcaption>844 × 390 with the notch's safe area.</figcaption></figure>
+  <figure><img src="/eval/assets/13/four-667.png" alt="" /><figcaption>Four seats and the clock at 667 × 375: the tightest case.</figcaption></figure>
+  <figure><img src="/eval/assets/13/four-932.png" alt="" /><figcaption>The same at 932 × 430.</figcaption></figure>
+  <figure><img src="/eval/assets/13/insets-lobby-844.png" alt="" /><figcaption>Lobby, with the notch.</figcaption></figure>
+</div>
+
+<h2>7. Not verified, and what is still awkward</h2>
+<ul>
+  <li><b>No physical phone.</b> To check on a real one: the address bar and toolbar changing the visible height while the page is up (the play and manual screens use a fixed box and should follow; the lobby uses <code>dvh</code>); the notch's real insets and the home-indicator; thumb reach to the lever (top right of the kit column) and the chits (bottom); whether the report strip's text is comfortable at arm's length; the on-screen keyboard over the name field in landscape (the join screen is an ordinary scrolling page).</li>
+  <li><b>667 × 375 is tight.</b> The board is 60%; the chits are icons without words there (below 720 px wide), the ready lever is a little shorter (56 × 92 for 64 × 112; the same part, travelling the same way), and the squad list shows two cards at a time with four seats and the clock; it scrolls, and the selected unit stays in view.</li>
+  <li><b>The lobby is still a scrolling page</b>: the lever, Start and the roll stay put at the left while the builder scrolls (the page is about 1700 px tall at 844 wide, four to five screens; it was 1816). It is the roster text (five units, each with its blurb and actions) that is long. Picking a preset, then the lever, needs no scroll.</li>
+  <li>The manual's lesson text scrolls inside its box on the longest lessons at 667 wide (the five lessons with "View as" most of all); the keys, the report line and Step never scroll. The lesson list is a drawer of 17 keys that scrolls.</li>
+  <li>A notched phone gets about 54% for the board at 844 (the kit column keeps its width; the safe strips are not used).</li>
+  <li>At 932 × 430 and wider the old wide layout used to apply and was cramped in height (one squad card); the wide layout is now for windows over 500 px tall.</li>
+</ul>
+</main>
+<script>
+  const sizes = { land: [844, 390], small: [667, 375], wide: [932, 430], port: [390, 844] };
+  const frames = [document.getElementById('game'), document.getElementById('manual')];
+  function set(k) {
+    const [w, h] = sizes[k];
+    for (const f of frames) { f.width = w; f.height = h; }
+    for (const id of ['c1', 'c2']) document.getElementById(id).textContent = `${w} × ${h}`;
+  }
+  for (const k of Object.keys(sizes)) document.getElementById(k).addEventListener('click', () => set(k));
+  set('land');
+</script>
+</body>
+</html>

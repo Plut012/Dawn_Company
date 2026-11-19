@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 11 — Field manual</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the manual in the frames is the real client at /?manual */
+  body { padding: var(--s-3); }
+  main { max-width: 1560px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 95ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  a { color: var(--amber); }
+  .frames { display: flex; gap: var(--s-3); overflow-x: auto; padding-bottom: var(--s-3); align-items: flex-start; }
+  .frame { flex: none; display: flex; flex-direction: column; gap: var(--s-1); }
+  .frame iframe { box-sizing: content-box; border: var(--w-frame) solid var(--ink); background: var(--slate); display: block; }
+  table { border-collapse: collapse; width: 100%; max-width: 1400px; margin-bottom: var(--s-3); }
+  th, td { text-align: left; vertical-align: top; padding: var(--s-1) var(--s-2); border-top: var(--w-divider) solid rgba(233,223,198,0.25); }
+  th { font-family: var(--font-display); font-size: var(--t-1); letter-spacing: 0.1em; text-transform: uppercase; }
+  td.ok { color: var(--paper); font-weight: 700; white-space: nowrap; }
+  td.bad { color: var(--paper); background: var(--rust); font-weight: 700; }
+  td small { display: block; opacity: 0.8; }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; margin-bottom: var(--s-3); }
+  .observed.bad { border-left-color: var(--rust); }
+  .shots { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  figure { margin: 0; display: flex; flex-direction: column; gap: var(--s-1); }
+  figure img { display: block; border: var(--w-frame) solid var(--ink); max-width: 100%; height: auto; }
+  figure.phone img { width: 390px; }
+  figure.laptop img { width: 640px; }
+  figcaption { font-size: var(--t-1); max-width: 60ch; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 11 — Field manual</h1>
+<p>Needs only <code>npx vite</code> (no game server). The two frames are the real page at
+<code>/?manual</code>: the real board and low-poly kit, with every round resolved by the real <code>resolve</code>
+from <code>src/rules</code> on the lesson data in <code>src/manual/lessons.ts</code>. Nothing is mocked and no event
+is hand-written. Open it on its own at <a href="/?manual" target="_blank" rel="noopener"><code>/?manual</code></a>.</p>
+
+<h2>1. The manual, twice</h2>
+<p class="note">Left: laptop-shaped (1180 × 720). Right: phone-shaped (390 × 844); there the lesson list is the
+“Lessons” key. A link in the table below opens that lesson in both frames. The “Lobby” key leads to the lobby, which
+without a game server only says “No signal”; use the browser's back, or a link in the table, to return.</p>
+<div class="frames">
+  <div class="frame"><span class="cap">Laptop · 1180 × 720</span><iframe id="laptop" title="Field manual, laptop" width="1180" height="720" src="/?manual"></iframe></div>
+  <div class="frame"><span class="cap">Phone · 390 × 844</span><iframe id="phone" title="Field manual, phone" width="390" height="844" src="/?manual"></iframe></div>
+</div>
+
+<h2>2. The seventeen lessons, checked now</h2>
+<p>Computed in this page when it loads: each lesson is staged and run through the rules, its orders are put to
+<code>validateOrders</code> for every round, and <code>checkLesson</code> compares the result with the lesson's
+<code>expect</code> list. “Holds” means every expectation is met; anything else is printed in full.</p>
+<div class="observed" id="summary" role="status">Running…</div>
+<table>
+  <thead><tr><th>#</th><th>Group</th><th>Lesson</th><th>Rule, as the manual puts it</th><th>Orders</th><th>checkLesson</th><th>How it ended</th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+
+<h2>3. What to try</h2>
+<ul>
+  <li><b>Play</b> runs the whole lesson; pressed again at the end it starts over. <b>Step</b> plays one phase per
+    press (phases in which nothing happens and the lesson has nothing to say are passed over); between rounds one
+    press puts up the next round's orders; the last press brings the closing line. <b>Restart</b> goes back to the
+    start, also in the middle of Play (it waits for the phase in hand to finish).</li>
+  <li><b>View as</b> appears on the five lessons where fog matters (Line of sight, Stealth, Creeping and running, Giving the
+    position away, Mortar team). A side sees its own orders, its own fog and its own events; the umpire sees everything.</li>
+  <li>Prev / Next (and the left and right arrow keys) walk the lessons in order. The lesson is kept in the URL:
+    <a href="/?manual=cover" target="_blank" rel="noopener"><code>/?manual=cover</code></a>.</li>
+  <li>With the game server running (<code>npm run server</code>), the lobby at <a href="/" target="_blank" rel="noopener"><code>/</code></a>
+    has a “Field manual” key above the panels, and the manual's “Lobby” key goes back; the seat is kept by its token.</li>
+</ul>
+
+<h2>4. Screenshots from real runs</h2>
+<p>Headless Chromium driven over the DevTools protocol with real mouse and touch events, at 1280 × 800 and at
+390 × 844 (2× pixel density), each taken a fraction of a second after pressing Step.</p>
+<div class="shots">
+  <figure class="laptop"><img src="/eval/assets/11/laptop-gunner-fire.png" alt="Machine gunner lesson, firing" /><figcaption>Machine gunner, fire phase: tracers into the target hex and the six around it.</figcaption></figure>
+  <figure class="laptop"><img src="/eval/assets/11/laptop-mortar-impact.png" alt="Mortar lesson, impact" /><figcaption>Mortar team, mortars phase: the shell lands on D2 after the man there has walked to F2; the man at D3 is caught.</figcaption></figure>
+  <figure class="laptop"><img src="/eval/assets/11/laptop-ambush-shot.png" alt="Ambush lesson, the shot" /><figcaption>Ambush, movement phase: the walker has taken one step; the ambusher's shot is in the air.</figcaption></figure>
+  <figure class="laptop"><img src="/eval/assets/11/laptop-hit-fire.png" alt="Pinned, then down lesson, firing" /><figcaption>Pinned, then down, fire phase: all three shots together.</figcaption></figure>
+  <figure class="laptop"><img src="/eval/assets/11/laptop-phases-score.png" alt="Five phases lesson, scoring" /><figcaption>The five phases, score phase: objective A pays out.</figcaption></figure>
+  <figure class="laptop"><img src="/eval/assets/11/laptop-sight-start.png" alt="Line of sight, start" /><figcaption>Line of sight as Blue, at the start: everything behind the woods and the two hill hexes is veiled.</figcaption></figure>
+  <figure class="laptop"><img src="/eval/assets/11/laptop-sight-end.png" alt="Line of sight, end" /><figcaption>Line of sight as Blue, at the end: from the hilltop the veil is gone and the man at E2 is seen.</figcaption></figure>
+  <figure class="phone"><img src="/eval/assets/11/phone-reveal-fire.png" alt="Phone: giving the position away" /><figcaption>Phone, Giving the position away as Blue: the shot from the building shows the shooter.</figcaption></figure>
+  <figure class="phone"><img src="/eval/assets/11/phone-mortar-as-plum.png" alt="Phone: mortar as Plum" /><figcaption>Phone, Mortar team viewed as Plum: the mortar's corner is veiled; only the shell coming in is seen.</figcaption></figure>
+  <figure class="phone"><img src="/eval/assets/11/phone-collide.png" alt="Phone: collisions" /><figcaption>Phone, Collisions, mid-movement.</figcaption></figure>
+  <figure class="phone"><img src="/eval/assets/11/phone-drawer.png" alt="Phone: lesson list" /><figcaption>Phone, the lesson list (the “Lessons” key). It closes when a lesson is picked.</figcaption></figure>
+</div>
+
+<h2>5. Where it differs from the task doc, and what does not work</h2>
+<ul>
+  <li><b>“Giving the position away” does not say what the task doc's row says.</b> The row reads “until the next round
+    ends”. The rules clear <code>revealed</code> at the <em>start</em> of the next resolve (first thing in the treat
+    phase), so a unit that fired from cover is seen for the rest of that round and during the next planning, and is
+    hidden again as soon as the next round starts to resolve. The lesson stages and states what the rules do.
+    (The plan's own wording, “unless it fired in the last resolved round”, agrees with the rules.)</li>
+  <li><b>Notes are per phase, not per round</b> (the <code>Lesson</code> shape in the task doc). In the two-round lessons
+    a note therefore shows in both rounds and has to be true in both; in “Giving the position away” the treat note
+    opens round 1 before anything has happened, which reads a little oddly.</li>
+  <li><b>The umpire does not keep a body on the board.</b> The board takes any unit that is not the viewer's own off when
+    it goes down; the umpire owns nobody, so a man who goes down falls, fades and is gone. The closing line says “down”.</li>
+  <li><b>Fog is redrawn only when a round ends.</b> The board cannot lift the veil while it plays. In “Line of sight” the
+    hidden man appears on a still-veiled hex for a moment, and the veil lifts when the movement step finishes.</li>
+  <li><b>Tiny maps cannot go through <code>readMap</code></b>, which demands four spawn zones of eight hexes.
+    <code>tinyMap</code> in <code>src/manual/lesson.ts</code> reads the same three drawings (terrain, elevation, marks)
+    with no spawns.</li>
+  <li>Restart, a viewpoint change or another lesson pressed during playback takes effect when the phase in hand has
+    finished (up to a second or two); the board has no way to stop a round it is playing.</li>
+  <li>Changing viewpoint in the middle of a round goes back to the start of that round. So does resizing the window.</li>
+  <li>The board can still be dragged and pinched; it is not needed, and nothing puts the map back but Restart or a
+    window resize.</li>
+  <li>On a phone the six-column maps (Sniper, Mortar team, Ambush, The five phases) are drawn at about 29 px per hex
+    radius: readable, but the hex labels are small.</li>
+  <li>Opening the manual from the lobby leaves the lobby page, so the socket drops; the others see “lost signal” for that
+    seat until the reader comes back. A ready lever that was down is for the server to keep or not; not tested here.</li>
+  <li>Not tried on a real phone: emulated 390 × 844 with touch events only.</li>
+</ul>
+</main>
+
+<script type="module">
+  import { LESSONS, checkLesson, runLesson } from '/src/manual/lessons.ts';
+  import { outcome } from '/src/manual/show.ts';
+  import { validateOrders } from '/src/rules/index.ts';
+
+  const cell = (text, cls = '') => { const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = text; return td; };
+  const rows = document.getElementById('rows');
+  let holding = 0;
+  LESSONS.forEach((lesson, i) => {
+    const tr = document.createElement('tr');
+    let failed = [];
+    let orders = [];
+    let ended = '';
+    try {
+      const run = runLesson(lesson);
+      lesson.rounds.forEach((round, r) => {
+        for (let p = 0; p < run.states[r].playerCount; p++) {
+          for (const e of validateOrders(run.states[r], p, round[p] ?? [])) orders.push(`Round ${r + 1}, player ${p}, ${e.unit}: ${e.reason}.`);
+        }
+      });
+      failed = checkLesson(lesson, run);
+      ended = outcome(lesson, run);
+    } catch (e) {
+      failed = [`Threw: ${e.message}`];
+    }
+    const ok = failed.length === 0 && orders.length === 0;
+    if (ok) holding++;
+    const name = document.createElement('td');
+    const link = document.createElement('a');
+    link.href = `/?manual=${lesson.id}`;
+    link.textContent = lesson.title;
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      for (const id of ['laptop', 'phone']) document.getElementById(id).src = link.href;
+      document.getElementById('laptop').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    const id = document.createElement('small');
+    id.textContent = `${lesson.id} · ${lesson.rounds.length === 1 ? '1 round' : `${lesson.rounds.length} rounds`} · ${lesson.units.length} units · default view ${lesson.viewAs === 'umpire' ? 'umpire' : `player ${lesson.viewAs}`}${lesson.fogMatters ? ' · viewpoint switch' : ''}`;
+    name.append(link, id);
+    tr.append(
+      cell(String(i + 1)), cell(lesson.group), name, cell(lesson.text),
+      cell(orders.length === 0 ? 'Legal' : orders.join(' '), orders.length === 0 ? 'ok' : 'bad'),
+      cell(failed.length === 0 ? `Holds (${lesson.expect.length} of ${lesson.expect.length})` : failed.join(' '), failed.length === 0 ? 'ok' : 'bad'),
+      cell(ended),
+    );
+    rows.append(tr);
+  });
+  const summary = document.getElementById('summary');
+  summary.textContent = `${holding} of ${LESSONS.length} lessons hold, with legal orders, on the rules as they are now.`;
+  summary.classList.toggle('bad', holding !== LESSONS.length);
+</script>
+</body>
+</html>

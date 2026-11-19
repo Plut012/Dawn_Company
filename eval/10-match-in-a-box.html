@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 10 — Match in a box</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the game in the frames is the real client */
+  body { padding: var(--s-3); }
+  main { max-width: 1560px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); margin-top: var(--s-4); }
+  p, li { max-width: 100ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  a { color: var(--amber); }
+  pre { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); overflow-x: auto; font-size: var(--t-2); max-width: 150ch; }
+  iframe.dev { width: 100%; max-width: 900px; height: 1120px; border: var(--w-frame) solid var(--ink); background: var(--slate); display: block; }
+  table { border-collapse: collapse; max-width: 130ch; }
+  th, td { text-align: left; vertical-align: top; padding: var(--s-1) var(--s-3) var(--s-1) 0; border-top: var(--w-divider) solid rgba(233,223,198,0.25); }
+  th { font-family: var(--font-display); letter-spacing: 0.06em; text-transform: uppercase; font-weight: 400; white-space: nowrap; }
+  .ok { color: var(--amber); } .no { color: #E08A6E; }
+  .shots { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  figure { margin: 0; display: flex; flex-direction: column; gap: var(--s-1); }
+  figure img { display: block; border: var(--w-frame) solid var(--ink); max-width: 100%; height: auto; }
+  figure.phone img { width: 300px; }
+  figure.wide img { width: 860px; }
+  figcaption { font-size: var(--t-1); max-width: 70ch; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 10 — Match in a box</h1>
+<p>Needs <code>npm run server</code> (port 8080) and <code>npm run dev</code>. Everything recorded below was run on
+2026-11-17 on the development laptop (Linux, Node 22), the browser parts in headless Chromium driven with real mouse
+and touch events at computed pixels. No person and no physical phone took part; where that matters it is said.</p>
+
+<h2>1. All seats on one screen</h2>
+<p><a href="/dev.html" target="_blank" rel="noopener"><code>/dev.html</code></a> opens on its own (2, 3 or 4 seats,
+phone- or laptop-shaped frames, "Quick start", "Clear dev seats", a Reload key per frame). The copy below is the same
+page at two phone-shaped seats: press <b>Quick start</b>, then <b>Start</b> in dev1, and play. Start the server fresh
+(and press Clear dev seats) if the frames show an old match.</p>
+<iframe class="dev" src="/dev.html?seats=2&shape=phone" title="dev.html, two seats"></iframe>
+<p class="note">Quick start only sets each frame's URL to <code>/?slot=devN&amp;auto=&lt;preset id&gt;&amp;name=…</code>.
+The client honours <code>auto</code> only when the slot starts with <code>dev</code> (<code>src/client/dev.ts</code>,
+tested in <code>src/client/dev.test.ts</code>). Checked in a browser against the production build as well:
+<code>/?slot=guest&amp;auto=support</code> shows the ordinary join form and joins nothing;
+<code>/?slot=dev7&amp;auto=support&amp;name=Devvy</code> is seated, readied, with the Weapons section.</p>
+
+<h2>2. The bot run</h2>
+<p><code>scripts/bots.ts</code> starts the real server (<code>src/server/main.ts</code>, no timer) on a spare port with
+a temporary log directory, seats 2–4 WebSocket clients, and plays whole matches by protocol alone. Each bot gives each
+living unit a random order (or none) from <code>orderOptions</code> on its own view. At about six tables in ten the
+bots are also "keen": they prefer to fire at a hex where they see an enemy and to end moves nearer the middle
+objective, so that squads meet and are wiped. Without that, random walkers almost never eliminate anyone and the
+elimination paths would go untested. About one order turn in 25, a bot drops its socket and rejoins by token first.</p>
+<pre>$ npm run bots -- --matches 300 --seed 20261117          (2026-11-17 20:25 UTC)
+
+Dawn Squad bots: 300 matches, seed 20261117, players 2/3/4 in turn
+2 players: 100/100 matches passed; 1200 rounds, 8726 orders, 1097 hits (323 down), 14 treated, 43 ambushes sprung, 0 squads wiped, 0 ended early, 79 rejoins
+3 players: 100/100 matches passed; 1200 rounds, 12178 orders, 2129 hits (702 down), 11 treated, 175 ambushes sprung, 10 squads wiped, 0 ended early, 147 rejoins
+4 players: 100/100 matches passed; 1200 rounds, 16052 orders, 2843 hits (973 down), 21 treated, 295 ambushes sprung, 14 squads wiped, 0 ended early, 183 rejoins
+PASS: 300 matches, no failures (seed 20261117, 12.8s)
+exit code 0</pre>
+<p>A longer soak the same day, for the rarer paths (a two-player match ended early by a wipe-out 14 times):</p>
+<pre>$ npm run bots -- --matches 6000 --seed 777000
+
+Dawn Squad bots: 6000 matches, seed 777000, players 2/3/4 in turn
+2 players: 2000/2000 matches passed; 23972 rounds, 175067 orders, 22022 hits (6725 down), 216 treated, 1052 ambushes sprung, 21 squads wiped, 14 ended early, 1947 rejoins
+3 players: 2000/2000 matches passed; 23998 rounds, 247998 orders, 41627 hits (13417 down), 339 treated, 3193 ambushes sprung, 162 squads wiped, 1 ended early, 2864 rejoins
+4 players: 2000/2000 matches passed; 24000 rounds, 324544 orders, 59091 hits (19444 down), 411 treated, 5401 ambushes sprung, 250 squads wiped, 0 ended early, 3933 rejoins
+PASS: 6000 matches, no failures (seed 777000, 351.1s)</pre>
+<p>What is checked, every round, for every bot:</p>
+<ul>
+  <li>the view holds no enemy unit, and lists no hex, that the bot's own units could not see (sight range, line,
+    cover and stealth range worked out again from the view alone); and no visible hex is missing;</li>
+  <li>across the seats: every enemy the sight rule gives a seat is in its view, identical to its owner's copy;
+    scores, round and end agree between seats;</li>
+  <li>no <code>rejected</code> and no <code>error</code> for orders taken from <code>orderOptions</code>;</li>
+  <li>events name only units the bot knows (own, in the last view, or <code>spotted</code> since), and followed
+    through (moves, hits, recoveries, spotted, lost) they arrive at exactly the next view's units, positions and statuses;</li>
+  <li>scores never go down; the round number goes up by one; the match is over by round 12; nothing waits more than 10 s;</li>
+  <li>after a rejoin the view is the same as before it; the server writes nothing to stderr;</li>
+  <li>at the end, the server's <code>.jsonl</code> log replayed through <code>createMatch</code> and <code>resolve</code>
+    ends the match with the same scores and winners, and holds the squads the bots sent.</li>
+</ul>
+<p>The checks were themselves checked by breaking the rules on purpose and putting them back: with the stealth rule
+removed from <code>visibleEnemies</code> the run fails with "view holds enemy 0-2 at 3,3 (ready) that no own unit can
+see" and exit code 1; with <code>hit</code> events sent to everyone it fails with "event … names unit 1-1, which this
+seat does not know". A failing match prints its own re-run line, e.g.
+<code>npm run bots -- --seed 2 --players 3 --matches 1</code>.</p>
+<p>The bots are not in the client: <code>scripts/</code> is imported by nothing under <code>src/</code>, and the built
+bundle was searched for the script's strings and has none.</p>
+
+<h2>3. Bugs found and fixed</h2>
+<p><b>None.</b> 7,800 bot matches and the hand checks below found no fault in the code of tasks 01–09, so no earlier
+file was changed apart from one line in <code>src/client/main.ts</code> that calls the dev-slot shortcut, and
+<code>tsconfig.json</code>, which now also type-checks <code>scripts/</code>. Things that are not faults but were
+noticed are in section 6 and under "Open items" in the plan.</p>
+
+<h2>4. Checks by hand</h2>
+<p>"By hand" here means: through <code>dev.html</code> (or the client alone) in headless Chromium, every action a
+real click or tap at a pixel (unit card, order chit, hex on the map, lever, keys), the DOM read only to find where to
+press and what is shown. The orders themselves were chosen by a small script (fire at a visible enemy, else move
+toward an objective, else ambush), not by a person.</p>
+<table>
+<tr><th>Check</th><th>Result</th><th>What was seen</th></tr>
+<tr><td>Full 4-seat match to the end</td><td class="ok">done</td><td>Four phone-shaped frames, quick start, Line / Weapons /
+  Scout / Line sections, no timer. All 12 rounds played; every frame went to the results after the last playback.
+  Final scores 6, 6, 19, 4, the same in all four frames; the log has the start line and rounds 1–12. Dev 3 (scouts)
+  won with no one left standing; Dev 1 was wiped in round 11, kept watching with the whole map in view and the order
+  kit replaced by one line. No browser errors, nothing on the server's stderr. 166 s start to finish at machine speed.</td></tr>
+<tr><td>Reload mid-plan</td><td class="ok">done</td><td>Round 2: five orders drafted in dev2, lever up, frame reloaded
+  with its Reload key. It took its seat back, showed round 2/12 and the same five orders on the cards; lever pulled, round resolved.</td></tr>
+<tr><td>Reload mid-playback</td><td class="ok">done</td><td>Round 3: dev3 reloaded 0.7 s into the playback. It came back
+  planning round 4 at once while the other three were still watching round 3. It does not see the round it missed
+  (nothing replays it); the board is right.</td></tr>
+<tr><td>Server killed, restarted with <code>--resume</code></td><td class="ok">done</td><td>Round 5: dev1 had its lever
+  down, dev3 a draft with the lever up; server stopped with SIGKILL. All four lamps went to "No signal" and the strips
+  to "Signal lost. Trying to get through again…". Server restarted with <code>--resume &lt;the log&gt;</code>: "Resumed …
+  at round 5 (playing)". All four frames reconnected by themselves in under two seconds at round 5/12; dev4's view was
+  identical, dev3's draft was still on its cards; dev1's lever was back up with its orders still drafted (the commit died
+  with the server, as expected) and went down again with one press. The match went on to the end. Also tried at the
+  results: a finished log resumes as "round 13 (over)", both frames stay on the results and Rematch works.</td></tr>
+<tr><td>Timer, one seat idle</td><td class="ok">done</td><td><code>--timer 20</code>, two laptop-shaped frames. Round 1:
+  dev1 ordered and pulled, dev2 did nothing; the round resolved 21.6 s after the start, log shows 6 and 0 orders.
+  Round 2: dev1 idle, dev2 drafted four orders and never pulled; at about one second left its strip said "Time. Orders
+  sent as they stand." and the log shows 0 and 4 orders. Round 3: nobody touched anything; resolved after 18.3 s with 0 and 0.</td></tr>
+<tr><td>Around a match</td><td class="ok">done</td><td>A stranger joining mid-match is told "The match has started. Rejoin
+  with your token, or wait for the next one." The same seat opened in a second browser takes the seat; the first
+  window says "This seat is open in another window. Reload here to take it back." and Reload does. Reload at the results:
+  still the results. Rematch: both frames in the lobby with their squads, not ready; a second match starts at round 1
+  with no orders left over and gets its own log. Clear dev seats: tokens gone, both frames at the join form.</td></tr>
+<tr><td>Phone, emulated</td><td class="ok">done (emulation only)</td><td>390 × 844, touch events, 3× pixel density, the
+  client alone at <code>/?slot=dev2</code>, against a laptop-sized host. Joined, picked the Scout section and pulled the
+  lever by taps; played three rounds by taps (24 orders: dashes, moves, fire, ambush; all took). One-finger drag moves
+  the map, two-finger pinch zooms in and out, a swipe scrolls the squad row. The page never scrolls sideways (390 of 390).
+  On the play screen no control is under 44 px. In the lobby the squad builder's − and + keys are 40 × 40. Smallest text:
+  11 px (the words on the order chits), then 12 px labels. An eight-man squad's cards are 1470 px wide in a 308 px row:
+  about one and a half cards show at a time.</td></tr>
+<tr><td>A real phone on the same wifi, by QR code</td><td class="no">not done</td><td>Needs a person with a phone on the
+  same wifi. Steps: (1) <code>npm start</code> on the laptop; (2) scan the QR code the terminal prints (or type the
+  <code>http://192.168.x.x:8080</code> address) on the phone; (3) type a name, Join, pick a preset, throw the lever;
+  join from the laptop too at the same address and press Start there; (4) play three rounds on the phone: select by
+  card and by tapping the map, give a move, a dash laid hex by hex, a fire and an ambush, drag and pinch the map, open
+  the log, pull the lever; (5) lock the phone for ten seconds mid-plan and unlock: it should come back to the same
+  round with the draft; (6) note the device and browser, anything hard to tap (the builder's − / + keys are the
+  smallest) or to read (the chit words, the hex labels on the map), and whether the laptop firewall let the phone in.</td></tr>
+<tr><td>Time from URL to first round</td><td class="ok">measured, by machine only</td><td><b>Quick start</b> (dev.html, four
+  seats): 1.8 s from the press until all four are seated and ready; 3.5 s until round 1 is on all four screens,
+  including the press on Start. <b>By hand with a preset</b> (two devices, no quick start): the new player's path is
+  five actions: tap the name field, type a name, Join, (optionally) a preset key, the ready lever; the host then presses
+  Start. Driven at machine speed that is 1.9 s on the phone and 2.8 s from the host's URL to round 1 on both screens.
+  That shows nothing slow stands in the way; it is not a person's time. A person's time (reading the lobby, finding the
+  lever) was <b>not measured</b>: the two-minute target still needs the real-phone check above with a stopwatch.</td></tr>
+<tr><td>Production path</td><td class="ok">done</td><td><code>npm run build</code>, the server serving <code>dist/</code> on
+  a spare port, opened in the browser: joined and reached the lobby, "Linked", no console errors. <code>npm start</code>
+  on 8080 answers 200. <code>/dev.html</code> is not in the build (404), as intended. <code>dist/</code> removed afterwards.</td></tr>
+</table>
+
+<h2>5. Screenshots from these runs</h2>
+<div class="shots">
+  <figure class="wide"><img src="/eval/assets/10/four-seats-round-1.png" alt="dev.html, four seats, round 1" />
+    <figcaption><b>dev.html, four phone-shaped seats, round 1</b>, three seconds after pressing Quick start. Each frame opens on its own squad.</figcaption></figure>
+  <figure class="wide"><img src="/eval/assets/10/four-seats-playback.png" alt="four seats, playback" />
+    <figcaption><b>Round 3 playing back in all four frames</b>, each telling it from its own side. dev3 was reloaded a moment later.</figcaption></figure>
+  <figure class="wide"><img src="/eval/assets/10/server-down.png" alt="server killed" />
+    <figcaption><b>Round 5, server killed.</b> Every strip says the signal is lost; dev1's lever is still down, dev3's draft is on its cards.</figcaption></figure>
+  <figure class="wide"><img src="/eval/assets/10/resumed.png" alt="after --resume" />
+    <figcaption><b>The same round after <code>--resume</code>.</b> Everyone is back; dev1's lever has come up with its orders kept.</figcaption></figure>
+  <figure class="wide"><img src="/eval/assets/10/four-seats-results.png" alt="four seats, results" />
+    <figcaption><b>The results in all four frames.</b> The host has Rematch. A seat still in the field sees only "still in the field" for squads it cannot count.</figcaption></figure>
+  <figure class="wide"><img src="/eval/assets/10/timer-last-call.png" alt="timer, last call" />
+    <figcaption><b>Timer, 20 s, laptop-shaped frames, round 2.</b> dev2 never pulled its lever: with a second left its draft went in by itself.</figcaption></figure>
+  <figure class="phone"><img src="/eval/assets/10/phone-lobby.png" alt="phone lobby" />
+    <figcaption><b>Emulated phone, lobby</b>, joined by taps, Scout section, lever down.</figcaption></figure>
+  <figure class="phone"><img src="/eval/assets/10/phone-orders.png" alt="phone orders" />
+    <figcaption><b>Emulated phone, round 1</b>, eight dashes given by taps (the map was dragged by the test to reach hexes).</figcaption></figure>
+  <figure class="phone"><img src="/eval/assets/10/phone-log.png" alt="phone log" />
+    <figcaption><b>Emulated phone, round log open</b> after round 3.</figcaption></figure>
+</div>
+
+<h2>6. Still failing, skipped, or worth knowing</h2>
+<ul>
+  <li><b>Skipped: the real phone.</b> No device was available. Everything phone-shaped above is emulation in desktop
+    Chromium; it cannot show finger reach, glare, a real GPU's frame rate, a phone browser's address bar, or the wifi
+    and firewall path. Steps for a person are in the table.</li>
+  <li><b>Skipped: a person's time to first round.</b> Only machine-driven times exist.</li>
+  <li><b>No human played.</b> The matches prove the parts work together; they say little about whether it is fun.
+    What was noticed on the way is under "Open items" in <code>docs/tasks/00-plan.md</code>: focus fire kills in one
+    round, a squad can win after being wiped out, the planning timer runs during playback, squads jam in their own
+    spawn zone, the small builder keys and chit words on a phone.</li>
+  <li><b>Not a fault, but visible:</b> every page that draws the board logs one three.js warning ("PCFSoftShadowMap has
+    been removed. Using PCFShadowMap instead."). The look is what three already falls back to. Left alone here; one line
+    in <code>src/client/render/index.ts</code> would silence it.</li>
+  <li><b>Not a fault, by design of the tools:</b> a browser tab in the background does not draw the board (no animation
+    frames), so two seats in two tabs of one window cannot both be watched; that is what <code>dev.html</code> is for.</li>
+  <li><b>Port 5173</b> was taken by another program on this machine, so <code>npm run dev</code> itself stopped with
+    "port in use" (it is <code>strictPort</code>); the pages were checked through <code>npm run dev -- --port 5191</code>,
+    which is the same server on another port, including this page.</li>
+</ul>
+</main>
+</body>
+</html>

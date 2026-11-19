@@ -1,0 +1,30 @@
+{
+  "name": "dawn-squad",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "server": "tsx src/server/main.ts",
+    "start": "npm run build && npm run server",
+    "bots": "tsx scripts/bots.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/qrcode-terminal": "^0.12.2",
+    "@types/three": "^0.187.0",
+    "@types/ws": "^8.18.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
+  },
+  "dependencies": {
+    "qrcode-terminal": "^0.12.0",
+    "three": "^0.187.0",
+    "ws": "^8.23.0"
+  }
+}

@@ -1,0 +1,515 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 12 — Actions as data, and stronger stealth</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; every rule and number on the page comes from src/ */
+  body { padding: var(--s-3); }
+  main { max-width: 1500px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 100ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  a { color: var(--amber); }
+  table { border-collapse: collapse; margin-bottom: var(--s-3); max-width: 100%; }
+  th, td { text-align: left; vertical-align: top; padding: var(--s-1) var(--s-2); border-top: var(--w-divider) solid rgba(233,223,198,0.25); }
+  th { font-family: var(--font-display); font-size: var(--t-1); letter-spacing: 0.1em; text-transform: uppercase; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 110ch; margin-bottom: var(--s-3); }
+  .observed.bad { border-left-color: var(--rust); }
+  .bench { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  .bench > * { min-width: 0; }
+  .side { flex: 1 1 380px; max-width: 640px; display: flex; flex-direction: column; gap: var(--s-2); }
+  .board { flex: 0 1 620px; background: var(--ink); border: var(--w-frame) solid var(--ink); }
+  .board svg { display: block; width: 100%; height: auto; touch-action: none; user-select: none; }
+  textarea { width: 100%; min-height: 250px; box-sizing: border-box; background: var(--paper); color: var(--ink); border: var(--w-outline) solid var(--ink); font-family: var(--font-text); font-size: var(--t-1); padding: var(--s-2); }
+  select, input[type=checkbox] { accent-color: var(--amber); }
+  select { background: var(--paper); color: var(--ink); border: var(--w-outline) solid var(--ink); font-family: var(--font-text); font-size: var(--t-2); padding: 2px var(--s-1); }
+  .controls { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; }
+  .key.small { min-width: 0; height: 36px; font-size: var(--t-1); }
+  ol.events { margin: 0; padding-left: 2.2em; font-size: var(--t-1); max-height: 300px; overflow: auto; background: rgba(30,36,32,0.5); }
+  ol.events li { max-width: none; word-break: break-word; }
+  .lines p { margin: 0; }
+  .shots { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  figure { margin: 0; display: flex; flex-direction: column; gap: var(--s-1); width: 590px; max-width: 100%; }
+  figure img { display: block; border: var(--w-frame) solid var(--ink); max-width: 100%; height: auto; }
+  figcaption { font-size: var(--t-1); }
+  .hexline { stroke: #1E2420; stroke-width: 1.5; }
+  .lab { font-family: var(--font-text); font-size: 9px; fill: #1E2420; opacity: 0.6; pointer-events: none; }
+  .unit { pointer-events: none; }      /* taps and drags go to the hex underneath */
+  #stealthMap { cursor: grab; }
+  .unit text { font-family: var(--font-display); font-size: 13px; fill: #E9DFC6; pointer-events: none; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 12 — Actions as data, and stronger stealth</h1>
+<p>Needs only Vite (<code>npx vite</code>; no game server). Everything live on this page is computed in the page from
+the real modules: <code>ACTIONS</code>, <code>UNITS</code>, <code>TERRAIN</code> from <code>src/content</code>, and
+<code>resolve</code>, <code>orderOptions</code>, <code>validateOrders</code>, <code>visibleEnemies</code>,
+<code>blockingHex</code> from <code>src/rules</code>. The two tables of recorded figures (sections 4 and 5) are from real
+runs on 2026-11-18 and say how to run them again.</p>
+
+<h2>1. Actions and units, as the data has them</h2>
+<p>Generated from <code>ACTIONS</code> and <code>UNITS</code> when the page loads. The rules engine reads these rows
+and nothing else: it has no unit id and no action id in it (see section 4 for the grep).</p>
+<div class="scroll"><table id="actions"></table></div>
+<div class="scroll"><table id="units"></table></div>
+<div class="scroll"><table id="terrain"></table></div>
+
+<h2>2. Sandbox: an action that exists only in this page</h2>
+<p>The action below is defined in this page's own script, not in <code>src/</code>. “Use it” puts it into
+<code>ACTIONS</code> under the id <code>sandbox</code> and gives it, as his special, to a unit type that also exists
+only here (<b>P</b>, the pioneer, Blue). Hexes ringed in amber are where <code>orderOptions</code> says he may use it.
+Tap one: the round is resolved by the real <code>resolve</code>, with Plum's rifleman at G2 ordered to walk one hex
+west in the first round, and the events are listed as the rules gave them. Edit the JSON and press “Use it” to try another action;
+“Flare” and “Shock round” are the task doc's own two examples; “Field dressing” is a third, to show
+<code>needs</code> and <code>affects</code>.</p>
+<div class="bench">
+  <div class="board"><svg id="sandMap" aria-label="Sandbox map"></svg></div>
+  <div class="side">
+    <div class="controls">
+      <button class="key small" id="loadFlare" type="button">Flare</button>
+      <button class="key small" id="loadShock" type="button">Shock round</button>
+      <button class="key small" id="loadSmoke" type="button">Field dressing</button>
+      <button class="key small" id="useIt" type="button">Use it</button>
+      <button class="key small" id="sandReset" type="button">Reset the map</button>
+    </div>
+    <textarea id="actionJson" spellcheck="false" aria-label="The action, as JSON"></textarea>
+    <div class="observed" id="sandSay" role="status"></div>
+  </div>
+  <div class="side">
+    <span class="cap">Report lines, as Blue's client words them</span>
+    <div class="observed lines" id="sandLines">Nothing resolved yet.</div>
+    <span class="cap">Events, the full list from <code>resolve</code></span>
+    <ol class="events" id="sandEvents"></ol>
+    <span class="cap">Units after the round</span>
+    <div class="scroll"><table id="sandUnits"></table></div>
+  </div>
+</div>
+
+<h2>3. Stealth: one watcher, one hider</h2>
+<p>Drag the watcher (<b>W</b>, Blue) and the hider (<b>H</b>, Plum) from hex to hex, with a mouse or a finger. The hider
+is drawn solid when <code>visibleEnemies(state, Blue)</code> returns it, and as a dashed ghost when it does not. Hexes
+tinted amber are the ones a watcher of that type would see the hider from, each asked of the real rules. The words
+under the map are this page's own reading of why, worked out separately from the rules' answer; if the two ever
+disagree the box turns Rust.</p>
+<div class="bench">
+  <div class="board"><svg id="stealthMap" aria-label="Stealth map"></svg></div>
+  <div class="side">
+    <div class="controls">
+      <label>Hider's posture
+        <select id="posture"><option value="still">still (held, ambushed, was pinned)</option><option value="moved">moved, did not dash</option><option value="dashed">dashed</option></select>
+      </label>
+      <label><input type="checkbox" id="revealed" /> revealed (fired last round)</label>
+      <label>Watcher is a
+        <select id="watcherType"></select>
+      </label>
+    </div>
+    <div class="observed" id="stealthSay" role="status"></div>
+    <div class="scroll"><table id="stealthTable"></table></div>
+    <p class="note">Woods are dark green, buildings grey with a roof line, hills a lighter step with their level.
+    Terrain and hills block the line as in the game; the two end hexes never do.</p>
+  </div>
+</div>
+
+<h2>4. Stage A: the game plays exactly as it did</h2>
+<div class="observed">
+<b>50 of 50 seeded matches gave the same digest before and after stage A.</b> Combined digest before:
+<code>4c64e70ddfead1ba</code>. After: <code>4c64e70ddfead1ba</code>. Recorded 2026-11-18.
+</div>
+<p>Method. <code>scripts/seeded.ts</code> plays fifty fixed matches (seeds 1001 to 1050; 2, 3 and 4 players in turn,
+preset squads, every unit a seeded random legal order from <code>orderOptions</code> on its own player's view, leaning
+towards contact) and hashes, for each match, every round's full event list, every player's event list and the final
+state (SHA-256, first 16 hex digits). It was written and run <em>before</em> any rules code was touched, and its output
+saved. After stage A it was run again. The only thing left out of the hash was the new <code>action</code> field on
+the <code>fire</code>, <code>launch</code>, <code>impact</code> and <code>treat</code> events: information added to an
+event, not a change in what happens. The option lists are sorted before a choice is made from them, so the digest does
+not hang on the order <code>orderOptions</code> lists hexes in (that order did change for the medic). The fifty
+matches hold 440 units down, 113 ambushes sprung, 1,645 shots and 34 treatments, so the digest covers all five
+actions.</p>
+<p>The check is kept as <code>src/rules/digest.test.ts</code>. Stage B then changed the rules on purpose, so the test now
+pins the digests recorded after stage B (combined <code>b26a7704205b4e3a</code>; the comment in the file keeps the stage A
+history) and leaves nothing out of the hash.</p>
+<p>The grep the task asks for, run on the finished code
+(<code>grep -rn "rifleman\|gunner\|sniper\|mortar\|medic\|treat" src/rules --include=*.ts</code>, tests aside),
+finds eight lines: seven are the phase names <code>'treat'</code> and <code>'mortar'</code> as <code>Phase</code>
+values in <code>resolve.ts</code>, and one is the event type <code>t: 'treat'</code>, emitted by the
+<code>recover</code> effect inside the effects table (<code>src/rules/effects.ts</code>). No unit id and no action id.</p>
+
+<h2>5. Stage B: what changed in play</h2>
+<p>For the designer's tuning, not a pass or fail. Two sets of matches, each played on the code as it stood after
+stage A (“before”) and on the finished code (“after”), 2026-11-18. The players are random, not clever: they do not
+know how to use stealth, so these figures show how much the new rule changes a game by itself, not how much a
+player could get out of it.</p>
+<div class="scroll"><table id="figures"></table></div>
+<p class="note">Scripted: <code>npx tsx scripts/seeded.ts --figures 300</code>, seeds 1001 to 1300, straight through the
+rules. Bots: <code>npm run bots -- --matches 300 --seed 12012</code>, over real sockets against the real server.
+“Before” was run from a copy of the repository taken after stage A. A match plays differently from the first round in
+which the two rules differ, so the same seed is the same squads and the same dice for the players, not the same match.
+“In cover, in line” counts, at each planning moment, enemy units standing in woods or a building with one of the
+player's units in sight range and a clear line: the units only stealth can hide.</p>
+<div class="observed">
+<b>What the figures say.</b> Next to nothing moves: units down, ambushes and score per match are within a few percent.
+The reason is in the rule itself. Before, any unit in woods or a building was seen from 2 hexes. Now a unit that
+<em>moved</em> there is still seen from 2 (no change), one that <em>kept still</em> is seen from 1 (harder to see), and
+one that <em>dashed</em> is seen at any distance (easier to see than before). For players who move at random the last
+two cancel. The rule's weight falls on a player who chooses to hold still, which random players do not do on purpose.
+</div>
+<p><b>Do the fog checks still bite?</b> In a scratch copy of the repository (never in the repository), six ways of
+breaking the new rule were each tried against <code>npm test</code> and 60 bot matches:</p>
+<div class="scroll"><table id="mutations"></table></div>
+
+<h2>6. The field manual</h2>
+<p>The two changed lessons and the new one, in the real manual (the numbers in their texts are read from
+<code>TERRAIN</code>):
+<a href="/?manual=stealth" target="_blank" rel="noopener">Stealth</a>,
+<a href="/?manual=creep" target="_blank" rel="noopener">Creeping and running</a> (new),
+<a href="/?manual=reveal" target="_blank" rel="noopener">Giving the position away</a>.
+Checked now, in this page, by running each through the rules:</p>
+<div class="observed" id="lessonSay" role="status">Running…</div>
+<div class="shots">
+  <figure><img src="/eval/assets/12/manual-stealth-2.png" alt="Stealth lesson, end" /><figcaption>Stealth, as Blue, at the end: next to the woods the man in them is seen. One step earlier, two hexes off, he was not.</figcaption></figure>
+  <figure><img src="/eval/assets/12/manual-creep-2.png" alt="Creep lesson as Blue" /><figcaption>Creeping and running, as Blue, movement phase: the runner is on the board at D1. The man who crept to C1, the same three hexes from the watcher, is not.</figcaption></figure>
+  <figure><img src="/eval/assets/12/manual-creep-as-umpire.png" alt="Creep lesson as umpire" /><figcaption>The same moment as the umpire, who sees both; the closing line says who Blue sees.</figcaption></figure>
+</div>
+
+<h2>7. Seen in the real client</h2>
+<p>One match against the real server (port 8080), 2026-11-18. Seat 1 (“Ann”, Blue) was the real client in headless
+Chromium at 1180 × 800, every action a real mouse press at a pixel: name, join, the builder's − and + keys, lever,
+Start, unit cards, order chits, hexes on the map (found by tapping a grid and reading what the report strip said was
+there), lever. Seat 2 (“Bo”, Plum) was a script speaking the protocol, with orders written beforehand so that its men
+would do one thing each in front of Blue's rifleman, Pvt. Hale. What Blue's client showed, round by round (report
+lines copied from its log; “asked” is a tap on the hex with nothing selected):</p>
+<div class="scroll"><table id="rounds"></table></div>
+<div class="shots">
+  <figure><img src="/eval/assets/12/play-00-lobby-roster.png" alt="Builder" /><figcaption>The squad builder: under each unit's blurb, its action from the data, with range.</figcaption></figure>
+  <figure><img src="/eval/assets/12/play-r1-play-01.png" alt="Round 1 playback" /><figcaption>Round 1, playing back. Chit labels and card lines come from the actions (“Mortar F1”). The machine gun's burst at D3, ordered with the own-fire warning and a second tap, is on its way to pin Blue's own rifleman; the mortar round is going up.</figcaption></figure>
+  <figure><img src="/eval/assets/12/play-r1-play-03.png" alt="Round 1 mortar lands" /><figcaption>Round 1, mortars phase: “Mortar lands at F1”. Hale lies pinned at C3.</figcaption></figure>
+  <figure><img src="/eval/assets/12/play-r2-play-00.png" alt="Round 2 treat" /><figcaption>Round 2: “Pvt. Cobb: treat on Pvt. Hale. Back up.” Hale's own order (Dash A6) then runs.</figcaption></figure>
+  <figure><img src="/eval/assets/12/play-r5-plan.png" alt="Round 5 plan" /><figcaption>Planning round 5. Hale lies in the woods at A6: his card says “hidden”. Bo's man has just crept onto objective C (D6), three hexes off with a clear line. Nothing is drawn there, and the log said only “Bo scores. +2.”</figcaption></figure>
+  <figure><img src="/eval/assets/12/play-r6-plan.png" alt="Round 6 plan" /><figcaption>Planning round 6. Hale stepped out to B6 (“exposed”); Bo's man crept from D6 to D5, two hexes away, and is on the board.</figcaption></figure>
+  <figure><img src="/eval/assets/12/play-r7-plan.png" alt="Round 7 plan" /><figcaption>Planning round 7. The man at D5 kept still: two hexes away, clear line, not drawn. A second man dashed into D6 and is drawn; “Objective C held by Bo. +2.”</figcaption></figure>
+  <figure><img src="/eval/assets/12/play-r8-plan.png" alt="Round 8 plan" /><figcaption>Planning round 8. Hale crept into the woods at C5 (“creeping”), next to D5: the man lying there is seen. The one in D6, still since his dash and two hexes off, is not; “Bo scores. +2.”</figcaption></figure>
+  <figure><img src="/eval/assets/12/play-r9-plan.png" alt="Round 9 plan" /><figcaption>Planning round 9. The man in D6 fired at Hale and is drawn; Hale fired too and reads “exposed”. Both hits were stopped by cover.</figcaption></figure>
+  <figure><img src="/eval/assets/12/play-r10-plan.png" alt="Round 10 plan" /><figcaption>Planning round 10. Nobody fired in round 9: the man in D6 is gone from the board again, and Hale is “hidden”.</figcaption></figure>
+</div>
+
+<h2>8. Where it differs from the task doc, and what was not done</h2>
+<ul id="departures"></ul>
+</main>
+
+<script type="module">
+  import { ACTIONS, UNITS, TERRAIN } from '/src/content/index.ts';
+  import { actionOf, blockingHex, orderOptions, resolve, spots, validateOrders, viewFor, visibleEnemies } from '/src/rules/index.ts';
+  import { distance, hexToPixel, key, label, offsetToAxial, parseKey, pixelToHex } from '/src/shared/hex.ts';
+  import { teller } from '/src/client/ui/lines.ts';
+  import { LESSONS, checkLesson, runLesson } from '/src/manual/lessons.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const NS = 'http://www.w3.org/2000/svg';
+  const svgEl = (name, attrs = {}, text) => { const e = document.createElementNS(NS, name); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (text !== undefined) e.textContent = text; return e; };
+  const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const INK = css('--ink'), PAPER = css('--paper'), KHAKI = css('--khaki'), OLIVE = css('--olive'), RUST = css('--rust'), AMBER = css('--amber');
+  const SEAT = [css('--p-blue'), css('--p-plum')];
+  const hexes = (n) => (n === 1 ? '1 hex' : `${n} hexes`);
+
+  function table(el, head, rows) {
+    el.replaceChildren();
+    const tr = document.createElement('tr');
+    for (const h of head) { const th = document.createElement('th'); th.textContent = h; tr.append(th); }
+    const thead = document.createElement('thead'); thead.append(tr);
+    const tbody = document.createElement('tbody');
+    for (const row of rows) {
+      const r = document.createElement('tr');
+      for (const c of row) { const td = document.createElement('td'); if (typeof c === 'number') td.className = 'num'; td.textContent = String(c); r.append(td); }
+      tbody.append(r);
+    }
+    el.append(thead, tbody);
+  }
+
+  // ---------------------------------------------------------------- 1. the data
+  const real = Object.keys(ACTIONS);
+  table($('actions'), ['Action', 'Name', 'Icon', 'Phase', 'Range', 'Sight', 'Target hex needs', 'Affects', 'Blast', 'Effects', 'Gives user away', 'What the chit strip says'],
+    Object.values(ACTIONS).map((a) => [a.id, a.name, a.icon, a.phase, `${a.minRange} to ${a.range}`, a.sight, a.needs, a.affects, a.blast,
+      a.effects.map((e) => e.kind + (e.ignoresCover ? ' (ignores cover)' : '')).join(', '), a.reveals ? 'yes' : 'no', a.blurb]));
+  table($('units'), ['Unit', 'Cost', 'Max', 'Move', 'Sight', 'Spotting', 'Orders', 'Fire order does', 'Special order does', 'May ambush'],
+    Object.values(UNITS).map((u) => [u.name, u.cost, u.max ?? 'any', u.move, u.sight, u.spotting, u.orders.join(', '),
+      u.fire ? `${u.fire} (“${actionOf(u.id, 'fire')?.name}”)` : 'nothing', u.special ? `${u.special} (“${actionOf(u.id, 'special')?.name}”)` : 'nothing',
+      u.orders.includes('ambush') && actionOf(u.id, 'ambush') ? 'yes' : 'no']));
+  table($('terrain'), ['Terrain', 'Cover (first hit ignored)', 'Blocks sight', 'Hides a still unit beyond', 'Hides a mover beyond'],
+    Object.values(TERRAIN).map((t) => [t.name, t.cover ? 'yes' : 'no', t.blocksSight ? 'yes' : 'no', t.hide ? hexes(t.hide.still) : 'never', t.hide ? hexes(t.hide.moved) : 'never']));
+
+  // ---------------------------------------------------------------- a flat map
+  const SIZE = 30, PAD = 8, W = Math.sqrt(3) * SIZE;
+  function makeMap(id, terrain, elevation) {
+    const rows = terrain.map((l) => l.trim().split(/\s+/));
+    const levels = elevation ? elevation.map((l) => l.trim().split(/\s+/)) : null;
+    const cells = {};
+    rows.forEach((line, row) => line.forEach((ch, col) => {
+      cells[key(offsetToAxial(col, row))] = { terrain: ch === 'w' ? 'woods' : ch === 'b' ? 'building' : 'open', elevation: levels ? Number(levels[row][col].replace('.', '0')) : 0 };
+    }));
+    return { id, name: id, cols: rows[0].length, rows: rows.length, cells, objectives: [], spawns: [], seatSpawns: {}, maxRounds: 12 };
+  }
+  function drawer(svg, map) {
+    const first = hexToPixel(offsetToAxial(0, 0), SIZE);
+    const ox = PAD + W / 2 - first.x, oy = PAD + SIZE - first.y;
+    const width = W * (map.cols + 0.5) + PAD * 2, height = SIZE * (1.5 * (map.rows - 1) + 2) + PAD * 2;
+    svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+    const centre = (h) => { const p = hexToPixel(h, SIZE); return { x: p.x + ox, y: p.y + oy }; };
+    const corners = (c, size) => Array.from({ length: 6 }, (_, i) => { const a = Math.PI / 180 * (60 * i - 30); return `${(c.x + size * Math.cos(a)).toFixed(1)},${(c.y + size * Math.sin(a)).toFixed(1)}`; }).join(' ');
+    const fill = (cell) => (cell.terrain === 'woods' ? OLIVE : cell.terrain === 'building' ? '#8C8A80' : cell.elevation > 0 ? '#CDBF95' : KHAKI);
+    /** The hex under a pointer event, or null off the map. */
+    const hexAt = (e) => {
+      const r = svg.getBoundingClientRect();
+      const h = pixelToHex((e.clientX - r.left) * width / r.width - ox, (e.clientY - r.top) * height / r.height - oy, SIZE);
+      return map.cells[key(h)] ? h : null;
+    };
+    function draw({ tint = new Set(), ring = new Set(), units = [], onTap = null }) {
+      svg.replaceChildren();
+      for (const [k, cell] of Object.entries(map.cells)) {
+        const h = parseKey(k), c = centre(h);
+        const g = svgEl('g');
+        g.append(svgEl('polygon', { points: corners(c, SIZE), fill: fill(cell), class: 'hexline' }));
+        if (cell.terrain === 'building') g.append(svgEl('path', { d: `M${c.x - 11},${c.y + 3} L${c.x},${c.y - 9} L${c.x + 11},${c.y + 3}`, fill: 'none', stroke: INK, 'stroke-width': 2 }));
+        if (tint.has(k)) g.append(svgEl('polygon', { points: corners(c, SIZE - 2), fill: AMBER, 'fill-opacity': 0.38, stroke: 'none' }));
+        if (ring.has(k)) g.append(svgEl('polygon', { points: corners(c, SIZE - 5), fill: 'none', stroke: AMBER, 'stroke-width': 3 }));
+        g.append(svgEl('text', { x: c.x - SIZE * 0.72, y: c.y - SIZE * 0.3, class: 'lab' }, label(h) + (cell.elevation ? ` ↑${cell.elevation}` : '')));
+        if (onTap && ring.has(k)) { g.style.cursor = 'pointer'; g.addEventListener('click', () => onTap(h)); }
+        svg.append(g);
+      }
+      for (const u of units) {
+        const c = centre(u.pos);
+        const g = svgEl('g', { class: 'unit', 'data-unit': u.id });
+        const ghost = u.ghost === true;
+        g.append(svgEl('circle', { cx: c.x, cy: c.y, r: SIZE * 0.52, fill: u.status === 'down' ? '#555' : SEAT[u.owner], 'fill-opacity': ghost ? 0.18 : 1,
+          stroke: u.status === 'pinned' ? RUST : ghost ? PAPER : INK, 'stroke-width': u.status === 'pinned' ? 4 : 2.5, 'stroke-dasharray': ghost ? '5 4' : 'none' }));
+        g.append(svgEl('text', { x: c.x, y: c.y + 5, 'text-anchor': 'middle', 'fill-opacity': ghost ? 0.55 : 1 }, u.mark));
+        if (u.revealed && !ghost) g.append(svgEl('circle', { cx: c.x, cy: c.y, r: SIZE * 0.7, fill: 'none', stroke: AMBER, 'stroke-width': 2, 'stroke-dasharray': '2 3' }));
+        svg.append(g);
+      }
+    }
+    return { draw, hexAt };
+  }
+  const unit = (id, type, at, extra = {}) => ({ id, owner: Number(id[0]), type, name: extra.name ?? id, pos: offsetToAxial(at.charCodeAt(0) - 65, Number(at.slice(1)) - 1),
+    status: 'ready', pinnedRound: null, revealed: false, posture: 'still', ...extra });
+  const state = (map, units) => ({ map, playerCount: 2, units, round: 1, scores: [0, 0], eliminated: [false, false], over: false, winners: [] });
+
+  // ---------------------------------------------------------------- 2. the sandbox
+  const EXAMPLES = {
+    flare: { id: 'sandbox', name: 'Flare', blurb: 'Lights up a hex and the six around it. Whoever is there is seen.', icon: 'flare', phase: 'treat',
+      range: 4, minRange: 1, sight: 'none', needs: 'any', affects: 'all', blast: 1, effects: [{ kind: 'reveal' }], reveals: false },
+    shock: { id: 'sandbox', name: 'Shock round', blurb: 'One heavy round onto a hex he can see. Lands after movement and hits twice.', icon: 'shock', phase: 'mortar',
+      range: 6, minRange: 2, sight: 'own', needs: 'any', affects: 'all', blast: 0, effects: [{ kind: 'hit' }, { kind: 'hit' }], reveals: true },
+    dressing: { id: 'sandbox', name: 'Field dressing', blurb: 'Gets every pinned friendly unit around a pinned one back up, from two hexes off.', icon: 'aid', phase: 'treat',
+      range: 2, minRange: 1, sight: 'none', needs: 'pinned-friend', affects: 'friends', blast: 1, effects: [{ kind: 'recover' }], reveals: false },
+  };
+  UNITS.pioneer = { id: 'pioneer', name: 'Pioneer', rank: 'Spr.', blurb: 'Exists only on this eval page.', cost: 3, max: 1, move: 2, sight: 6, spotting: 0,
+    orders: ['move', 'special'], fire: null, special: 'sandbox' };
+  const sandMap = makeMap('sandbox', ['. . . . w . . . .', '. . . . w . . . .', '. . . . . . . . .']);
+  const sandStart = () => state(sandMap, [
+    unit('0-0', 'pioneer', 'A2', { name: 'Spr. Vane', mark: 'P' }),
+    unit('0-1', 'rifleman', 'B3', { name: 'Pvt. Hale', mark: 'R', status: 'pinned', pinnedRound: 0 }),
+    unit('0-2', 'rifleman', 'C3', { name: 'Pvt. Moss', mark: 'R' }),
+    unit('1-0', 'rifleman', 'E1', { name: 'Pvt. Archer', mark: 'R' }),
+    unit('1-1', 'rifleman', 'E2', { name: 'Pvt. Booth', mark: 'R' }),
+    unit('1-2', 'rifleman', 'G2', { name: 'Pvt. Carr', mark: 'R' }),
+  ]);
+  let sand = sandStart();
+  const sandBoard = drawer($('sandMap'), sandMap);
+  const marks = new Map(sandStart().units.map((u) => [u.id, u.mark]));
+  function drawSand() {
+    const view = viewFor(sand, 0);
+    const seen = new Set(view.units.map((u) => u.id));
+    const options = Object.hasOwn(ACTIONS, 'sandbox') && !sand.over ? new Set(orderOptions(view, '0-0').special) : new Set();
+    sandBoard.draw({ ring: options, onTap: useAt, units: sand.units.map((u) => ({ ...u, mark: marks.get(u.id), ghost: !seen.has(u.id) })) });
+    table($('sandUnits'), ['Unit', 'At', 'Status', 'Posture', 'Revealed', 'Blue sees it'],
+      sand.units.map((u) => [`${u.owner === 0 ? 'Blue' : 'Plum'} ${u.name} (${UNITS[u.type].name.toLowerCase()})`, label(u.pos), u.status, u.posture, u.revealed ? 'yes' : 'no', u.owner === 0 ? 'own' : seen.has(u.id) ? 'yes' : 'no (ghost)']));
+    return options.size;
+  }
+  function load(example) { $('actionJson').value = JSON.stringify(EXAMPLES[example], null, 1); apply(); }
+  function apply() {
+    try {
+      const a = JSON.parse($('actionJson').value);
+      a.id = 'sandbox';
+      ACTIONS.sandbox = a;
+      const n = drawSand();
+      $('sandSay').textContent = `“${a.name}” is in ACTIONS as the pioneer's special. orderOptions offers it on ${hexes(n)} (ringed). Tap one.`;
+      $('sandSay').classList.remove('bad');
+    } catch (e) {
+      $('sandSay').textContent = `That is not an action the page can read: ${e.message}`;
+      $('sandSay').classList.add('bad');
+    }
+  }
+  function useAt(hex) {
+    const before = sand;
+    const carr = before.units.find((u) => u.id === '1-2');
+    const walks = carr.status === 'ready' && label(carr.pos) === 'G2';      // only from where he starts
+    const orders = [[{ unit: '0-0', kind: 'special', target: hex }], walks ? [{ unit: '1-2', kind: 'move', path: [offsetToAxial(5, 1)] }] : []];
+    const problems = [0, 1].flatMap((p) => validateOrders(before, p, orders[p]));
+    const result = resolve(before, orders);
+    sand = result.state;
+    drawSand();
+    const lines = teller(viewFor(before, 0), ['Blue', 'Plum']).tell(result.playerEvents[0]);
+    $('sandLines').replaceChildren(...(lines.length ? lines : [{ text: '(nothing Blue would be told)' }]).map((l) => { const p = document.createElement('p'); p.textContent = l.text; if (l.danger) p.style.color = AMBER; return p; }));
+    $('sandEvents').replaceChildren(...result.events.map((e) => { const li = document.createElement('li'); li.textContent = JSON.stringify(e); return li; }));
+    $('sandSay').textContent = `Round ${before.round} resolved with “${ACTIONS.sandbox.name}” at ${label(hex)}${problems.length ? `; validateOrders objected: ${problems.map((p) => p.reason).join(', ')}` : '; validateOrders had no objection'}. Tap another ringed hex for the next round, or reset.`;
+    $('sandSay').classList.toggle('bad', problems.length > 0);
+  }
+  $('loadFlare').addEventListener('click', () => load('flare'));
+  $('loadShock').addEventListener('click', () => load('shock'));
+  $('loadSmoke').addEventListener('click', () => load('dressing'));
+  $('useIt').addEventListener('click', apply);
+  $('sandReset').addEventListener('click', () => { sand = sandStart(); $('sandEvents').replaceChildren(); $('sandLines').textContent = 'Nothing resolved yet.'; apply(); });
+  load('flare');
+
+  // ---------------------------------------------------------------- 3. stealth
+  const stealthMap = makeMap('stealth', [
+    '. . . . . . . . . .',
+    '. . w w . . . b . .',
+    '. . w w . . . b . .',
+    '. . . . . . . . . .',
+    '. . . . . w . . . .',
+    '. w . . . . . . w .',
+    '. . . . . . . . . .',
+  ], [
+    '. . . . . . . . . .',
+    '. . . . . . . . . .',
+    '. . . . . . . . . .',
+    '. . . . . . 1 . . .',
+    '. . . . . . 1 . . .',
+    '. . . . . . . . . .',
+    '. . . . . . . . . .',
+  ]);
+  const stealthBoard = drawer($('stealthMap'), stealthMap);
+  const pieces = { W: offsetToAxial(2, 4), H: offsetToAxial(5, 4) };     // C5 and the lone wood at F5: three hexes, clear line
+  for (const u of Object.values(UNITS)) if (u.id !== 'pioneer') { const o = document.createElement('option'); o.value = u.id; o.textContent = `${u.name.toLowerCase()} (sight ${u.sight}, spotting ${u.spotting})`; $('watcherType').append(o); }
+  function drawStealth() {
+    const posture = $('posture').value, revealed = $('revealed').checked, type = $('watcherType').value;
+    const watcher = unit('0-0', type, 'A1', { pos: pieces.W, mark: 'W' });
+    const hider = unit('1-0', 'rifleman', 'A1', { pos: pieces.H, mark: 'H', posture, revealed });
+    const s = state(stealthMap, [watcher, hider]);
+    const seen = visibleEnemies(s, 0).some((u) => u.id === hider.id);         // the rules' answer
+    // Where a watcher of this type would see the hider from: every hex, asked of the rules.
+    const from = new Set(Object.keys(stealthMap.cells).filter((k) => k !== key(hider.pos) && spots(stealthMap, { ...watcher, pos: parseKey(k) }, hider)));
+    stealthBoard.draw({ tint: from, units: [{ ...watcher }, { ...hider, ghost: !seen }] });
+
+    // The page's own reading of the rule, in words.
+    const def = UNITS[type], d = distance(watcher.pos, hider.pos);
+    const cell = stealthMap.cells[key(hider.pos)], terrain = TERRAIN[cell.terrain];
+    const ground = cell.terrain === 'building' ? 'a building' : terrain.name.toLowerCase();
+    const block = d === 0 ? null : blockingHex(stealthMap, watcher.pos, hider.pos);
+    const rows = [['Distance', hexes(d)], ['Watcher sees', `${hexes(def.sight)}${d > def.sight ? ': too far' : ''}`],
+      ['Line', block ? `blocked at ${label(block)} (${stealthMap.cells[key(block)].terrain}${stealthMap.cells[key(block)].elevation ? `, level ${stealthMap.cells[key(block)].elevation}` : ''})` : 'clear'],
+      ['Hider stands in', `${terrain.name.toLowerCase()}${terrain.hide ? `: hides a still unit beyond ${terrain.hide.still}, a mover beyond ${terrain.hide.moved}` : ': hides nobody'}`]];
+    let why, expect;
+    if (d > def.sight) { expect = false; why = `Not seen: ${hexes(d)} away, and a ${def.name.toLowerCase()} sees ${def.sight}.`; }
+    else if (block) { expect = false; why = `Not seen: the line is blocked at ${label(block)}.`; }
+    else if (!terrain.hide) { expect = true; why = `Seen: in range, line clear, and ${ground} hides nobody.`; }
+    else if (revealed) { expect = true; why = `Seen: it fired last round, so ${ground} does not hide it until the next round begins to resolve.`; }
+    else if (posture === 'dashed') { expect = true; why = `Seen: it dashed, and a runner is seen as if in the open.`; }
+    else {
+      const near = (posture === 'moved' ? terrain.hide.moved : terrain.hide.still) + def.spotting;
+      expect = d <= near;
+      why = `${expect ? 'Seen' : 'Not seen'}: a unit that ${posture === 'moved' ? 'moved' : 'kept still'} in ${ground} is seen from ${hexes(near)} or closer${def.spotting ? ` (with this watcher's spotting of ${def.spotting})` : ''}, and this one is ${hexes(d)} away.`;
+    }
+    rows.push(['visibleEnemies returns the hider', seen ? 'yes: drawn solid' : 'no: drawn as a ghost']);
+    table($('stealthTable'), ['', ''], rows);
+    const agree = expect === seen;
+    $('stealthSay').textContent = agree ? why : `The rules and this page disagree. The rules say ${seen ? 'seen' : 'not seen'}; the page's reading: ${why}`;
+    $('stealthSay').classList.toggle('bad', !agree);
+    $('stealthSay').dataset.seen = String(seen);
+  }
+  let dragging = null;
+  $('stealthMap').addEventListener('pointerdown', (e) => {
+    const h = stealthBoard.hexAt(e);
+    if (!h) return;
+    dragging = key(h) === key(pieces.H) ? 'H' : key(h) === key(pieces.W) ? 'W' : null;
+    if (dragging) { $('stealthMap').setPointerCapture(e.pointerId); e.preventDefault(); }
+  });
+  $('stealthMap').addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const h = stealthBoard.hexAt(e);
+    const other = dragging === 'H' ? pieces.W : pieces.H;
+    if (!h || key(h) === key(other) || key(h) === key(pieces[dragging])) return;
+    pieces[dragging] = h;
+    drawStealth();
+  });
+  for (const t of ['pointerup', 'pointercancel']) $('stealthMap').addEventListener(t, () => { dragging = null; });
+  for (const id of ['posture', 'revealed', 'watcherType']) $(id).addEventListener('change', drawStealth);
+  drawStealth();
+
+  // ---------------------------------------------------------------- 5. recorded figures (real runs, 2026-11-18)
+  const F = {   // scripts/seeded.ts --figures 300, per match; [before, after]
+    'Scripted, all 300': { down: [8.58, 8.62], amb: [2.18, 2.33], score: [26.62, 26.53], top: [14.55, 14.54], shots: [31.19, 30.82], hits: [27.34, 27.0], inView: [57.23, 55.62], lurk: [26.26, 25.15], lurkSeen: [14.88, 15.06] },
+    'Scripted, 2 players (100)': { down: [4.18, 4.15], amb: [1.23, 1.27], score: [22.67, 22.42], top: [14.98, 15.0], shots: [18.87, 18.65], hits: [12.64, 12.44], inView: [18.59, 18.74], lurk: [6.92, 6.71], lurkSeen: [3.35, 3.6] },
+    'Scripted, 3 players (100)': { down: [8.41, 8.41], amb: [2.25, 2.3], score: [26.76, 26.37], top: [14.42, 14.23], shots: [31.19, 31.02], hits: [26.53, 26.04], inView: [54.53, 52.61], lurk: [24.77, 23.7], lurkSeen: [13.37, 13.68] },
+    'Scripted, 4 players (100)': { down: [13.16, 13.29], amb: [3.06, 3.41], score: [30.43, 30.79], top: [14.26, 14.39], shots: [43.51, 42.8], hits: [42.84, 42.51], inView: [98.56, 95.5], lurk: [47.09, 45.05], lurkSeen: [27.91, 27.91] },
+    'Bots over sockets, all 300': { down: [6.56, 6.61], amb: [1.49, 1.64], score: [14.28, 14.02], hits: [20.79, 20.72] },
+    'Bots, 2 players (100)': { down: [3.12, 3.15], amb: [0.38, 0.38], score: [12.95, 12.75], hits: [10.76, 10.84] },
+    'Bots, 3 players (100)': { down: [7.05, 7.0], amb: [1.41, 1.46], score: [13.87, 13.71], hits: [21.67, 21.5] },
+    'Bots, 4 players (100)': { down: [9.5, 9.67], amb: [2.68, 3.09], score: [16.01, 15.61], hits: [29.93, 29.81] },
+  };
+  const pair = (p) => (p ? `${p[0]} → ${p[1]}` : '–');
+  table($('figures'), ['Per match: before → after', 'Units down', 'Ambushes sprung', 'Score, all players', 'Winning score', 'Shots', 'Hits', 'Enemies in view when planning', 'In cover, in line', '…of those, seen'],
+    Object.entries(F).map(([name, f]) => [name, pair(f.down), pair(f.amb), pair(f.score), pair(f.top), pair(f.shots), pair(f.hits), pair(f.inView), pair(f.lurk), pair(f.lurkSeen)]));
+  table($('mutations'), ['The rule, broken', 'npm test', 'Bots, 60 matches'], [
+    ['Posture ignored: a mover is hidden like a still unit', '13 tests fail (sight table, resolve, lessons, property test, digest)', 'fail: views leave out enemies an own unit can see'],
+    ['A unit that dashed stays hidden', '10 tests fail', 'fail: views leave out enemies an own unit can see'],
+    ['A still unit seen from the mover\'s distance (the old rule)', '14 tests fail', 'fail: views hold enemies no own unit can see'],
+    ['Every score names its objective', '6 tests fail', 'fail: score names an objective whose holder the seat does not know of'],
+    ['Posture never reset when a round begins', '5 tests fail', 'fail: events and next view disagree on posture'],
+    ['An ambusher fires at what any friend sees', '2 tests fail (one resolve test, and the digest)', 'pass: a bot cannot tell from its own view; only the unit test catches this one'],
+  ]);
+
+  // ---------------------------------------------------------------- 6. the three lessons, checked now
+  {
+    const out = ['stealth', 'creep', 'reveal'].map((id) => {
+      const l = LESSONS.find((x) => x.id === id);
+      if (!l) return `${id}: no such lesson`;
+      const failed = checkLesson(l, runLesson(l));
+      return `${l.title}: ${failed.length === 0 ? `holds (${l.expect.length} of ${l.expect.length})` : failed.join(' ')}`;
+    });
+    $('lessonSay').textContent = `${out.join(' · ')}. ${LESSONS.length} lessons in the manual.`;
+    $('lessonSay').classList.toggle('bad', out.some((o) => !o.includes('holds')));
+  }
+
+  // ---------------------------------------------------------------- 7. the real match, as Blue's client told it
+  table($('rounds'), ['Round', 'What happened', 'Blue\'s report lines', 'Asked of the map afterwards', 'Hale\'s card'], [
+    [1, 'Rifle at D4, machine gun at D3 (covers Hale; second tap), sniper at F1, mortar at F1.', 'Pvt. Hale: fire at D4. / Cpl. Barlow: fire at D3. / Pvt. Calder: fire at F1. / Cpl. Dunn: mortar. Rounds in the air. / Pvt. Hale pinned at C3. / Mortar lands at F1.', '', 'exposed, pinned'],
+    [2, 'Medic treats Hale; Hale, back up, dashes to the woods at A6. Gunner ambushes.', 'Pvt. Cobb: treat on Pvt. Hale. Back up.', '', 'exposed (he dashed)'],
+    [3, 'Everyone holds.', '(none)', '', 'hidden'],
+    [4, 'Bo\'s man creeps D7 → D6, onto objective C: 3 hexes from Hale, clear line.', 'Bo scores. +2.', 'D6: building … objective C (no unit)', 'hidden'],
+    [5, 'Hale steps to B6. Bo\'s man creeps D6 → D5: 2 hexes away.', 'Bo\'s rifleman spotted at D5.', 'D5: Bo\'s rifleman at D5.', 'exposed (open ground)'],
+    [6, 'The man in D5 keeps still. A second man dashes E7 → D6.', 'Bo\'s rifleman lost from sight. / Bo\'s rifleman spotted at D6. / Objective C held by Bo. +2.', 'D5: building … (no unit). D6: Bo\'s rifleman at D6.', 'exposed'],
+    [7, 'Hale creeps into the woods at C5, next to D5. The man in D6 keeps still.', 'Bo\'s rifleman lost from sight. / Bo\'s rifleman spotted at D5. / Bo scores. +2.', 'D5: Bo\'s rifleman at D5. D6: building … objective C (no unit).', 'creeping'],
+    [8, 'Hale fires at D5. The man in D6 fires at Hale.', 'Pvt. Hale: fire at D5. / Bo\'s rifleman spotted at D6. / Bo\'s rifleman: fire at C5. / Bo\'s rifleman hit at D5. Cover holds. / Pvt. Hale hit at C5. Cover holds. / Objective C held by Bo. +2.', 'D6: Bo\'s rifleman at D6. D5: Bo\'s rifleman at D5.', 'exposed (he fired)'],
+    [9, 'Everyone holds.', 'Bo\'s rifleman lost from sight. / Bo scores. +2.', 'D6: building … objective C (no unit).', 'hidden'],
+  ]);
+
+  // ---------------------------------------------------------------- 8. departures
+  const departures = [
+    ['Two new event types, not none.', 'The task doc says to keep the existing event types. They are all kept, with their old meaning; but two things change state that no existing event could carry, and the rule that a player\'s events add up to their next view (checked by the property test and the bots) needs them: <code>reveal</code> (a unit given away by an action other than its own shot: the <code>reveal</code> effect, or a revealing action in the quiet first phase) and <code>dash</code> (a unit breaks into a run at the start of the fire phase: its posture is <code>dashed</code> from then, before it has taken a step, and even if it is blocked or shot). Neither is ever emitted by today\'s five actions except <code>dash</code>, which the UI ignores (no line, no effect).'],
+    ['<code>treat</code> stays, as the report of a <code>recover</code> effect.', 'It cannot announce a treat-phase action in general (its target is a unit, not a hex), and it does not try to: it says “this unit\'s action got that unit back up” and now carries the action id. A treat-phase action is not announced as a shot is; each effect reports on each unit it changes (<code>treat</code>, <code>hit</code>, <code>reveal</code>). That keeps today\'s event stream exactly, and it is why a flare over empty ground shows nothing.'],
+    ['Action ids are <code>rifle</code>, <code>burst</code>, <code>snipe</code>, <code>shell</code>, <code>aid</code>.', 'Not <code>mortar</code> and <code>treat</code>, so that a grep of the rules for unit and action names can only find the two phase names.'],
+    ['The mortar team\'s fire chit now reads “Mortar”.', 'Chit labels come from the action\'s <code>name</code>. The three direct-fire weapons are all named “Fire”; the mortar\'s action is named “Mortar” so that its report lines (“Mortar lands at F1”) can name it without a line written for it.'],
+    ['Report lines changed wording.', 'To name the action from data they are built as “who: action at hex”: “Pvt. Hale: fire at D4” (was “Pvt. Hale fires at D4”), “Cpl. Dunn: mortar. Rounds in the air.”, “Mortar lands at F1.” (was “Mortar rounds land at F1”), “Pvt. Cobb: treat on Pvt. Hale. Back up.” (was “Pvt. Hale treated by Pvt. Cobb. Back up.”). “Fire on F4 from out of sight.” is unchanged.'],
+    ['Treat legality is unchanged, and <code>pinned-friend</code> is unused by the five actions.', 'Treat has <code>needs: \'friend\'</code>: any friendly unit that is not down, as before; only a pinned one is helped. The refusal reason is now the general “no friendly unit there” or “target is out of range”.'],
+    ['<code>orderOptions().kinds</code> leaves out an order the unit has no action for.', 'Same list as before for the five units. A unit whose <code>fire</code> action lands in the mortar phase is not offered Ambush even if <code>orders</code> lists it.'],
+    ['Posture is reset for everyone when a round begins to resolve.', 'The task doc\'s sentence can be read as “units with a move order keep last round\'s posture until their first step”. The reading taken is the one its table needs (a unit that was told to move and was blocked or pinned “stayed still”): everyone is <code>still</code> at the start of the round, then <code>dashed</code> at the fire phase or <code>moved</code> at the first step. A side effect: a unit that creeps every round, 2 hexes from a watcher, drops out of sight for the treat and fire phases and is spotted again on its first step.'],
+    ['Three functions added to <code>src/rules/index.ts</code>.', '<code>actionOf</code> (which action an order means; used by the client, the manual and this page), <code>hideRange</code> (used by the unit card\'s word) and <code>spots</code> (one unit\'s own eyes; used by the ambush rule and this page). Nothing that was exported changed.'],
+    ['The plan gained a short “Actions” paragraph in its Rules section', 'beside the rewritten Sight paragraph, types block and content exports the task doc asks for.'],
+    ['The pinned digest test was re-recorded after stage B.', 'It could not stay pinned to stage A\'s values: stage B changes what happens. The stage A comparison is the one in section 4.'],
+    ['A score\'s value can still give the objective away.', 'As the task doc has it, scores stay public and only the name is withheld. On Crossroads D is the only objective worth 3, and C and E the only ones worth 2, so “Bo scores. +3.” says where Bo is. Not changed (objective values are out of scope); noted for the designer.'],
+    ['Eval page 11 says “sixteen lessons” in its text.', 'Two words there were changed to say seventeen and five; its table is computed and already showed the new lesson.'],
+    ['Not done: a real phone, a real second person.', 'The match in section 7 is one real client and one scripted seat. Nobody has yet played the new stealth against a person.'],
+  ];
+  $('departures').replaceChildren(...departures.map(([head, body]) => { const li = document.createElement('li'); li.innerHTML = `<b>${head}</b> ${body}`; return li; }));
+  void real;
+</script>
+</body>
+</html>

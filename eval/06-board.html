@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Eval 06 — Board</title>
+<style>
+  @font-face { font-family: 'Stardos Stencil'; src: url('/docs/design/fonts/StardosStencil-Bold.ttf'); font-weight: 700; }
+  @font-face { font-family: 'Courier Prime'; src: url('/docs/design/fonts/CourierPrime-Regular.ttf'); }
+  @font-face { font-family: 'Courier Prime'; src: url('/docs/design/fonts/CourierPrime-Bold.ttf'); font-weight: 700; }
+  :root {
+    --ink: #1E2420; --paper: #E9DFC6; --khaki: #B7A77A; --olive: #5E6B45;
+    --slate: #3D4F5C; --rust: #9A4B32; --amber: #E8A23A;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--slate); color: var(--paper);
+               font: 14px/1.3 'Courier Prime', 'Courier New', monospace; }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  .kit { position: fixed; left: 8px; top: 8px; max-width: calc(100vw - 16px); background: var(--olive);
+         border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); padding: 4px 8px 8px; }
+  .kit h1 { font: 700 12px 'Stardos Stencil', 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase;
+            color: var(--ink); margin: 0 0 4px; display: flex; justify-content: space-between; gap: 16px; cursor: pointer; }
+  .kit.shut .rows { display: none; }
+  .row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; }
+  .row span { font: 700 12px 'Stardos Stencil', 'Courier New', monospace; letter-spacing: 0.08em; text-transform: uppercase;
+              color: var(--ink); width: 44px; }
+  button { font: 700 12px 'Stardos Stencil', 'Courier New', monospace; letter-spacing: 0.06em; text-transform: uppercase;
+           background: var(--khaki); color: var(--ink); border: 2px solid var(--ink); border-radius: 2px;
+           min-height: 40px; min-width: 40px; padding: 4px 8px; box-shadow: 2px 2px 0 var(--ink); cursor: pointer; }
+  button.on { background: var(--amber); box-shadow: none; transform: translate(2px, 2px); }
+  #readout { position: fixed; left: 8px; right: 8px; bottom: 8px; background: var(--ink); color: var(--paper);
+             border: 2px solid var(--ink); border-left: 6px solid var(--amber); padding: 8px; pointer-events: none; }
+  #readout b { font-family: 'Stardos Stencil', 'Courier New', monospace; letter-spacing: 0.08em; color: var(--amber); }
+  #error { position: fixed; left: 8px; right: 8px; top: 40%; color: #fff; background: var(--rust); padding: 8px; display: none; z-index: 9; }
+  .pin { position: fixed; width: 21px; height: 21px; margin: -10px 0 0 -10px; pointer-events: none;
+         background: linear-gradient(#fff, #fff) center / 21px 1px no-repeat, linear-gradient(#fff, #fff) center / 1px 21px no-repeat;
+         mix-blend-mode: difference; }
+  body.bare .kit, body.bare #readout { display: none; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div class="kit" id="kit">
+  <h1 id="kit-title"><span>Eval 06 · Board</span><span id="fold">–</span></h1>
+  <div class="rows">
+    <div class="row" id="views"><span>View</span></div>
+    <div class="row" id="marks"><span>Marks</span></div>
+    <div class="row" id="extra"><span>Kit</span></div>
+  </div>
+</div>
+<div id="readout">Drag to pan, wheel or pinch to zoom, tap a hex.</div>
+<div id="error"></div>
+
+<script type="module">
+  // The real board and kit, fed hand-made views of the real map. No server, no rules.
+  //
+  // State can be set from the URL, for screenshots:
+  //   ?view=full|fog|status|empty   &marks=all | select,path,dash,target,ambush,options
+  //   &kit=crude   &unknown=1   &focus=G6   &bare=1 (hide the controls)   &snap=1 (see the end)
+  //   &sim=...  scripted input through the board's real pointer handlers, comma separated:
+  //     tap:x:y   drag:x1:y1:x2:y2   wheel:x:y:deltaY   pinch:x1:y1:x2:y2:x3:y3
+  //     (pinch: one finger rests at x1,y1; the other moves from x2,y2 to x3,y3)
+  import * as THREE from 'three';
+  import { createBoard } from '/src/client/render/index.ts';
+  import { lowpolyKit, loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
+  import { MAPS, DEFAULT_MAP, PRESETS, NAMES, UNITS } from '/src/content/index.ts';
+  import { key, parseKey, label, within, offsetToAxial, distance } from '/src/shared/hex.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const showError = (m) => { $('error').style.display = 'block'; $('error').textContent = 'Error: ' + m; };
+  window.addEventListener('error', (e) => showError(e.message));
+  window.addEventListener('unhandledrejection', (e) => showError(String(e.reason)));
+
+  const params = new URLSearchParams(location.search);
+  const map = MAPS[DEFAULT_MAP];
+  const allHexes = Object.keys(map.cells);
+  const at = (col, row) => offsetToAxial(col, row);
+
+  // ---- hand-made views
+
+  let serial = 0;
+  const mkUnit = (owner, index, type, pos, status = 'ready') => ({
+    id: `${owner}-${index}`, owner, type, name: `${UNITS[type]?.rank ?? '??'} ${NAMES[serial++ % NAMES.length]}`,
+    pos, status, pinnedRound: status === 'pinned' ? 1 : null, revealed: false,
+  });
+  const mkView = (units, visible, theMap = map) => ({
+    player: 0, map: theMap, playerCount: 4, round: 1, maxRounds: theMap.maxRounds,
+    units, visible, scores: [0, 0, 0, 0], eliminated: [false, false, false, false], over: false, winners: [],
+  });
+
+  const squads = [PRESETS[0], PRESETS[1], PRESETS[2], PRESETS[0]];
+  const VIEWS = {
+    // Four squads on their start lines, everything in sight.
+    full() {
+      const units = [];
+      squads.forEach((preset, owner) => preset.units.forEach((type, i) => {
+        units.push(mkUnit(owner, i, type, map.spawns[owner][i]));
+      }));
+      return mkView(units, allHexes);
+    },
+    // Seat 0 in the north-west corner: sight drawn by hand as "within 4 hexes of a
+    // friend" (the real line-of-sight rule is task 03), plus two enemies caught in it.
+    fog() {
+      const units = squads[0].units.map((type, i) => mkUnit(0, i, type, map.spawns[0][i]));
+      units[0].pos = at(4, 3);
+      units[1].pos = at(3, 4);
+      const seen = new Set();
+      for (const u of units) for (const h of within(u.pos, 4)) if (map.cells[key(h)]) seen.add(key(h));
+      units.push(mkUnit(1, 0, 'rifleman', at(6, 3)), mkUnit(2, 1, 'gunner', at(5, 6), 'pinned'));
+      return mkView(units, [...seen]);
+    },
+    // Every type for every seat, cycling through the three statuses.
+    status() {
+      const types = Object.keys(UNITS);
+      const statuses = ['ready', 'pinned', 'down'];
+      const units = [];
+      for (let owner = 0; owner < 4; owner++) {
+        types.forEach((type, i) => {
+          units.push(mkUnit(owner, i, type, at(2 + i * 2, 2 + owner * 2), statuses[(i + owner) % 3]));
+        });
+      }
+      return mkView(units, allHexes);
+    },
+    empty() {
+      return mkView([], allHexes);
+    },
+  };
+
+  // One terrain id and one unit type the kit has never heard of.
+  function withUnknowns(view) {
+    const cells = { ...map.cells, [key(at(5, 3))]: { terrain: 'marsh', elevation: 0 }, [key(at(7, 7))]: { terrain: 'bunker', elevation: 1 } };
+    const tank = { ...mkUnit(1, 90, 'tank', at(5, 4)), name: 'Unknown type "tank"' };
+    const tank2 = { ...mkUnit(2, 91, 'tank', at(6, 4), 'pinned'), name: 'Unknown type "tank"' };
+    const tank3 = { ...mkUnit(3, 92, 'tank', at(7, 4), 'down'), name: 'Unknown type "tank"' };
+    return { ...view, map: { ...map, cells }, units: [...view.units.filter((u) => ![tank, tank2, tank3].some((t) => key(t.pos) === key(u.pos))), tank, tank2, tank3] };
+  }
+
+  // ---- marks, on fixed hexes that suit the "full" view
+
+  const dashPath = [at(5, 5), at(6, 5), at(7, 5), at(8, 5)];   // straight over the hill: levels 1, 2, 1, 0
+  const MARKS = {
+    select: () => ({ kind: 'select', hex: selected ?? at(2, 2) }),
+    path: () => ({ kind: 'path', from: at(2, 2), path: [at(3, 2), at(4, 2), at(4, 3)], dash: false }),
+    dash: () => ({ kind: 'path', from: at(4, 5), path: dashPath, dash: true }),
+    target: () => ({ kind: 'target', from: at(1, 2), hex: at(6, 3), blast: 1 }),
+    ambush: () => ({ kind: 'ambush', hex: at(2, 1) }),
+    options: () => ({ kind: 'options', hexes: within(at(2, 2), 2).filter((h) => map.cells[key(h)]) }),
+  };
+  for (const m of [MARKS.path(), MARKS.dash()]) {
+    [m.from, ...m.path].reduce((a, b) => { if (distance(a, b) !== 1) throw new Error('eval path is not a chain of neighbours'); return b; });
+  }
+
+  // ---- a deliberately crude second kit: plain prisms and pegs, nothing shared with the first
+
+  function crudeKit() {
+    const mat = (c) => new THREE.MeshLambertMaterial({ color: c, flatShading: true });
+    const TERRAIN = { open: '#7fb069', woods: '#2d6a4f', building: '#c9ada7' };
+    const OWNERS = ['#1d4ed8', '#9333ea', '#0d9488', '#f5f5f4'];
+    const prism = (r, h, c) => new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 6).translate(0, h / 2, 0), mat(c));
+    const puck = (c, r = 0.5, h = 0.12) => new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 16).translate(0, h / 2, 0), new THREE.MeshBasicMaterial({ color: c }));
+    return {
+      tokens: { ...TERRAIN },
+      environment(scene) {
+        scene.background = new THREE.Color('#101418');
+        scene.add(new THREE.AmbientLight('#ffffff', 1.6));
+        const sun = new THREE.DirectionalLight('#ffffff', 2.2);
+        sun.position.set(-3, 6, 4);
+        scene.add(sun);
+      },
+      tile(terrain, elevation) {
+        const g = new THREE.Group();
+        const h = 0.6 + elevation * 0.5;
+        const body = prism(0.96, h, TERRAIN[terrain] ?? '#ff00ff');
+        body.position.y = -0.6;
+        g.add(body);
+        if (terrain === 'woods' || terrain === 'building') {
+          const lump = prism(0.4, terrain === 'woods' ? 0.7 : 0.45, terrain === 'woods' ? '#1b4332' : '#6d6875');
+          lump.position.set(0, elevation * 0.5, -0.45);
+          g.add(lump);
+        }
+        return g;
+      },
+      unit(type, owner) {
+        const object = new THREE.Group();
+        const sides = { rifleman: 4, gunner: 3, sniper: 5, mortar: 8, medic: 16 }[type] ?? 6;
+        const peg = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 0.9, sides).translate(0, 0.45, 0), mat(OWNERS[owner] ?? '#ff00ff'));
+        object.add(peg);
+        return {
+          object,
+          setStatus(s) {
+            peg.scale.y = s === 'ready' ? 1 : s === 'pinned' ? 0.5 : 0.12;
+            peg.material.wireframe = s === 'down';
+          },
+        };
+      },
+      mark(mark, ctx) {
+        const g = new THREE.Group();
+        const drop = (hex, c, r) => { const p = puck(c, r, 0.06); p.position.copy(ctx.hexToWorld(hex)); g.add(p); };
+        if (mark.kind === 'select') drop(mark.hex, '#ffd60a', 0.8);
+        if (mark.kind === 'ambush') drop(mark.hex, '#fb8500', 0.8);
+        if (mark.kind === 'options') mark.hexes.forEach((h) => drop(h, '#ffd60a', 0.2));
+        if (mark.kind === 'path') mark.path.forEach((h, i) => drop(h, mark.dash ? '#fb8500' : '#ffd60a', i === mark.path.length - 1 ? 0.5 : 0.3));
+        if (mark.kind === 'target') within(mark.hex, mark.blast).forEach((h) => drop(h, '#ef233c', key(h) === key(mark.hex) ? 0.6 : 0.3));
+        return g;
+      },
+      objective() {
+        const flag = prism(0.15, 1.6, '#ffd60a');
+        return flag;
+      },
+      fog() {
+        return new THREE.MeshBasicMaterial({ color: '#101418', transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+      },
+    };
+  }
+
+  // ---- state and controls
+
+  let viewName = VIEWS[params.get('view')] ? params.get('view') : 'full';
+  let unknown = params.get('unknown') === '1';
+  let crude = params.get('kit') === 'crude';
+  const want = (params.get('marks') ?? '').split(',').filter(Boolean);
+  const on = new Set(want.includes('all') ? Object.keys(MARKS) : want.filter((m) => MARKS[m]));
+  let selected = null;
+  let board = null;
+  let lastTap = 'Drag to pan, wheel or pinch to zoom, tap a hex.';
+
+  function currentView() {
+    serial = 0;
+    const view = VIEWS[viewName]();
+    return unknown ? withUnknowns(view) : view;
+  }
+  function pushMarks() {
+    board.setMarks([...on].map((m) => MARKS[m]()));
+  }
+  function say() {
+    $('readout').innerHTML = `${lastTap} <br><small>view ${viewName}${unknown ? ' + unknown ids' : ''} · kit ${crude ? 'crude (inline)' : 'lowpoly'} · marks ${[...on].join(', ') || 'none'}</small>`;
+    document.querySelectorAll('button[data-view]').forEach((b) => b.classList.toggle('on', b.dataset.view === viewName));
+    document.querySelectorAll('button[data-mark]').forEach((b) => b.classList.toggle('on', on.has(b.dataset.mark)));
+    $('b-unknown').classList.toggle('on', unknown);
+    $('b-crude').classList.toggle('on', crude);
+  }
+
+  // A new board needs a new canvas: the old one keeps its WebGL context.
+  function build() {
+    board?.dispose();
+    $('stage').replaceChildren(document.createElement('canvas'));
+    const canvas = $('stage').firstChild;
+    board = createBoard(canvas, crude ? crudeKit() : lowpolyKit());
+    board.onHexTap((hex, unit) => {
+      selected = hex;
+      on.add('select');
+      const cell = currentView().map.cells[key(hex)];
+      lastTap = `<b>${label(hex)}</b> ${cell.terrain}, level ${cell.elevation} — ` +
+        (unit ? `${unit.name}, ${UNITS[unit.type]?.name ?? unit.type}, seat ${unit.owner}, ${unit.status}` : 'no unit');
+      pushMarks();
+      say();
+    });
+    board.setView(currentView());
+    pushMarks();
+    say();
+    return canvas;
+  }
+
+  const button = (row, text, attrs, click) => {
+    const b = document.createElement('button');
+    b.textContent = text;
+    Object.assign(b.dataset, attrs.data ?? {});
+    if (attrs.id) b.id = attrs.id;
+    b.addEventListener('click', click);
+    $(row).appendChild(b);
+  };
+  for (const [name, text] of [['full', 'Full sight'], ['fog', 'Fogged'], ['status', 'Statuses'], ['empty', 'Empty']]) {
+    button('views', text, { data: { view: name } }, () => { viewName = name; board.setView(currentView()); say(); });
+  }
+  for (const name of Object.keys(MARKS)) {
+    button('marks', name, { data: { mark: name } }, () => { on.has(name) ? on.delete(name) : on.add(name); pushMarks(); say(); });
+  }
+  button('marks', 'Clear', {}, () => { on.clear(); pushMarks(); say(); });
+  button('extra', 'Unknown ids', { id: 'b-unknown' }, () => { unknown = !unknown; board.setView(currentView()); say(); });
+  button('extra', 'Second kit', { id: 'b-crude' }, () => { crude = !crude; build(); });
+  $('kit-title').addEventListener('click', () => { $('kit').classList.toggle('shut'); $('fold').textContent = $('kit').classList.contains('shut') ? '+' : '–'; });
+  if (params.get('bare') === '1') document.body.classList.add('bare');
+  if (innerWidth < 600) $('kit').classList.add('shut'), $('fold').textContent = '+';
+  window.addEventListener('resize', () => board?.resize());
+
+  // ---- scripted input, sent through the same events a finger or mouse makes
+
+  function simulate(canvas, script) {
+    const fire = (type, id, x, y) => canvas.dispatchEvent(new PointerEvent(type, { pointerId: id, clientX: x, clientY: y, bubbles: true }));
+    const pin = (x, y) => { const d = document.createElement('div'); d.className = 'pin'; d.style.left = x + 'px'; d.style.top = y + 'px'; document.body.appendChild(d); };
+    for (const step of script.split(',')) {
+      const [kind, ...n] = step.split(':');
+      const [a, b, c, d, e, f] = n.map(Number);
+      if (kind === 'tap') { fire('pointerdown', 1, a, b); fire('pointerup', 1, a, b); pin(a, b); }
+      if (kind === 'drag') {
+        fire('pointerdown', 1, a, b);
+        for (let i = 1; i <= 8; i++) fire('pointermove', 1, a + ((c - a) * i) / 8, b + ((d - b) * i) / 8);
+        fire('pointerup', 1, c, d);
+      }
+      if (kind === 'wheel') canvas.dispatchEvent(new WheelEvent('wheel', { clientX: a, clientY: b, deltaY: c, bubbles: true, cancelable: true }));
+      if (kind === 'pinch') {
+        fire('pointerdown', 1, a, b);
+        fire('pointerdown', 2, c, d);
+        for (let i = 1; i <= 8; i++) fire('pointermove', 2, c + ((e - c) * i) / 8, d + ((f - d) * i) / 8);
+        fire('pointerup', 2, e, f);
+        fire('pointerup', 1, a, b);
+      }
+    }
+  }
+
+  await loadKitFonts();
+  const canvas = build();
+  const focus = params.get('focus');
+  if (focus) {
+    const k = allHexes.find((h) => label(parseKey(h)) === focus.toUpperCase());
+    if (k) board.focus(parseKey(k));
+  }
+  if (params.get('sim')) simulate(canvas, params.get('sim'));
+
+  // &snap=1: copy the drawn frame onto a plain 2D canvas laid over the board.
+  // Headless Firefox screenshots leave a WebGL canvas blank; the copy shows the
+  // same pixels. It is taken in the same animation frame as the board's draw.
+  if (params.get('snap') === '1') {
+    board.resize();   // asks the board for a frame; our callback below runs just after it
+    requestAnimationFrame(() => {
+      const copy = document.createElement('canvas');
+      copy.width = canvas.width;
+      copy.height = canvas.height;
+      copy.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none';
+      copy.getContext('2d').drawImage(canvas, 0, 0);
+      $('stage').appendChild(copy);
+    });
+  }
+</script>
+</body>
+</html>

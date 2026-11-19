@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 02 — Content</title>
+<style>
+  @font-face { font-family: 'Stardos Stencil'; src: url('/docs/design/fonts/StardosStencil-Bold.ttf'); font-weight: 700; }
+  @font-face { font-family: 'Courier Prime'; src: url('/docs/design/fonts/CourierPrime-Regular.ttf'); }
+  @font-face { font-family: 'Courier Prime'; src: url('/docs/design/fonts/CourierPrime-Bold.ttf'); font-weight: 700; }
+  :root {
+    --ink: #1E2420; --paper: #E9DFC6; --khaki: #B7A77A; --olive: #5E6B45;
+    --slate: #3D4F5C; --rust: #9A4B32; --amber: #E8A23A;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--slate); color: var(--paper);
+         font: 14px/1.4 'Courier Prime', 'Courier New', monospace; }
+  h1, h2, th, .tag, .num { font-family: 'Stardos Stencil', 'Courier New', monospace; font-weight: 700;
+         text-transform: uppercase; letter-spacing: 0.08em; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 0 0 8px; }
+  p { margin: 0 0 16px; max-width: 80ch; }
+  .layout { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
+  .board { flex: 2 1 560px; min-width: 0; max-width: 900px; background: var(--slate);
+           border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); }
+  svg { display: block; width: 100%; height: auto; }
+  .side { flex: 1 1 280px; max-width: 460px; display: grid; gap: 16px; }
+  .panel { background: var(--ink); border: 2px solid var(--ink); box-shadow: 3px 3px 0 #0006; padding: 8px 16px 16px; min-width: 0; }
+  .panel h2 { color: var(--khaki); border-bottom: 1px solid var(--olive); padding: 4px 0; }
+  .wide { overflow-x: auto; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0; }
+  dt { color: var(--khaki); } dd { margin: 0; }
+  .ok { color: var(--amber); } .bad { color: #E08A6C; font-weight: bold; }
+  table { border-collapse: collapse; width: 100%; }
+  th { font-size: 12px; color: var(--khaki); text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--olive); white-space: nowrap; }
+  td { padding: 4px 8px; border-bottom: 1px solid #ffffff18; vertical-align: top; }
+  td.n { text-align: right; }
+  .blurb { color: var(--khaki); }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0; padding: 0; list-style: none; }
+  .legend li { display: flex; align-items: center; gap: 8px; }
+  .sw { width: 18px; height: 18px; border: 2px solid var(--ink); outline: 1px solid #ffffff30; display: inline-block; }
+  .preset { border-bottom: 1px solid #ffffff18; padding: 8px 0; }
+  .preset b { color: var(--paper); }
+  .preset button { margin-top: 8px; }
+  button { font: inherit; font-weight: 700; background: var(--khaki); color: var(--ink); border: 2px solid var(--ink);
+           border-radius: 2px; min-width: 32px; padding: 4px 8px; box-shadow: 2px 2px 0 #000; cursor: pointer; }
+  button:active { background: var(--amber); box-shadow: none; transform: translate(2px, 2px); }
+  .pick { display: grid; grid-template-columns: 1fr auto auto auto auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .pick .num { font-size: 18px; min-width: 2ch; text-align: center; }
+  .keys { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 16px; }
+  #verdict { border: 2px solid var(--olive); padding: 8px; }
+  #verdict.bad { border-color: var(--rust); color: var(--paper); font-weight: normal; }
+  #verdict ul { margin: 4px 0 0; padding-left: 20px; }
+  #error { color: #fff; background: var(--rust); padding: 8px; display: none; margin-bottom: 16px; }
+  .hexline { stroke: var(--ink); stroke-width: 1.2; }
+  .t { font-family: 'Stardos Stencil', 'Courier New', monospace; font-weight: 700; text-anchor: middle;
+       dominant-baseline: central; pointer-events: none; }
+</style>
+</head>
+<body>
+<h1>Eval 02 — Content</h1>
+<p>Everything below is read from the real <code>src/content/index.ts</code>: the map, the roster, the presets
+and the squad check. Nothing on this page is typed in by hand. Hover a hex for its details.</p>
+<div id="error"></div>
+
+<div class="layout">
+  <div class="board"><svg id="map" xmlns="http://www.w3.org/2000/svg"></svg></div>
+
+  <div class="side">
+    <div class="panel">
+      <h2 id="map-title">Map</h2>
+      <dl id="map-facts"></dl>
+    </div>
+    <div class="panel">
+      <h2>Legend</h2>
+      <ul class="legend" id="legend"></ul>
+    </div>
+    <div class="panel">
+      <h2>Hovered hex</h2>
+      <dl>
+        <dt>Label</dt><dd id="h-label">—</dd>
+        <dt>Terrain</dt><dd id="h-terrain">—</dd>
+        <dt>Elevation</dt><dd id="h-elev">—</dd>
+        <dt>Here</dt><dd id="h-here">—</dd>
+        <dt>Half turn</dt><dd id="h-turn">—</dd>
+      </dl>
+    </div>
+    <div class="panel">
+      <h2>Checks, run live on this page</h2>
+      <dl id="checks"></dl>
+    </div>
+  </div>
+</div>
+
+<div class="layout">
+  <div class="panel wide" style="flex: 2 1 560px;">
+    <h2>Units — from UNITS</h2>
+    <table id="units"></table>
+  </div>
+</div>
+
+<div class="layout">
+  <div class="panel" style="flex: 1 1 320px; max-width: 560px;">
+    <h2>Presets — cost from validateSquad</h2>
+    <div id="presets"></div>
+  </div>
+  <div class="panel" style="flex: 1 1 320px; max-width: 560px;">
+    <h2>Squad picker — live validateSquad</h2>
+    <div id="picker"></div>
+    <div class="keys" id="keys"></div>
+    <div id="verdict"></div>
+  </div>
+  <div class="panel" style="flex: 1 1 240px; max-width: 420px;">
+    <h2>Rules, terrain, names</h2>
+    <dl id="misc"></dl>
+    <h2 style="margin-top: 16px;">Tests</h2>
+    <!-- Pasted from a real `npm test` run. Re-run and update when content changes. -->
+    <div>Vitest: 61 passed, 0 failed, 2 test files (40 of them in <code>src/content/content.test.ts</code>;
+      <code>npm test</code>, run 2026-11-17).</div>
+  </div>
+</div>
+
+<script type="module">
+  import { UNITS, TERRAIN, MAPS, DEFAULT_MAP, PRESETS, RULES, NAMES, validateSquad } from '/src/content/index.ts';
+  import { key, parseKey, eq, distance, offsetToAxial, axialToOffset, label, hexToPixel, pixelToHex } from '/src/shared/hex.ts';
+
+  const showError = (m) => { const e = document.getElementById('error'); e.style.display = 'block'; e.textContent = 'Error: ' + m; };
+  window.addEventListener('error', (e) => showError(e.message));
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, attrs = {}, text) => {
+    const n = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  const h = (tag, text, cls) => {
+    const n = document.createElement(tag);
+    if (text !== undefined) n.textContent = text;
+    if (cls) n.className = cls;
+    return n;
+  };
+  const fact = (dl, name, value, cls) => { dl.append(h('dt', name), h('dd', String(value), cls)); };
+
+  const map = MAPS[DEFAULT_MAP];
+  const INK = '#1E2420';
+
+  // ---- colours. Terrain by colour, elevation by stepped tint (paler = higher).
+  const FILL = {
+    open: ['#B7A77A', '#C6B88E', '#D5C9A4'],        // khaki and the two hill tints from docs/design.md
+    woods: ['#5E6B45', '#77855B', '#909E74'],
+    building: ['#8C7B5A', '#A08F6C', '#B3A380'],    // the ground a building stands on; the building is drawn Paper
+  };
+  const fillFor = (cell) => (FILL[cell.terrain] ?? ['#888', '#999', '#AAA'])[cell.elevation] ?? '#F0F';
+  // Spawn zones wear the player marks' colours; in a four-player match zone n is seat n.
+  const ZONE = ['#3F6E8C', '#6B4E7A', '#2F7F78', '#E9DFC6'];
+  const ZONE_TEXT = ['#E9DFC6', '#E9DFC6', '#E9DFC6', '#1E2420'];
+
+  // ---- geometry, from the real hex maths
+  const SIZE = 30, PAD = 10;
+  const W = Math.sqrt(3) * SIZE;
+  const LABEL = 26;                                   // strip above and below the board for zone names
+  const ox = PAD + W / 2, oy = PAD + LABEL + SIZE;
+  const svg = $('map');
+  svg.setAttribute('viewBox', `0 0 ${W * (map.cols + 0.5) + PAD * 2} ${SIZE * (1.5 * (map.rows - 1) + 2) + (PAD + LABEL) * 2}`);
+  const centreOf = (hex) => { const p = hexToPixel(hex, SIZE); return { x: p.x + ox, y: p.y + oy }; };
+  const onMap = (hex) => map.cells[key(hex)] !== undefined;
+  const mid = offsetToAxial(Math.floor(map.cols / 2), Math.floor(map.rows / 2));
+  const turn = (hex) => ({ q: 2 * mid.q - hex.q, r: 2 * mid.r - hex.r });
+
+  const objectiveAt = new Map(map.objectives.map((o) => [key(o.hex), o]));
+  const spawnAt = new Map();
+  map.spawns.forEach((zone, z) => zone.forEach((hex, i) => spawnAt.set(key(hex), { zone: z, order: i + 1 })));
+
+  // ---- the map
+  const corners = (c, size) => {
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      const a = Math.PI / 180 * (60 * i - 30);
+      pts.push(`${(c.x + size * Math.cos(a)).toFixed(2)},${(c.y + size * Math.sin(a)).toFixed(2)}`);
+    }
+    return pts.join(' ');
+  };
+  const hover = el('polygon', { fill: 'none', stroke: '#E9DFC6', 'stroke-width': 3, 'pointer-events': 'none', visibility: 'hidden' });
+
+  for (const [k, cell] of Object.entries(map.cells)) {
+    const hex = parseKey(k);
+    const c = centreOf(hex);
+    svg.append(el('polygon', { points: corners(c, SIZE), fill: fillFor(cell), class: 'hexline' }));
+
+    if (cell.terrain === 'woods') {
+      // three round crowns
+      for (const [dx, dy, r] of [[-9, 5, 8], [8, 6, 7], [0, -8, 9]]) {
+        svg.append(el('circle', { cx: c.x + dx, cy: c.y + dy, r, fill: '#3E4A2E', stroke: INK, 'stroke-width': 1 }));
+      }
+    } else if (cell.terrain === 'building') {
+      // a roof seen from above
+      svg.append(el('rect', { x: c.x - 15, y: c.y - 11, width: 30, height: 22, fill: '#E9DFC6', stroke: INK, 'stroke-width': 2 }));
+      svg.append(el('line', { x1: c.x - 15, y1: c.y, x2: c.x + 15, y2: c.y, stroke: INK, 'stroke-width': 1 }));
+    }
+    if (cell.elevation > 0) {
+      svg.append(el('text', { x: c.x + 15, y: c.y - 12, class: 't', 'font-size': 10, fill: INK }, `+${cell.elevation}`));
+    }
+
+    const spawn = spawnAt.get(k);
+    if (spawn) {
+      svg.append(el('polygon', { points: corners(c, SIZE - 5), fill: ZONE[spawn.zone], 'fill-opacity': 0.9, stroke: INK, 'stroke-width': 1.5 }));
+      svg.append(el('text', { x: c.x, y: c.y + 1, class: 't', 'font-size': 18, fill: ZONE_TEXT[spawn.zone] }, spawn.order));
+    }
+    const obj = objectiveAt.get(k);
+    if (obj) {
+      svg.append(el('circle', { cx: c.x, cy: c.y, r: 15, fill: '#E8A23A', stroke: INK, 'stroke-width': 2.5 }));
+      svg.append(el('text', { x: c.x - 5, y: c.y + 1, class: 't', 'font-size': 16, fill: INK }, obj.id));
+      svg.append(el('text', { x: c.x + 7, y: c.y + 2, class: 't', 'font-size': 11, fill: INK }, obj.value));
+    }
+  }
+  // Zone names, in the strip above or below each zone, clear of the hexes.
+  map.spawns.forEach((zone, z) => {
+    const xs = zone.map((hex) => centreOf(hex).x), ys = zone.map((hex) => centreOf(hex).y);
+    const top = Math.min(...ys) < oy + SIZE * 1.5 * map.rows / 2;
+    const x = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const y = top ? Math.min(...ys) - SIZE - LABEL / 2 : Math.max(...ys) + SIZE + LABEL / 2;
+    svg.append(el('rect', { x: x - 34, y: y - 10, width: 68, height: 20, fill: ZONE[z], stroke: INK, 'stroke-width': 2 }));
+    svg.append(el('text', { x, y: y + 1, class: 't', 'font-size': 12, fill: ZONE_TEXT[z], 'letter-spacing': '0.08em' }, `ZONE ${z}`));
+  });
+  svg.append(hover);
+
+  svg.addEventListener('pointermove', (ev) => {
+    const pt = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(svg.getScreenCTM().inverse());
+    const hex = pixelToHex(pt.x - ox, pt.y - oy, SIZE);
+    if (!onMap(hex)) return;
+    const cell = map.cells[key(hex)];
+    hover.setAttribute('points', corners(centreOf(hex), SIZE - 1.5));
+    hover.setAttribute('visibility', 'visible');
+    const obj = objectiveAt.get(key(hex)), spawn = spawnAt.get(key(hex));
+    const t = turn(hex);
+    $('h-label').textContent = `${label(hex)} (axial ${key(hex)})`;
+    $('h-terrain').textContent = `${TERRAIN[cell.terrain].name}${TERRAIN[cell.terrain].cover ? ' — cover, blocks sight' : ''}`;
+    $('h-elev').textContent = cell.elevation;
+    $('h-here').textContent = obj ? `Objective ${obj.id}, worth ${obj.value} a round`
+      : spawn ? `Spawn zone ${spawn.zone}, placed ${spawn.order} of 8` : '—';
+    $('h-turn').textContent = onMap(t) ? label(t) : 'off the board (no partner)';
+  });
+
+  // ---- map facts and legend
+  $('map-title').textContent = `Map — ${map.name} (${map.id})`;
+  const facts = $('map-facts');
+  const cells = Object.values(map.cells);
+  const count = (f) => cells.filter(f).length;
+  fact(facts, 'Size', `${map.cols} columns × ${map.rows} rows, ${cells.length} hexes`);
+  fact(facts, 'Rounds', map.maxRounds);
+  for (const t of Object.values(TERRAIN)) fact(facts, t.name, `${count((c) => c.terrain === t.id)} hexes`);
+  fact(facts, 'Elevation', [0, 1, 2].map((e) => `level ${e}: ${count((c) => c.elevation === e)}`).join(', '));
+  fact(facts, 'Objectives', map.objectives.map((o) => `${o.id} ${label(o.hex)} = ${o.value}`).join(', '));
+  fact(facts, 'Seats', Object.entries(map.seatSpawns).map(([n, z]) => `${n} players: zones ${z.join(', ')}`).join(' · '));
+
+  const legend = $('legend');
+  const swatch = (colour, text) => {
+    const li = h('li'); const s = h('span', undefined, 'sw'); s.style.background = colour;
+    li.append(s, h('span', text)); legend.append(li);
+  };
+  for (const t of Object.values(TERRAIN)) (FILL[t.id] ?? []).forEach((c, e) => swatch(c, `${t.name}, level ${e}`));
+  swatch('#E8A23A', 'Objective: id and value');
+  ZONE.forEach((c, z) => swatch(c, `Spawn zone ${z}, numbered in placement order`));
+
+  // ---- live checks
+  const checks = $('checks');
+  const check = (name, pass, detail) => fact(checks, name, `${pass ? 'Yes' : 'NO'}${detail ? ' — ' + detail : ''}`, pass ? 'ok' : 'bad');
+  let everyCell = true;
+  for (let row = 0; row < map.rows; row++) for (let col = 0; col < map.cols; col++) {
+    if (!map.cells[key(offsetToAxial(col, row))]) everyCell = false;
+  }
+  check('A cell for every column and row', everyCell && cells.length === map.cols * map.rows);
+  const unpaired = [], mismatched = [];
+  for (const [k, cell] of Object.entries(map.cells)) {
+    const t = turn(parseKey(k));
+    if (!onMap(t)) { unpaired.push(label(parseKey(k))); continue; }
+    const other = map.cells[key(t)];
+    if (other.terrain !== cell.terrain || other.elevation !== cell.elevation) mismatched.push(label(parseKey(k)));
+  }
+  check('Terrain and elevation match after a half turn', mismatched.length === 0,
+    mismatched.length ? `differs at ${mismatched.join(' ')}` : `${cells.length - unpaired.length} hexes paired`);
+  const plain = Object.entries(map.cells).every(([k, c]) => onMap(turn(parseKey(k))) || (c.terrain === 'open' && c.elevation === 0));
+  check('Hexes with no partner are plain open ground', plain, `${unpaired.length}: ${unpaired.join(' ')}`);
+  check('Objectives match after a half turn', map.objectives.every((o) => {
+    const twin = objectiveAt.get(key(turn(o.hex))); return twin && twin.value === o.value;
+  }));
+  const turned = (a, b) => map.spawns[a].every((hex, i) => eq(turn(hex), map.spawns[b][i]));
+  check('Zone 2 is zone 0 turned; zone 3 is zone 1 turned', turned(0, 2) && turned(1, 3));
+  const allSpawns = map.spawns.flat();
+  check('Spawns: 4 zones of 8, distinct, passable, not objectives',
+    map.spawns.length === 4 && map.spawns.every((z) => z.length === 8)
+    && new Set(allSpawns.map(key)).size === 32
+    && allSpawns.every((hex) => onMap(hex) && TERRAIN[map.cells[key(hex)].terrain].passable && !objectiveAt.has(key(hex))));
+  check('Each zone is listed nearest the centre first',
+    map.spawns.every((z) => z.every((hex, i) => i === 0 || distance(hex, mid) >= distance(z[i - 1], mid))));
+  check('Every preset is a legal squad', PRESETS.every((p) => validateSquad(p.units).ok));
+
+  // ---- units table
+  const COLS = [
+    ['Unit', (u) => `${u.rank} ${u.name}`], ['Id', (u) => u.id], ['Cost', (u) => u.cost, 'n'],
+    ['Max', (u) => u.max ?? '–', 'n'], ['Move', (u) => u.move, 'n'], ['Sight', (u) => u.sight, 'n'],
+    ['Range', (u) => u.range === 0 ? '–' : `${u.minRange}–${u.range}`, 'n'], ['Blast', (u) => u.blast, 'n'],
+    ['Ignores cover', (u) => u.ignoresCover ? 'yes' : 'no'], ['Indirect', (u) => u.indirect ? 'yes' : 'no'],
+    ['Orders', (u) => u.orders.join(', ')], ['Special', (u) => u.special ?? '–'],
+  ];
+  const table = $('units');
+  const head = h('tr');
+  for (const [name] of COLS) head.append(h('th', name));
+  table.append(head);
+  for (const u of Object.values(UNITS)) {
+    const tr = h('tr');
+    for (const [, get, cls] of COLS) tr.append(h('td', String(get(u)), cls));
+    table.append(tr);
+    const tr2 = h('tr'); const td = h('td', u.blurb, 'blurb'); td.colSpan = COLS.length; tr2.append(td);
+    table.append(tr2);
+  }
+
+  // ---- squad picker (declared before the presets, which load into it)
+  const counts = Object.fromEntries(Object.keys(UNITS).map((id) => [id, 0]));
+  let extra = [];                                     // unknown ids, to show that error too
+  const squad = () => [...Object.entries(counts).flatMap(([id, n]) => Array(n).fill(id)), ...extra];
+  const tally = (ids) => {
+    const m = new Map();
+    for (const id of ids) m.set(id, (m.get(id) ?? 0) + 1);
+    return [...m].map(([id, n]) => `${n} × ${UNITS[id]?.name ?? `"${id}"`}`).join(', ') || 'nobody';
+  };
+  const numEls = {};
+  const picker = $('picker');
+  for (const u of Object.values(UNITS)) {
+    const row = h('div', undefined, 'pick');
+    const minus = h('button', '−'), plus = h('button', '+');
+    minus.type = plus.type = 'button';
+    minus.setAttribute('aria-label', `One fewer ${u.name}`); plus.setAttribute('aria-label', `One more ${u.name}`);
+    const num = h('span', '0', 'num');
+    numEls[u.id] = num;
+    minus.addEventListener('click', () => { counts[u.id] = Math.max(0, counts[u.id] - 1); renderSquad(); });
+    plus.addEventListener('click', () => { counts[u.id] += 1; renderSquad(); });
+    row.append(h('span', `${u.name} — ${u.cost} pts${u.max === null ? '' : `, max ${u.max}`}`), minus, num, plus);
+    picker.append(row);
+  }
+  const keys = $('keys');
+  const addKey = (text, fn) => { const b = h('button', text); b.type = 'button'; b.addEventListener('click', fn); keys.append(b); };
+  const load = (ids) => {
+    for (const id of Object.keys(counts)) counts[id] = 0;
+    extra = [];
+    for (const id of ids) { if (id in counts) counts[id] += 1; else extra.push(id); }
+    renderSquad();
+  };
+  addKey('Clear', () => load([]));
+  addKey('Add an unknown unit', () => { extra.push('tank'); renderSquad(); });
+
+  function renderSquad() {
+    for (const id of Object.keys(counts)) numEls[id].textContent = counts[id];
+    const units = squad();
+    const v = validateSquad(units);
+    const box = $('verdict');
+    box.className = v.ok ? '' : 'bad';
+    box.replaceChildren();
+    box.append(h('div', `Squad: ${tally(units)}.`));
+    box.append(h('div', `${units.length} units, ${v.cost} of ${RULES.budget} points.`));
+    box.append(h('div', v.ok ? 'Legal. Ready when you are.' : `Not legal — ${v.errors.length} ${v.errors.length === 1 ? 'problem' : 'problems'}:`, v.ok ? 'ok' : 'bad'));
+    if (!v.ok) {
+      const ul = h('ul');
+      for (const e of v.errors) ul.append(h('li', e));
+      box.append(ul);
+    }
+  }
+
+  // ---- presets
+  const presets = $('presets');
+  for (const p of PRESETS) {
+    const v = validateSquad(p.units);
+    const div = h('div', undefined, 'preset');
+    const title = h('div'); title.append(h('b', p.name), ` (${p.id})`);
+    const use = h('button', 'Load into picker'); use.type = 'button';
+    use.addEventListener('click', () => load(p.units));
+    div.append(title, h('div', p.blurb, 'blurb'), h('div', tally(p.units)),
+      h('div', `${p.units.length} units, ${v.cost} of ${RULES.budget} points — ${v.ok ? 'legal' : 'NOT LEGAL: ' + v.errors.join(' ')}`, v.ok ? 'ok' : 'bad'),
+      use);
+    presets.append(div);
+  }
+
+  // ---- rules, terrain, names
+  const misc = $('misc');
+  for (const [k, v] of Object.entries(RULES)) fact(misc, k, v);
+  for (const t of Object.values(TERRAIN)) {
+    fact(misc, t.id, `${t.name}: ${t.cover ? 'cover' : 'no cover'}, ${t.blocksSight ? 'blocks sight' : 'clear'}, ${t.passable ? 'passable' : 'impassable'}`);
+  }
+  fact(misc, 'NAMES', `${NAMES.length} surnames: ${NAMES.slice(0, 6).join(', ')} …`);
+
+  // Optional preset for screenshots and bug reports: ?squad=sniper,sniper,rifleman
+  const params = new URLSearchParams(location.search);
+  load(params.has('squad') ? params.get('squad').split(',').filter(Boolean) : PRESETS[0].units);
+</script>
+</body>
+</html>

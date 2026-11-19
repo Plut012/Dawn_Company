@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dawn Squad — all seats</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* dev-page furniture only; every frame is the real client */
+  body { padding: var(--s-3); }
+  h1 { font-size: var(--t-4); margin: 0 0 var(--s-2); }
+  p { max-width: 100ch; margin: var(--s-1) 0; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  .bar { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-4); align-items: center; margin: var(--s-2) 0 var(--s-3); }
+  .group { display: flex; flex-wrap: wrap; gap: var(--s-2); align-items: center; }
+  .frames { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  .frame { flex: none; display: flex; flex-direction: column; gap: var(--s-1); max-width: 100%; }
+  .frame header { display: flex; gap: var(--s-3); align-items: center; justify-content: space-between; }
+  .frame iframe { box-sizing: content-box; border: var(--w-frame) solid var(--ink); background: var(--slate); display: block; max-width: 100%; }
+  .frame .key { min-height: 32px; padding: 0 var(--s-2); font-size: var(--t-1); }
+  #say { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; min-height: 1.5em; margin-bottom: var(--s-3); }
+</style>
+</head>
+<body>
+<h1>Dawn Squad — all seats</h1>
+<p class="note">Every frame is the real client in its own slot (<code>/?slot=dev1</code> …), so each holds its own seat.
+Needs the game server (<code>npm run server</code>) next to <code>npm run dev</code>. A dev tool: it is not part of the build.</p>
+<div class="bar">
+  <div class="group" id="seats"><span class="cap">Seats</span></div>
+  <div class="group" id="shape"><span class="cap">Frames</span></div>
+  <div class="group" id="acts"></div>
+</div>
+<div id="say" role="status"></div>
+<div class="frames" id="frames"></div>
+
+<script type="module">
+  import { PRESETS } from '/src/content/index.ts';
+  import { key } from '/src/client/ui/components.ts';
+
+  const SHAPES = { phone: [390, 844], laptop: [1180, 800] };
+  const MAX = 4;
+  const $ = (id) => document.getElementById(id);
+  const say = (text) => { $('say').textContent = text; };
+
+  const params = new URLSearchParams(location.search);
+  let seats = [2, 3, 4].includes(Number(params.get('seats'))) ? Number(params.get('seats')) : 2;
+  let shape = params.get('shape') === 'laptop' ? 'laptop' : 'phone';
+  let run = 0;                                   // a newer press cancels an older quick start
+  const frames = [];                             // { slot, frame }
+
+  const plainUrl = (slot) => `/?slot=${slot}`;
+  const autoUrl = (slot, i) => `/?slot=${slot}&auto=${PRESETS[i % PRESETS.length].id}&name=${encodeURIComponent(`Dev ${i + 1}`)}`;
+
+  function remember() {
+    const q = new URLSearchParams({ seats: String(seats), shape });
+    history.replaceState(null, '', `${location.pathname}?${q}`);
+  }
+
+  /** Point a frame at a URL and wait until the page in it has loaded. */
+  function load(frame, url) {
+    return new Promise((done) => {
+      frame.addEventListener('load', () => done(), { once: true });
+      frame.src = url;
+    });
+  }
+
+  function build() {
+    run++;
+    const [w, h] = SHAPES[shape];
+    $('frames').replaceChildren();
+    frames.length = 0;
+    for (let i = 0; i < seats; i++) {
+      const slot = `dev${i + 1}`;
+      const frame = document.createElement('iframe');
+      frame.width = w; frame.height = h; frame.title = `seat ${slot}`; frame.src = plainUrl(slot);
+      const cap = document.createElement('span');
+      cap.className = 'cap';
+      cap.textContent = `${slot} — ${w} × ${h}`;
+      const head = document.createElement('header');
+      // Reload with the plain URL: the seat comes back from its token, nothing is joined or readied for it.
+      head.append(cap, key({ label: 'Reload', onPress: () => { frame.src = plainUrl(slot); say(`Reloaded ${slot}. A seat it held is taken back by its token.`); } }));
+      const box = document.createElement('div');
+      box.className = 'frame';
+      box.append(head, frame);
+      $('frames').append(box);
+      frames.push({ slot, frame });
+    }
+    for (const [n, k] of seatKeys) k.setPressed(n === seats);
+    for (const [s, k] of shapeKeys) k.setPressed(s === shape);
+    remember();
+  }
+
+  /**
+   * Every frame joins with a name and a preset squad and throws its ready lever. Done only through the
+   * URL (`auto`, `name`), which the client honours for dev slots; this page never reaches into a frame.
+   * One frame at a time, so dev1 is first to the table and is the host.
+   */
+  async function quickStart() {
+    const mine = ++run;
+    say('Quick start: seating the frames one at a time…');
+    for (const [i, { slot, frame }] of frames.entries()) {
+      await load(frame, autoUrl(slot, i));
+      await new Promise((done) => setTimeout(done, 400));     // time to connect and be seated
+      if (mine !== run) return;
+    }
+    say(`Seated and ready: ${frames.map((f, i) => `${f.slot} with ${PRESETS[i % PRESETS.length].name}`).join(', ')}. `
+      + 'Press Start in dev1 (the host). If a frame shows a match instead, one was already running: restart the server and clear the seats for a new table.');
+  }
+
+  function clearSeats() {
+    run++;
+    for (let i = 1; i <= MAX; i++) {
+      localStorage.removeItem(`dawn-squad-token-dev${i}`);
+      localStorage.removeItem(`dawn-squad-name-dev${i}`);
+      sessionStorage.removeItem(`dawn-squad-draft-dev${i}`);
+    }
+    for (const { slot, frame } of frames) frame.src = plainUrl(slot);
+    say('Saved tokens for dev1 to dev4 cleared and the frames reloaded. The server still holds the old seats: in a lobby they are dropped after 30 seconds; a running match needs the server restarted.');
+  }
+
+  const seatKeys = [2, 3, 4].map((n) => [n, key({ label: String(n), onPress: () => { seats = n; build(); } })]);
+  const shapeKeys = Object.keys(SHAPES).map((s) => [s, key({ label: s, onPress: () => { shape = s; build(); } })]);
+  $('seats').append(...seatKeys.map(([, k]) => k));
+  $('shape').append(...shapeKeys.map(([, k]) => k));
+  const quick = key({ label: 'Quick start', onPress: quickStart });
+  quick.id = 'quick';
+  const clear = key({ label: 'Clear dev seats', onPress: clearSeats });
+  clear.id = 'clear';
+  $('acts').append(quick, clear);
+
+  build();
+  say('Join in each frame by hand, or press Quick start: every frame joins with a name and a preset squad, readied, and the match is one press of Start (in dev1) away.');
+</script>
+</body>
+</html>

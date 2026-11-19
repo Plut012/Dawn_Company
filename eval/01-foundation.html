@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 01 — Foundation</title>
+<style>
+  @font-face { font-family: 'Stardos Stencil'; src: url('/docs/design/fonts/StardosStencil-Bold.ttf'); font-weight: 700; }
+  @font-face { font-family: 'Courier Prime'; src: url('/docs/design/fonts/CourierPrime-Regular.ttf'); }
+  :root {
+    --ink: #1E2420; --paper: #E9DFC6; --khaki: #B7A77A; --olive: #5E6B45;
+    --slate: #3D4F5C; --rust: #9A4B32; --amber: #E8A23A;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--slate); color: var(--paper);
+         font: 14px/1.4 'Courier Prime', 'Courier New', monospace; }
+  h1, h2, label, .tag { font-family: 'Stardos Stencil', 'Courier New', monospace; font-weight: 700;
+         text-transform: uppercase; letter-spacing: 0.08em; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 0 0 8px; }
+  p { margin: 0 0 16px; max-width: 70ch; }
+  .layout { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+  .board { flex: 1 1 520px; min-width: 0; max-width: 760px; background: var(--khaki);
+           border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); }
+  svg { display: block; width: 100%; height: auto; touch-action: none; cursor: crosshair; }
+  .side { flex: 1 1 280px; max-width: 420px; display: grid; gap: 16px; }
+  .panel { background: var(--ink); border: 2px solid var(--ink); box-shadow: 3px 3px 0 #0006; padding: 8px 16px 16px; }
+  .panel h2 { color: var(--khaki); border-bottom: 1px solid var(--olive); padding: 4px 0; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0; }
+  dt { color: var(--khaki); } dd { margin: 0; word-break: break-word; }
+  .ok { color: var(--amber); } .bad { color: var(--rust); font-weight: bold; }
+  input[type=range] { width: 100%; accent-color: var(--amber); }
+  button { font: inherit; background: var(--khaki); color: var(--ink); border: 2px solid var(--ink);
+           border-radius: 2px; padding: 4px 16px; box-shadow: 3px 3px 0 #000; cursor: pointer; margin-top: 8px; }
+  #error { color: #fff; background: var(--rust); padding: 8px; display: none; margin-bottom: 16px; }
+  .hex { fill: var(--khaki); stroke: var(--ink); stroke-width: 1; }
+  .hex.within { fill: #D5C9A4; }
+  .hex.line { fill: var(--amber); }
+  .hex.end { fill: var(--amber); stroke-width: 3; }
+  .hex.hover { stroke: var(--paper); stroke-width: 3; }
+  .lbl { font: 700 10px 'Stardos Stencil', 'Courier New', monospace; fill: var(--ink);
+         text-anchor: middle; dominant-baseline: central; pointer-events: none; }
+  #stroke { fill: none; stroke: var(--ink); stroke-opacity: 0.4; stroke-width: 2; stroke-dasharray: 5 4; pointer-events: none; }
+</style>
+</head>
+<body>
+<h1>Eval 01 — Foundation</h1>
+<p>Everything below is computed by the real <code>src/shared/hex.ts</code>. Hover (or drag a finger)
+over the grid; click two hexes to draw a line; a third click starts again.</p>
+<div id="error"></div>
+
+<div class="layout">
+  <div class="board"><svg id="grid" xmlns="http://www.w3.org/2000/svg"></svg></div>
+
+  <div class="side">
+    <div class="panel">
+      <h2>Hovered hex</h2>
+      <dl>
+        <dt>Label</dt><dd id="h-label">—</dd>
+        <dt>Axial</dt><dd id="h-axial">—</dd>
+        <dt>Offset</dt><dd id="h-offset">—</dd>
+        <dt>Key</dt><dd id="h-key">—</dd>
+        <dt>Neighbours</dt><dd id="h-nb">—</dd>
+      </dl>
+    </div>
+
+    <div class="panel">
+      <h2>Radius</h2>
+      <label for="radius">within(hovered, <span id="r-val">1</span>)</label>
+      <input id="radius" type="range" min="0" max="5" step="1" value="1" />
+      <dl>
+        <dt>Hexes</dt><dd id="r-count">—</dd>
+        <dt>On this grid</dt><dd id="r-on">—</dd>
+      </dl>
+    </div>
+
+    <div class="panel">
+      <h2>Line</h2>
+      <dl>
+        <dt>A</dt><dd id="l-a">click a hex</dd>
+        <dt>B</dt><dd id="l-b">—</dd>
+        <dt>distance(a, b)</dt><dd id="l-dist">—</dd>
+        <dt>line(a, b)</dt><dd id="l-line">—</dd>
+        <dt>Length</dt><dd id="l-len">—</dd>
+        <dt>line(b, a)</dt><dd id="l-rev">—</dd>
+        <dt>Reversed match</dt><dd id="l-sym">—</dd>
+      </dl>
+      <button id="clear" type="button">Clear</button>
+    </div>
+
+    <div class="panel">
+      <h2>Tests</h2>
+      <!-- Pasted from a real `npm test` run. Re-run and update when hex.ts changes. -->
+      <div id="tests">Vitest: 21 passed, 0 failed, 1 test file (<code>npm test</code>, run 2026-11-17).</div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import {
+    key, parseKey, eq, neighbors, distance, line, within,
+    offsetToAxial, axialToOffset, label, hexToPixel, pixelToHex,
+  } from '/src/shared/hex.ts';
+
+  const showError = (m) => { const e = document.getElementById('error'); e.style.display = 'block'; e.textContent = 'Error: ' + m; };
+  window.addEventListener('error', (e) => showError(e.message));
+
+  const COLS = 13, ROWS = 11, SIZE = 26, PAD = 8;
+  const NS = 'http://www.w3.org/2000/svg';
+  const $ = (id) => document.getElementById(id);
+  const svg = $('grid');
+
+  // Grid extents, from the real hexToPixel.
+  const W = Math.sqrt(3) * SIZE;
+  const ox = PAD + W / 2, oy = PAD + SIZE;                    // pixel position of hex A1's centre
+  svg.setAttribute('viewBox', `0 0 ${W * (COLS + 0.5) + PAD * 2} ${SIZE * (1.5 * (ROWS - 1) + 2) + PAD * 2}`);
+
+  const onGrid = (h) => { const o = axialToOffset(h); return o.col >= 0 && o.col < COLS && o.row >= 0 && o.row < ROWS; };
+  const centre = (h) => { const p = hexToPixel(h, SIZE); return { x: p.x + ox, y: p.y + oy }; };
+  const show = (h) => `${label(h)} (${key(h)})`;
+
+  const polys = new Map();   // HexKey -> polygon
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      const h = offsetToAxial(col, row);
+      const c = centre(h);
+      const pts = [];
+      for (let i = 0; i < 6; i++) {
+        const a = Math.PI / 180 * (60 * i - 30);              // pointy-top corners
+        pts.push(`${(c.x + SIZE * Math.cos(a)).toFixed(2)},${(c.y + SIZE * Math.sin(a)).toFixed(2)}`);
+      }
+      const poly = document.createElementNS(NS, 'polygon');
+      poly.setAttribute('points', pts.join(' '));
+      poly.setAttribute('class', 'hex');
+      svg.appendChild(poly);
+      polys.set(key(h), poly);
+      const t = document.createElementNS(NS, 'text');
+      t.setAttribute('x', c.x); t.setAttribute('y', c.y); t.setAttribute('class', 'lbl');
+      t.textContent = label(h);
+      svg.appendChild(t);
+    }
+  }
+  const stroke = document.createElementNS(NS, 'polyline');
+  stroke.id = 'stroke';
+  svg.appendChild(stroke);
+
+  let hovered = null, a = null, b = null;
+
+  function render() {
+    const radius = Number($('radius').value);
+    $('r-val').textContent = radius;
+    const area = hovered ? within(hovered, radius) : [];
+    const path = a && b ? line(a, b) : [];
+    const areaKeys = new Set(area.map(key)), pathKeys = new Set(path.map(key));
+
+    for (const [k, poly] of polys) {
+      const h = parseKey(k);
+      const end = (a && eq(h, a)) || (b && eq(h, b));
+      poly.setAttribute('class', ['hex',
+        areaKeys.has(k) ? 'within' : '', pathKeys.has(k) ? 'line' : '',
+        end ? 'end' : '', hovered && eq(h, hovered) ? 'hover' : ''].join(' '));
+    }
+    stroke.setAttribute('points', path.map((h) => { const c = centre(h); return `${c.x},${c.y}`; }).join(' '));
+
+    if (hovered) {
+      const o = axialToOffset(hovered);
+      $('h-label').textContent = label(hovered);
+      $('h-axial').textContent = `q ${hovered.q}, r ${hovered.r}`;
+      $('h-offset').textContent = `col ${o.col}, row ${o.row}`;
+      $('h-key').textContent = `"${key(hovered)}"`;
+      $('h-nb').textContent = 'E NE NW W SW SE: ' + neighbors(hovered).map((n) => onGrid(n) ? label(n) : '·').join(' ');
+      $('r-count').textContent = area.length;
+      $('r-on').textContent = area.filter(onGrid).length;
+    }
+
+    $('l-a').textContent = a ? show(a) : 'click a hex';
+    $('l-b').textContent = b ? show(b) : a ? 'click another hex' : '—';
+    if (a && b) {
+      const back = line(b, a);
+      const same = path.length === back.length && path.every((h, i) => eq(h, back[back.length - 1 - i]));
+      const lenOk = path.length === distance(a, b) + 1;
+      $('l-dist').textContent = distance(a, b);
+      $('l-line').textContent = path.map(label).join(' ');
+      $('l-len').innerHTML = `${path.length} hexes <span class="${lenOk ? 'ok' : 'bad'}">${lenOk ? '= distance + 1' : 'NOT distance + 1'}</span>`;
+      $('l-rev').textContent = back.map(label).join(' ');
+      $('l-sym').innerHTML = same
+        ? '<span class="ok">Yes: line(b, a) is line(a, b) reversed.</span>'
+        : '<span class="bad">NO: the two lines differ.</span>';
+    } else {
+      for (const id of ['l-dist', 'l-line', 'l-len', 'l-rev', 'l-sym']) $(id).textContent = '—';
+    }
+  }
+
+  // Pointer position -> hex, through the real pixelToHex.
+  function hexAt(ev) {
+    const pt = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(svg.getScreenCTM().inverse());
+    const h = pixelToHex(pt.x - ox, pt.y - oy, SIZE);
+    return onGrid(h) ? h : null;
+  }
+  svg.addEventListener('pointermove', (ev) => { const h = hexAt(ev); if (h) { hovered = h; render(); } });
+  svg.addEventListener('pointerdown', (ev) => {
+    const h = hexAt(ev);
+    if (!h) return;
+    hovered = h;
+    if (!a || b) { a = h; b = null; } else { b = h; }
+    render();
+  });
+  $('radius').addEventListener('input', render);
+  $('clear').addEventListener('click', () => { a = b = null; render(); });
+
+  // Optional preset, for screenshots and bug reports: ?a=1,1&b=6,8&hover=4,3&radius=2 (axial keys).
+  const params = new URLSearchParams(location.search);
+  const fromParam = (name) => params.has(name) ? parseKey(params.get(name)) : null;
+  a = fromParam('a'); b = fromParam('b'); hovered = fromParam('hover');
+  if (params.has('radius')) $('radius').value = params.get('radius');
+
+  render();
+</script>
+</body>
+</html>

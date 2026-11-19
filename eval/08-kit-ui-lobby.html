@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 08 — Kit UI and lobby</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; every part on show comes from the real kit */
+  body { padding: var(--s-3); }
+  main { max-width: 1280px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p { max-width: 90ch; }
+  .check { margin: 0 0 var(--s-3); padding-left: var(--s-3); max-width: 90ch; }
+  .check li { margin-bottom: var(--s-1); }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  a { color: var(--amber); }
+  .row { gap: var(--s-3) var(--s-4); }
+  .frames { display: flex; gap: var(--s-3); overflow-x: auto; padding-bottom: var(--s-3); align-items: flex-start; }
+  .frame { flex: none; display: flex; flex-direction: column; gap: var(--s-1); }
+  .frame iframe { border: var(--w-frame) solid var(--ink); background: var(--slate); display: block; }
+  .bar { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; margin: var(--s-2) 0 var(--s-3); }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 90ch; }
+  #log { min-height: 1.5em; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 08 — Kit UI, lobby and builder</h1>
+<p>Needs <code>npm run server</code> (port 8080) and <code>npm run dev</code>. Everything below is built by the
+real modules: <code>src/client/ui/components.ts</code>, <code>kit.css</code>, and the real client at
+<code>/</code>. Open <a href="/docs/design/stylesheet.html" target="_blank" rel="noopener">the style sheet</a> in
+another tab to compare the parts one to one.</p>
+
+<!-- ================= COMPONENTS ================= -->
+<h2>1. Components, every state</h2>
+<p class="note">Operable parts respond: press the chits (idle → selected → issued → idle), throw the live lever,
+press the keys, step the stepper, type in the field, and press the lamp cycle key.</p>
+
+<h3>Panel</h3>
+<div class="row" id="c-panel"></div>
+<h3>Order chit</h3>
+<div class="row" id="c-chit"></div>
+<h3>Key</h3>
+<div class="row" id="c-key"></div>
+<h3>Ready lever</h3>
+<div class="row" id="c-lever"></div>
+<h3>Lamp</h3>
+<div class="row" id="c-lamp"></div>
+<h3>Readout</h3>
+<div class="row" id="c-readout"></div>
+<h3>Player marks</h3>
+<div class="row" id="c-marks"></div>
+<h3>Unit card</h3>
+<div class="row" id="c-card"></div>
+<h3>Stepper</h3>
+<div class="row" id="c-stepper"></div>
+<h3>Report strip</h3>
+<div class="cell" id="c-report" style="gap:var(--s-2)"></div>
+<h3>Field</h3>
+<div class="row" id="c-field"></div>
+
+<!-- ================= LOBBY ================= -->
+<h2>2. Lobby, live</h2>
+<p>Three real clients against the real server, each in its own slot (<code>?slot=a</code>, <code>b</code>,
+<code>c</code>), so each keeps its own seat. The first is phone-sized (390 × 844).</p>
+<ol class="check">
+  <li>Type a name in each frame and press <b>Join</b>. Each frame lists all the seats as they arrive.</li>
+  <li>Build squads: press − and + on a unit, press a section key (Line, Weapons, Scout), and use the ▲ ▼ keys to
+      reorder. Make a squad illegal (fewer than 4 units): the report turns Rust and the lever locks.</li>
+  <li>Throw the lever in each frame. The first frame (the host) gets a live <b>Start</b> key once all three are ready.
+      Changing a squad while ready pops the lever back up.</li>
+  <li>Press <b>Start</b>. All three frames land on the placeholder play screen with the round and unit count.</li>
+</ol>
+<div class="bar">
+  <button class="key" id="forget">Forget seats</button>
+  <button class="key" id="reload-all">Reload all</button>
+  <span class="note">After a match has started, the server only takes returning tokens. For a fresh lobby, stop and
+  restart <code>npm run server</code>, then press Forget seats.</span>
+</div>
+<div class="frames" id="frames"></div>
+
+<!-- ================= RECONNECT ================= -->
+<h2>3. Reconnect</h2>
+<ol class="check">
+  <li><b>Reload a frame</b> (the Reload keys under each frame). It takes its seat back: same name, same squad,
+      same ready lever, the other frames never see it leave for long.</li>
+  <li><b>Stop and restart the server</b> (Ctrl-C, then <code>npm run server</code>). Every frame shows the
+      Rust "Signal lost" strip and a blinking lamp, retries by itself, and when the server is back it joins again.
+      A restarted server has an empty room, so in the lobby each frame comes back as a new seat in the same order
+      (with the first squad preset); mid-match the old tokens are unknown and the server refuses them with an error.</li>
+  <li><b>Open the same slot in two windows.</b> The older one is told "This seat is open in another window".</li>
+</ol>
+<div class="observed" id="observed">
+  <b>Observed when this was built (headless Chromium, three clients):</b>
+  <p id="observed-text" style="margin:var(--s-1) 0 0">
+    <b>Reload:</b> a reloaded frame rejoined with its token and was back in the same seat, name and squad within about a second;
+    the other frames kept showing it as present.<br>
+    <b>Server stopped:</b> each frame showed the Rust "Signal lost" strip and "No signal" lamp within a second or two.<br>
+    <b>Server restarted:</b> the strips cleared within about five seconds (back-off 0.25 s up to 3 s). In the lobby the frames came back as
+    new seats, in whatever order they reconnected (so the host can change), each with the first preset squad.<br>
+    <b>Late joiner after Start:</b> told "The match has started…" in the Rust strip; the join form stays.<br>
+    <b>Closed a window in the lobby:</b> its lamp went Rust ("lost signal") and, after the server's 30 s grace, its seat was freed and the rest renumbered.
+  </p>
+</div>
+<div class="report" id="log" style="margin-top:var(--s-3);max-width:none"></div>
+
+<script type="module">
+  import {
+    panel, chit, key, lever, lamp, readout, unitCard, playerMark, stepper, report, field, ICONS, el,
+  } from '/src/client/ui/components.ts';
+
+  const cell = (host, node, cap) => {
+    const c = el('div', 'cell'); c.append(node, el('span', 'cap', cap));
+    document.getElementById(host).append(c);
+    return node;
+  };
+  const say = (text) => { const l = document.getElementById('log'); l.textContent = text; };
+
+  // ---- panel
+  cell('c-panel', Object.assign(panel('Orders', {}, 'Plain panel. Olive plate, ink frame, stencil label, a screw in each top corner.'), { style: 'width:280px' }), 'plain');
+  cell('c-panel', Object.assign(panel('Signals', { inset: true }, 'Inset panel. Dark, for readouts and lamps.'), { style: 'width:280px' }), 'inset');
+
+  // ---- chit: press to cycle idle -> selected -> issued -> idle
+  const next = { idle: 'selected', selected: 'issued', issued: 'idle' };
+  for (const [name, icon, state] of [
+    ['Move', 'move', 'idle'], ['Dash', 'dash', 'selected'], ['Fire', 'fire', 'issued'], ['Ambush', 'ambush', 'disabled'], ['Special', 'special', 'idle'],
+  ]) {
+    const c = chit({ label: name, icon: ICONS[icon], state, onPress: () => { c.set(next[c.state]); say(`${name} chit → ${c.state}`); } });
+    cell('c-chit', c, state + (state === 'disabled' ? '' : ' (press)'));
+  }
+
+  // ---- key
+  let presses = 0;
+  cell('c-key', key({ label: 'Undo', onPress: () => say(`Undo key pressed ${++presses} time(s)`) }), 'idle (press)');
+  cell('c-key', key({ label: 'Undo', pressed: true }), 'pressed');
+  cell('c-key', key({ label: 'Undo', disabled: true }), 'disabled');
+
+  // ---- lever
+  cell('c-lever', lever({ state: 'up', label: 'Ready', onChange: (down) => say(`Lever thrown ${down ? 'down (ready)' : 'up'}`) }), 'up · planning (live)');
+  cell('c-lever', lever({ state: 'down', label: 'Ready', onChange: (down) => say(`Lever thrown ${down ? 'down (ready)' : 'up'}`) }), 'down · ready (live)');
+  cell('c-lever', lever({ state: 'locked', label: 'Ready' }), 'locked · resolving');
+
+  // ---- lamps, on an inset panel, plus a cycling one
+  const lamps = [
+    lamp('Avery — planning', 'planning'), lamp('Blake — ready', 'ready'),
+    lamp('Casey — lost signal', 'disconnected'), lamp('Devon — out', 'out'),
+  ];
+  const lampRow = el('div', 'row'); lampRow.append(...lamps);
+  const cycle = lamp('Cycle me', 'planning');
+  const order = ['planning', 'ready', 'disconnected', 'out'];
+  const cycleKey = key({ label: 'Cycle lamp', onPress: () => { const i = (order.findIndex((s) => cycle.classList.contains(s)) + 1) % 4; cycle.set(order[i], `Cycle me — ${order[i]}`); } });
+  const lampPanel = panel('Signals', { inset: true }, lampRow, el('p'), cycle);
+  lampPanel.style.maxWidth = '520px'; lampPanel.style.width = '520px';
+  document.getElementById('c-lamp').append(lampPanel, cycleKey);
+
+  // ---- readout
+  cell('c-readout', readout('Round', '04'), 'normal');
+  cell('c-readout', readout('Score', 17), 'normal');
+  cell('c-readout', readout('Plan', '0:09', true), 'alert');
+  const live = readout('Points', '12/16');
+  const liveKey = key({ label: 'Over budget', onPress: () => { const over = live.classList.toggle('alert'); live.set(over ? '19/16' : '12/16', over); } });
+  const lc = el('div', 'cell'); lc.append(live, liveKey); document.getElementById('c-readout').append(lc);
+
+  // ---- marks
+  [0, 1, 2, 3].forEach((i) => {
+    const holder = el('div'); holder.style.cssText = 'width:32px;height:32px;background:var(--khaki);display:grid;place-items:center;border:2px solid var(--ink)';
+    const m = playerMark(i); m.style.width = '24px'; m.style.height = '24px'; holder.append(m);
+    cell('c-marks', holder, ['blue bar', 'plum chevron', 'teal diamond', 'bone disc'][i]);
+  });
+
+  // ---- unit cards
+  const cards = [
+    ['Pvt. Hale', 'Rifleman', 0, 'ready'], ['Cpl. Okafor', 'Machine gunner', 1, 'selected'],
+    ['Pvt. Lindqvist', 'Medic', 2, 'pinned'], ['Sgt. Marek', 'Sergeant', 3, 'down'],
+  ];
+  for (const [name, role, seat, state] of cards) cell('c-card', unitCard({ name, role, seat, state }), state);
+
+  // ---- steppers
+  const spec = (count, cost, canDec, canInc, state) => ({ count, cost, canDec, canInc, state });
+  const s1 = stepper((d) => { n = Math.max(0, Math.min(8, n + d)); s1.set(spec(n, '2 PTS EA', n > 0, n < 8, 'idle')); }, 'rifleman');
+  let n = 2; s1.set(spec(2, '2 PTS EA', true, true, 'idle'));
+  cell('c-stepper', s1, 'idle (live)');
+  const s2 = stepper(() => {}); s2.set(spec(1, '5 PTS EA · MAX 1', true, false, 'at-limit'));
+  cell('c-stepper', s2, 'at limit');
+  const s3 = stepper(() => {}); s3.set(spec(0, '4 PTS EA · 3 LEFT', false, false, 'unaffordable'));
+  cell('c-stepper', s3, 'unaffordable');
+
+  // ---- report
+  const rc = document.getElementById('c-report');
+  rc.append(report('Objective C held. +3.', false, 'R4'), report('Pvt. Hale pinned at F4.', true, 'R4'));
+
+  // ---- field
+  const f1 = field({ label: 'Name', placeholder: 'Name' });
+  const f2 = field({ label: 'Name', value: 'Avery' });
+  const f3 = field({ label: 'Name', value: 'Avery' }); f3.disabled = true;
+  for (const [f, cap] of [[f1, 'idle (type here)'], [f2, 'filled'], [f3, 'disabled']]) { const c = cell('c-field', f, cap); c.parentElement.style.width = '240px'; }
+
+  // ---- lobby frames
+  const frames = document.getElementById('frames');
+  const sizes = { a: [390, 844], b: [420, 844], c: [420, 844] };
+  const frameEls = {};
+  for (const slot of ['a', 'b', 'c']) {
+    const [w, h] = sizes[slot];
+    const box = el('div', 'frame');
+    const iframe = el('iframe'); iframe.src = `/?slot=${slot}`; iframe.width = w; iframe.height = h; iframe.title = `client ${slot}`;
+    const reloadKey = key({ label: 'Reload', onPress: () => { iframe.contentWindow.location.reload(); say(`Reloaded frame ${slot}`); } });
+    reloadKey.style.minWidth = '80px';
+    const head = el('div', 'bar'); head.style.margin = '0';
+    head.append(el('span', 'cap', `slot ${slot} · ${w} × ${h}${slot === 'a' ? ' (phone, host if first)' : ''}`), reloadKey);
+    box.append(head, iframe); frames.append(box); frameEls[slot] = iframe;
+  }
+  document.getElementById('forget').onclick = () => {
+    for (const slot of ['a', 'b', 'c']) for (const k of ['token', 'name']) localStorage.removeItem(`dawn-squad-${k}-${slot}`);
+    for (const f of Object.values(frameEls)) f.contentWindow.location.reload();
+    say('Forgot the remembered seats and names; frames reloaded.');
+  };
+  document.getElementById('reload-all').onclick = () => { for (const f of Object.values(frameEls)) f.contentWindow.location.reload(); say('Reloaded all frames.'); };
+  say('Ready.');
+</script>
+</main>
+</body>
+</html>

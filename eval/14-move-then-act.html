@@ -1,0 +1,560 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 14 — Move then act, and moving through your own squad</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; every rule and number that is live on the page comes from src/ */
+  body { padding: var(--s-3); }
+  main { max-width: 1500px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); margin-top: var(--s-4); }
+  h3 { font-size: var(--t-2); margin: var(--s-2) 0 var(--s-1); }
+  p, li { max-width: 100ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  a { color: var(--amber); }
+  table { border-collapse: collapse; margin-bottom: var(--s-3); max-width: 100%; }
+  th, td { text-align: left; vertical-align: top; padding: var(--s-1) var(--s-2); border-top: var(--w-divider) solid rgba(233,223,198,0.25); }
+  th { font-family: var(--font-display); font-size: var(--t-1); letter-spacing: 0.1em; text-transform: uppercase; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .scroll { overflow-x: auto; }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 110ch; margin-bottom: var(--s-3); }
+  .observed.bad { border-left-color: var(--rust); }
+  .controls { display: flex; flex-wrap: wrap; gap: var(--s-2); align-items: center; margin-bottom: var(--s-2); }
+  .key.small { min-width: 0; height: 36px; font-size: var(--t-1); }
+  .key.small[aria-pressed="true"] { outline: 3px solid var(--amber); }
+  .bench { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  .bench > * { min-width: 0; }
+  .boards { display: flex; flex-wrap: wrap; gap: var(--s-3); }
+  .boards figure { margin: 0; }
+  .boards svg { display: block; background: var(--ink); border: var(--w-frame) solid var(--ink); max-width: 100%; height: auto; }
+  figcaption { font-size: var(--t-1); margin-bottom: var(--s-1); }
+  .side { flex: 1 1 420px; max-width: 760px; }
+  ol.events { margin: 0; padding-left: 2.4em; font-size: var(--t-1); max-height: 320px; overflow: auto; background: rgba(30,36,32,0.5); }
+  ol.events li { max-width: none; word-break: break-word; }
+  ol.events li.phase { color: var(--khaki); }
+  .lines p { margin: 0; }
+  .checks { list-style: none; padding: 0; margin: var(--s-2) 0; }
+  .checks li::before { content: 'PASS  '; font-family: var(--font-display); color: var(--khaki); }
+  .checks li.bad::before { content: 'FAIL  '; color: var(--rust); }
+  .lab { font-family: var(--font-text); font-size: 9px; fill: #1E2420; opacity: 0.7; }
+  .unit text { font-family: var(--font-display); font-size: 12px; fill: #E9DFC6; }
+  .frames { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  .frame { display: flex; flex-direction: column; gap: var(--s-1); max-width: 100%; overflow-x: auto; }
+  .frame iframe { box-sizing: content-box; border: var(--w-frame) solid var(--ink); background: var(--slate); display: block; }
+  .cap { font-size: var(--t-1); }
+  .shots { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  .shots figure { margin: 0; display: flex; flex-direction: column; gap: var(--s-1); max-width: 620px; }
+  .shots img { display: block; border: var(--w-frame) solid var(--ink); max-width: 100%; height: auto; }
+  #feed { font-size: var(--t-1); background: rgba(30,36,32,0.5); padding: var(--s-2); max-width: 110ch; min-height: 3em; white-space: pre-wrap; word-break: break-word; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 14 — Move then act, and moving through your own squad</h1>
+<p>Needs only Vite (<code>npx vite</code>; no game server). Sections 1 and 2 are live: the sandbox runs the real
+<code>validateOrders</code> and <code>resolve</code> from <code>src/rules</code> in this page, and the three frames in
+section 2 are the real play screen (<code>src/client/ui/screens/play.ts</code>) on a feed scripted in the page.
+Section 3 is recorded figures from real runs on 2026-11-18, with the commands to run them again.</p>
+
+<h2>1. Sandbox: staged rounds through the real <code>resolve</code></h2>
+<p>Each key stages one small round. Left: the board as the orders are given (routes in amber, a follow-up's aim as a
+dashed line from the end of the route). Right: the board afterwards. Below: every event of the round as
+<code>resolve</code> returned it, the report lines the play screen makes of Blue's events, and checks worked out from
+the result now, not written down beforehand. Blue is player 0, Plum is player 1; a unit is named by its id.</p>
+<div class="controls" id="stages"></div>
+<p id="what"></p>
+<div class="bench">
+  <div class="boards">
+    <figure><figcaption>Before, with the orders</figcaption><div id="before"></div></figure>
+    <figure><figcaption>After</figcaption><div id="after"></div></figure>
+  </div>
+  <div class="side">
+    <ul class="checks" id="checks"></ul>
+    <h3>Orders</h3>
+    <ol class="events" id="orders"></ol>
+    <h3>Events (the full list)</h3>
+    <ol class="events" id="events"></ol>
+    <h3>Blue's report lines</h3>
+    <div class="lines" id="lines"></div>
+  </div>
+</div>
+<p id="all"></p>
+
+<h2>2. The real play screen, on a scripted feed</h2>
+<p>Three copies of <a href="/eval/14-play-frame.html">eval/14-play-frame.html</a>: the play screen itself, mounted
+with a stand-in for the socket. When the lever goes down the frame runs the real <code>validateOrders</code> and
+<code>resolve</code> and hands the screen the <code>resolve</code> message the server would send. The enemy (three
+riflemen at H3, G5, I6) holds every round; with <b>Enemy: ambush</b> the one at G5 lies in ambush instead. Each frame
+is its own match. A match that ends starts again.</p>
+<p><b>To order move-then-act by hand:</b> pick a rifleman (say the one at B4), press <b>Move</b>, tap a marked hex
+(D4), press <b>Fire</b> (it is still lit, because the rifle may follow a move; the marked hexes are now those within
+rifle range of D4, not of B4), tap the enemy at G5. The card reads <i>Move · Fire</i>, the strip <i>Move D4 · Fire
+G5</i>, and the map shows the route and, from its end, the aim. Pull the lever. Things to try:</p>
+<ul>
+  <li>The medic at A5: Move to B5 (through or beside his own men), then <b>Treat</b>, then C5, where a man starts pinned.</li>
+  <li>With Move lit, tap B3 for the man at A3: the route ends on his teammate, and the strip says what will happen.
+    Tap C3 instead: the route passes through B3.</li>
+  <li>The machine gunner at B6: after Move, his Fire chit replaces the move (a heavy weapon is not <code>mobile</code>).</li>
+  <li>Set move-then-fire, then tap the unit's own hex with Move lit: the move and its follow-up are both gone.</li>
+  <li>Set move-then-fire, then change the route so the target is out of range: the follow-up is dropped and the strip says so.</li>
+  <li>Aim a follow-up at a hex behind the woods (E1, D2): legal to order; in the assault phase the log says
+    <i>fire called off, no line</i>.</li>
+  <li><b>Enemy: ambush</b>, then walk a rifleman to D4 with a follow-up at G5: he is pinned on the way and the log says
+    <i>fire called off, pinned</i>.</li>
+</ul>
+<div class="controls">
+  <button class="key small" id="foe-hold" type="button">Enemy: hold</button>
+  <button class="key small" id="foe-ambush" type="button">Enemy: ambush</button>
+  <button class="key small" id="restart" type="button">Start all three again</button>
+</div>
+<div class="frames">
+  <div class="frame"><span class="cap">Phone, portrait, 390 × 844</span><iframe data-slot="eval14-port" title="Play screen, phone portrait" width="390" height="844"></iframe></div>
+  <div class="frame"><span class="cap">Phone, landscape, 844 × 390</span><iframe data-slot="eval14-land" title="Play screen, phone landscape" width="844" height="390"></iframe></div>
+  <div class="frame"><span class="cap">Laptop, 1280 × 720</span><iframe data-slot="eval14-lap" title="Play screen, laptop" width="1280" height="720"></iframe></div>
+</div>
+<h3>What the frames last sent, and what came back</h3>
+<p>The orders as the screen sent them, and the events of the assault phase from the full list (the frame posts both to this page).</p>
+<div id="feed">Nothing sent yet.</div>
+
+<h2>3. The same seeded matches, before and after</h2>
+<p>300 scripted matches straight through the rules, seeds 1001 to 1300 (100 each with two, three and four squads), on
+2026-11-18. The players are scripts, not opponents: each unit takes a random legal order, leaning towards contact
+(<code>scripts/seeded.ts</code>). Figures are per match.</p>
+<ul>
+  <li><b>Before</b>: the engine and the script as they stood before this task (a copy taken before the first edit).</li>
+  <li><b>After, old script</b>: today's rules, the same script, no follow-ups ordered
+    (<code>npx tsx scripts/seeded.ts --figures 300 --no-follow</code>). The only difference from Before is that
+    teammates do not block each other.</li>
+  <li><b>After</b>: today's rules and today's script (<code>npx tsx scripts/seeded.ts --figures 300</code>), in which
+    a unit told to move adds a follow-up 8 times in 10 when an enemy it sees (for a medic: a pinned friend) is in reach
+    of the end of its path with a clear line from there, and 1 time in 10 adds one blind.</li>
+</ul>
+<div class="scroll"><table id="figures"></table></div>
+<div class="observed" id="figures-note"></div>
+<div class="observed bad">
+  <b>These figures are for this task alone, on the terrain as it was when the task began.</b> While this task was being
+  built, another change to the repository reworked the terrain data (woods no longer give cover, a building no longer
+  hides a mover, three new terrains). That changes every one of these numbers by itself. So that the columns compare
+  like with like, the two After columns were measured on a copy of this task's rules and script with
+  <code>src/content/terrain.ts</code> and <code>mapFormat.ts</code> as they were at the start. Running the commands
+  in the repository as it stands now gives different numbers.
+</div>
+
+<h2>4. The field manual</h2>
+<p>New: <a href="/?manual=move-fire">Move, then fire</a> (Shooting) and <a href="/?manual=pass">Through your own
+squad</a> (Moving). Changed: <a href="/?manual=collide">Collisions</a> (now says it is units of different squads that
+block each other) and <a href="/?manual=phases">The six phases</a> (was five; a rifleman now walks onto the objective
+and fires from it in the assault phase, and the mortar finds two pinned men). The other lessons were read against the
+new rules and left as they were. Each lesson is checked against the real rules by <code>src/manual/lessons.test.ts</code>.</p>
+<div class="scroll"><table id="lessons"></table></div>
+
+<h2>5. Checks run</h2>
+<p>All on 2026-11-18, on the repository as it stood at the end of the task (which by then also held the terrain
+rework mentioned in section 3).</p>
+<table>
+  <tr><th>Check</th><th>Result</th></tr>
+  <tr><td><code>npm test</code></td><td>18 files, 531 tests, all pass (471 before the task; the terrain rework added some of the difference).</td></tr>
+  <tr><td><code>npm run typecheck</code></td><td>Clean.</td></tr>
+  <tr><td><code>npm run build</code></td><td>Builds. Run as <code>npx vite build --outDir &lt;scratch&gt;</code>, because a live server was serving <code>dist/</code>; <code>dist/</code> itself was not rebuilt.</td></tr>
+  <tr><td><code>npm run bots -- --matches 300 --seed 1400</code></td><td>300 of 300 pass, over real sockets against the real server. 2,854 follow-ups ordered: 729 ran, 1,988 did not (the bots aim blind half the time), the rest were quiet treatments that changed nobody. 3,769 moves ordered onto a teammate's hex; 534 steps fallen back.</td></tr>
+  <tr><td>Property test (<code>src/rules/property.test.ts</code>), 240 random matches</td><td>Passes with the new checks: one living unit per hex outside the movement phase and whenever a phase begins; every unit on its start hex or a hex of its own path; no unit that held still has moved; every follow-up accounted for exactly once; fog checks unchanged and now covering <code>unable</code>. In those matches: 6,260 follow-ups ordered, 15,985 moments with teammates sharing a hex mid-movement, 638 steps fallen back.</td></tr>
+  <tr><td>Seeded digests (<code>src/rules/digest.test.ts</code>)</td><td>Changed, as the rules did. The pinned values in the file were recorded with the terrain rework in as well (combined digest 3c1e3225e5894ac1). This task alone, on the old terrain: 87d3a8f11e0ad1fc. Before either: b26a7704205b4e3a.</td></tr>
+  <tr><td>This page, in headless Chromium</td><td>Section 1: 12 stages, 52 checks, all pass. Section 4: the four lessons hold. The three frames mount and resolve a round.</td></tr>
+  <tr><td>The play screen by mouse (headless Chromium, <code>eval/14-play-frame.html</code>) at 390 × 844, 844 × 390 and 1280 × 720</td><td>At each size: Move then Fire ordered and carried out (the enemy at G5 pinned in the assault phase); Move then Treat ordered and carried out; a route ended on a teammate's hex and passed through it without selecting him; tapping him with no chit lit selects him; the machine gunner's Fire replaced his move; tapping the unit's own hex cleared move and follow-up; a route change that put the target out of range dropped the follow-up and said so. No page scroll, every chit in view, no card text cut off. On the 390-wide screen the enemy was off the edge and the board had to be dragged once to reach it.</td></tr>
+</table>
+<h3>Screenshots from those runs</h3>
+<div class="shots">
+  <figure><img src="/eval/assets/14/phone-landscape-aim-follow-up.png" alt="Phone landscape: aiming the follow-up" /><figcaption>844 × 390. Move set to D4, Fire lit: the marked hexes are those in rifle range of D4.</figcaption></figure>
+  <figure><img src="/eval/assets/14/phone-landscape-planned.png" alt="Phone landscape: the round planned" /><figcaption>844 × 390, planned.</figcaption></figure>
+  <figure><img src="/eval/assets/14/phone-portrait-planned.png" alt="Phone portrait: the round planned" /><figcaption>390 × 844, planned; the board dragged left to reach the enemy.</figcaption></figure>
+  <figure><img src="/eval/assets/14/laptop-planned.png" alt="Laptop: the round planned" /><figcaption>1280 × 720, planned: Move · Fire, Move · Treat, a route through a teammate.</figcaption></figure>
+  <figure><img src="/eval/assets/14/laptop-after-round.png" alt="Laptop: after the round" /><figcaption>1280 × 720, after the round, log open.</figcaption></figure>
+  <figure><img src="/eval/assets/14/manual-move-fire.png" alt="Manual: Move, then fire" /><figcaption>Field manual, Move, then fire, played.</figcaption></figure>
+  <figure><img src="/eval/assets/14/manual-pass-landscape.png" alt="Manual: Through your own squad" /><figcaption>Field manual, Through your own squad, 844 × 390.</figcaption></figure>
+</div>
+
+<h2>6. What does not work, was not checked, or is awkward</h2>
+<ul id="rough">
+  <li><b>Not checked:</b> a real phone; the real client against the real server in a browser (the bots cover the server
+    over sockets, the frames cover the screen); the look of a fall back as it animates (its events, the log lines and
+    where everyone ends were checked, the animation was not watched frame by frame); <b>Enemy: ambush</b> in the
+    frames by hand (the sandbox stage "Pinned on the way" covers the rule).</li>
+  <li><b>With a move pencilled in, a rifleman's Fire chit always aims the follow-up.</b> To give him a plain shot
+    from where he stands instead, press Hold first. The strip does not say so.</li>
+  <li><b>Follow-up marks are a lot of amber.</b> Every hex within range of the path's end is marked, in sight or not
+    (up to 60 for a rifle), because sight is not judged when ordering.</li>
+  <li><b>The unit card says "Move · Fire" without the hexes</b>; a 176 px card on a phone has no room for more. The
+    strip and the map have them.</li>
+  <li><b>A medic's follow-up at a teammate who is not pinned "runs" and does nothing, without an event.</b> His
+    action needs a friend on the hex, not a pinned one (that is the data, from task 12), so the "nothing to treat"
+    line appears only when nobody is there at all.</li>
+  <li><b>An enemy who sees the unit is told when its follow-up did not happen</b> (<code>unable</code> goes to
+    whoever sees the unit, as <code>blocked</code> does). That tells him an action was ordered, though not at what.</li>
+  <li><b>Units of different squads can share a hex for a moment</b>, when one falls back into a hex an enemy is
+    walking through (121 such moments in 2,880 random rounds). And a unit pushed all the way back to its start hex
+    takes it back from whoever has stopped there, enemy included, who then falls back along his own path. Both are
+    needed for settling to always end; neither is something a player would expect.</li>
+  <li><b>A pinned man moves:</b> one pinned by an ambush while standing in a teammate's hex falls back along his path.</li>
+  <li><b>An ambush shot at a hex two teammates share hits both</b>, as the task asks. Walking through your own men
+    in front of an ambusher costs two pins for one shot.</li>
+  <li><b>Two teammates walking the same route to the same last hex</b> both stop one hex short, as asked; but that
+    hex is one they share, so both fall back further, to wherever their routes last differed.</li>
+  <li><b>The <code>step</code> of a <code>move</code> event</b> now counts the moments of movement in the round, fall
+    backs included, so it is no longer the index of the step along the unit's path.</li>
+  <li><b>The manual's "orders marked" count</b> tells a move's follow-up mark from another unit's target mark by
+    where the aim starts; a unit firing from the very hex another's route ends on would be miscounted.</li>
+  <li><code>eval/11-field-manual.html</code> still says seventeen lessons and five phases; it was left as the record
+    of task 11.</li>
+</ul>
+</main>
+
+<script type="module">
+  import { ACTIONS, UNITS } from '/src/content/index.ts';
+  import { resolve, validateOrders, viewFor, actionOf } from '/src/rules/index.ts';
+  import { hexToPixel, key, label } from '/src/shared/hex.ts';
+  import { teller } from '/src/client/ui/lines.ts';
+  import { ambush, checkLesson, fire, hex, move, runLesson, stageLesson, thenFire, thenTreat, tinyMap } from '/src/manual/lesson.ts';
+  import { LESSONS } from '/src/manual/lessons.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+
+  // ------------------------------------------------------------ 1. sandbox
+  const OPEN = ['. . . . . . .', ' . . . . . . .', '. . . . . . .'];
+  const WOODS = ['. . . . . . .', ' . . . . w . .', '. . . . . . .'];
+  const at = (s, id) => label(s.units.find((u) => u.id === id).pos);
+  const status = (s, id) => s.units.find((u) => u.id === id).status;
+  const count = (r, t, f = () => true) => r.events.filter((e) => e.t === t && f(e)).length;
+  const inAssault = (r, t) => { let on = false; let n = 0; for (const e of r.events) { if (e.t === 'phase') on = e.phase === 'assault'; else if (on && e.t === t) n++; } return n; };
+  const rifle = ACTIONS[UNITS.rifleman.fire];
+
+  const STAGES = [
+    {
+      id: 'lands', title: 'Move, then fire: it lands',
+      what: `Blue's rifleman at A2 is 6 hexes from the man at G2; a rifle reaches ${rifle.range}. He is told to walk to C2 and fire at G2 from there.`,
+      terrain: OPEN,
+      units: [[0, 'rifleman', 'A2'], [1, 'rifleman', 'G2']],
+      orders: [[thenFire(move('0-0', 'B2', 'C2'), 'G2')], []],
+      checks: (r, s) => [
+        ['The order is legal, though G2 is out of range from where he stands', validateOrders(s, 0, [thenFire(move('0-0', 'B2', 'C2'), 'G2')]).length === 0 && validateOrders(s, 0, [fire('0-0', 'G2')]).length === 1],
+        ['He ends on C2', at(r.state, '0-0') === 'C2'],
+        ['One shot, in the assault phase, from C2', inAssault(r, 'fire') === 1 && r.events.some((e) => e.t === 'fire' && label(e.from) === 'C2')],
+        ['The man at G2 is pinned', status(r.state, '1-0') === 'pinned'],
+        ['Firing gave him away; his posture is "moved"', r.state.units[0].revealed && r.state.units[0].posture === 'moved'],
+      ],
+    },
+    {
+      id: 'short', title: 'Stopped short: out of range',
+      what: 'The same order, but an enemy stands on C2 and stays. He is blocked at B2, 5 hexes from G2.',
+      terrain: OPEN,
+      units: [[0, 'rifleman', 'A2'], [1, 'rifleman', 'G2'], [1, 'rifleman', 'C2']],
+      orders: [[thenFire(move('0-0', 'B2', 'C2'), 'G2')], []],
+      checks: (r) => [
+        ['He is blocked at B2', at(r.state, '0-0') === 'B2' && count(r, 'blocked') === 1],
+        ['No shot is fired', count(r, 'fire') === 0],
+        ['An "unable" event gives the reason: range', count(r, 'unable', (e) => e.unit === '0-0' && e.reason === 'range') === 1],
+        ['He did not fire, so he did not give himself away', !r.state.units[0].revealed],
+      ],
+    },
+    {
+      id: 'blind', title: 'No line from where he ends up',
+      what: 'The same order again, with woods at E2 between C2 and G2. In range, but the line is blocked.',
+      terrain: WOODS,
+      units: [[0, 'rifleman', 'A2'], [1, 'rifleman', 'G2']],
+      orders: [[thenFire(move('0-0', 'B2', 'C2'), 'G2')], []],
+      checks: (r, s) => [
+        ['The order is legal: sight is not judged when ordering', validateOrders(s, 0, [thenFire(move('0-0', 'B2', 'C2'), 'G2')]).length === 0],
+        ['He ends on C2 and does not fire', at(r.state, '0-0') === 'C2' && count(r, 'fire') === 0],
+        ['"unable", reason: sight', count(r, 'unable', (e) => e.reason === 'sight') === 1],
+      ],
+    },
+    {
+      id: 'pinned', title: 'Pinned on the way',
+      what: 'The man at G2 lies in ambush. Blue\'s rifleman is pinned on his first step into rifle range and does not fire.',
+      terrain: OPEN,
+      units: [[0, 'rifleman', 'B2'], [1, 'rifleman', 'G2']],
+      orders: [[thenFire(move('0-0', 'C2', 'D2'), 'G2')], [ambush('1-0')]],
+      checks: (r) => [
+        ['He is pinned at C2 and goes no further', at(r.state, '0-0') === 'C2' && status(r.state, '0-0') === 'pinned'],
+        ['The only shot of the round is the ambush', count(r, 'fire') === 1 && count(r, 'fire', (e) => e.ambush) === 1],
+        ['"unable", reason: pinned', count(r, 'unable', (e) => e.reason === 'pinned') === 1],
+      ],
+    },
+    {
+      id: 'medic', title: 'A medic walks up and treats',
+      what: 'Plum pins the man at D2 in the fire phase. The medic walks from A2 to C2 and treats him in the assault phase, the same round.',
+      terrain: OPEN,
+      units: [[0, 'medic', 'A2'], [0, 'rifleman', 'D2'], [1, 'rifleman', 'G2']],
+      orders: [[thenTreat(move('0-0', 'B2', 'C2'), 'D2')], [fire('1-0', 'D2')]],
+      checks: (r) => [
+        ['The rifleman is pinned in the fire phase', count(r, 'hit', (e) => e.unit === '0-1' && e.result === 'pinned') === 1],
+        ['The treatment happens in the assault phase', inAssault(r, 'treat') === 1],
+        ['He is ready when the round ends', status(r.state, '0-1') === 'ready'],
+      ],
+    },
+    {
+      id: 'through', title: 'Walking through a teammate',
+      what: 'Blue\'s man at A2 is told to walk to C2. His teammate at B2 stays where he is.',
+      terrain: OPEN,
+      units: [[0, 'rifleman', 'A2'], [0, 'rifleman', 'B2'], [1, 'rifleman', 'G3']],
+      orders: [[move('0-0', 'B2', 'C2')], []],
+      checks: (r) => [
+        ['He ends on C2', at(r.state, '0-0') === 'C2'],
+        ['The teammate has not moved', at(r.state, '0-1') === 'B2'],
+        ['Nobody was blocked', count(r, 'blocked') === 0],
+      ],
+    },
+    {
+      id: 'onto-stays', title: 'Ordered onto a teammate who stays',
+      what: 'His path ends on C2, where a teammate stays. He stops on the last free hex of his path.',
+      terrain: OPEN,
+      units: [[0, 'rifleman', 'A2'], [0, 'rifleman', 'C2'], [1, 'rifleman', 'G3']],
+      orders: [[move('0-0', 'B2', 'C2')], []],
+      checks: (r) => [
+        ['The order is legal', true],
+        ['He stops at B2 and never enters C2', at(r.state, '0-0') === 'B2' && count(r, 'move') === 1],
+        ['The teammate keeps C2', at(r.state, '0-1') === 'C2'],
+        ['One "blocked" event, at B2', count(r, 'blocked', (e) => label(e.at) === 'B2') === 1],
+      ],
+    },
+    {
+      id: 'onto-leaves', title: 'Ordered onto a teammate who leaves',
+      what: 'The same, but the teammate at C2 walks on to D2. The hex is free by the time the mover gets there.',
+      terrain: OPEN,
+      units: [[0, 'rifleman', 'A2'], [0, 'rifleman', 'C2'], [1, 'rifleman', 'G3']],
+      orders: [[move('0-0', 'B2', 'C2'), move('0-1', 'D2')], []],
+      checks: (r) => [
+        ['He takes C2', at(r.state, '0-0') === 'C2'],
+        ['The teammate is on D2', at(r.state, '0-1') === 'D2'],
+        ['Nobody was blocked', count(r, 'blocked') === 0],
+      ],
+    },
+    {
+      id: 'swap', title: 'A friendly swap',
+      what: 'Two teammates next to each other are each told to take the other\'s hex.',
+      terrain: OPEN,
+      units: [[0, 'rifleman', 'B2'], [0, 'rifleman', 'C2'], [1, 'rifleman', 'G3']],
+      orders: [[move('0-0', 'C2'), move('0-1', 'B2')], []],
+      checks: (r) => [
+        ['They have changed places', at(r.state, '0-0') === 'C2' && at(r.state, '0-1') === 'B2'],
+        ['Nobody was blocked', count(r, 'blocked') === 0],
+      ],
+    },
+    {
+      id: 'fallback', title: 'No free hex ahead: he falls back',
+      what: 'Teammates stay on B2 and C2. He walks into B2, cannot end on C2, and cannot rest in B2 either: back along his path to A2.',
+      terrain: OPEN,
+      units: [[0, 'rifleman', 'A2'], [0, 'rifleman', 'B2'], [0, 'rifleman', 'C2'], [1, 'rifleman', 'G3']],
+      orders: [[move('0-0', 'B2', 'C2')], []],
+      checks: (r) => [
+        ['He is back on A2', at(r.state, '0-0') === 'A2'],
+        ['Neither teammate has moved', at(r.state, '0-1') === 'B2' && at(r.state, '0-2') === 'C2'],
+        ['He is told "blocked" once, at B2, and then moves back', count(r, 'blocked', (e) => label(e.at) === 'B2') === 1 && count(r, 'move', (e) => e.unit === '0-0') === 2],
+        ['One living unit to a hex', new Set(r.state.units.filter((u) => u.status !== 'down').map((u) => key(u.pos))).size === 4],
+      ],
+    },
+    {
+      id: 'enemy', title: 'An enemy still blocks',
+      what: 'Top: Blue is told to walk through a hex an enemy holds. Bottom: a Blue and a Plum unit are each told to take the other\'s hex. As before this task, everyone stops.',
+      terrain: OPEN,
+      units: [[0, 'rifleman', 'A1'], [1, 'rifleman', 'B1'], [0, 'rifleman', 'C3'], [1, 'rifleman', 'D3']],
+      orders: [[move('0-0', 'B1', 'C1'), move('0-1', 'D3')], [move('1-1', 'C3')]],
+      checks: (r) => [
+        ['Blue\'s man at A1 has not moved', at(r.state, '0-0') === 'A1'],
+        ['The two who would swap have not moved', at(r.state, '0-1') === 'C3' && at(r.state, '1-1') === 'D3'],
+        ['Three "blocked" events, no "move"', count(r, 'blocked') === 3 && count(r, 'move') === 0],
+      ],
+    },
+    {
+      id: 'shared', title: 'Ambushed while passing a teammate',
+      what: 'Plum lies in ambush at F2. Blue\'s man steps into B2, where his teammate stands, and is shot there. The shot is at the hex: it hits both, and the mover falls back, pinned.',
+      terrain: OPEN,
+      units: [[0, 'rifleman', 'A2'], [0, 'rifleman', 'B2'], [1, 'rifleman', 'F2']],
+      orders: [[move('0-0', 'B2', 'C2')], [ambush('1-0')]],
+      checks: (r) => [
+        ['Both men are hit at B2', count(r, 'hit', (e) => label(e.at) === 'B2') === 2],
+        ['The mover is back on A2, pinned', at(r.state, '0-0') === 'A2' && status(r.state, '0-0') === 'pinned'],
+        ['The teammate is on B2, pinned', at(r.state, '0-1') === 'B2' && status(r.state, '0-1') === 'pinned'],
+      ],
+    },
+  ];
+
+  const SEAT = ['#3F6E8C', '#6B4E7A'];
+  const SIZE = 30;
+  function board(state, orders) {
+    const cells = Object.keys(state.map.cells).map((k) => ({ q: Number(k.split(',')[0]), r: Number(k.split(',')[1]) }));
+    const px = (h) => { const p = hexToPixel(h, SIZE); return { x: p.x + SIZE + 4, y: p.y + SIZE + 4 }; };
+    const w = Math.max(...cells.map((c) => px(c).x)) + SIZE + 4;
+    const hgt = Math.max(...cells.map((c) => px(c).y)) + SIZE + 4;
+    const corner = (c, i) => { const a = (Math.PI / 180) * (60 * i - 30); return `${(c.x + (SIZE - 1) * Math.cos(a)).toFixed(1)},${(c.y + (SIZE - 1) * Math.sin(a)).toFixed(1)}`; };
+    let out = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${w.toFixed(0)} ${hgt.toFixed(0)}" width="${w.toFixed(0)}" height="${hgt.toFixed(0)}">`;
+    for (const c of cells) {
+      const p = px(c);
+      const woods = state.map.cells[key(c)].terrain !== 'open';
+      out += `<polygon points="${[0, 1, 2, 3, 4, 5].map((i) => corner(p, i)).join(' ')}" fill="${woods ? '#5E6B45' : '#B7A77A'}" />`;
+      out += `<text class="lab" x="${p.x}" y="${p.y + SIZE - 9}" text-anchor="middle">${label(c)}</text>`;
+    }
+    for (const list of orders ?? []) {
+      for (const o of list) {
+        const u = state.units.find((x) => x.id === o.unit);
+        if (!u) continue;
+        if (o.kind === 'move' || o.kind === 'dash') {
+          const pts = [u.pos, ...o.path].map(px);
+          out += `<polyline points="${pts.map((p) => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="#E8A23A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />`;
+          const e = pts[pts.length - 1];
+          out += `<circle cx="${e.x}" cy="${e.y}" r="5" fill="#E8A23A" />`;
+          if (o.then) { const t = px(o.then.target); out += `<line x1="${e.x}" y1="${e.y}" x2="${t.x}" y2="${t.y}" stroke="#E8A23A" stroke-width="2.5" stroke-dasharray="6 5" /><circle cx="${t.x}" cy="${t.y}" r="11" fill="none" stroke="#E8A23A" stroke-width="2.5" />`; }
+        } else if (o.kind === 'fire' || o.kind === 'special') {
+          const a = px(u.pos); const t = px(o.target);
+          out += `<line x1="${a.x}" y1="${a.y}" x2="${t.x}" y2="${t.y}" stroke="#9A4B32" stroke-width="2.5" stroke-dasharray="6 5" />`;
+        } else {
+          const a = px(u.pos);
+          out += `<circle cx="${a.x}" cy="${a.y}" r="${SIZE - 6}" fill="none" stroke="#E8A23A" stroke-width="2" stroke-dasharray="3 4" />`;
+        }
+      }
+    }
+    for (const u of state.units) {
+      const p = px(u.pos);
+      const dead = u.status === 'down';
+      out += `<g class="unit" opacity="${dead ? 0.45 : 1}"><circle cx="${p.x}" cy="${p.y - 3}" r="13" fill="${SEAT[u.owner]}" stroke="${u.status === 'pinned' ? '#E8A23A' : '#1E2420'}" stroke-width="${u.status === 'pinned' ? 4 : 2}" />`;
+      out += `<text x="${p.x}" y="${p.y + 1}" text-anchor="middle">${u.id}</text>`;
+      if (u.type !== 'rifleman') out += `<text x="${p.x}" y="${p.y - 18}" text-anchor="middle" style="fill:#1E2420;font-size:10px">${UNITS[u.type].name}</text>`;
+      if (u.status !== 'ready') out += `<text x="${p.x}" y="${p.y + 20}" text-anchor="middle" style="fill:#1E2420;font-size:10px">${u.status}</text>`;
+      out += '</g>';
+    }
+    return `${out}</svg>`;
+  }
+
+  function stage(def) {
+    const lesson = {
+      id: def.id, group: 'Moving', title: def.title, text: '', map: tinyMap({ id: `eval14-${def.id}`, terrain: def.terrain }),
+      units: def.units.map(([owner, type, where, st]) => ({ owner, type, at: where, status: st })),
+      rounds: [], viewAs: 'umpire', fogMatters: false, expect: [],
+    };
+    const state = stageLesson(lesson);
+    const errors = [0, 1].flatMap((p) => validateOrders(state, p, def.orders[p]));
+    const result = resolve(state, def.orders);
+    const checks = [['Every order given is one validateOrders accepts', errors.length === 0], ...def.checks(result, state)];
+    return { state, result, checks };
+  }
+
+  function show(def) {
+    const { state, result, checks } = stage(def);
+    for (const b of $('stages').children) b.setAttribute('aria-pressed', String(b.dataset.id === def.id));
+    $('what').textContent = def.what;
+    $('before').innerHTML = board(state, def.orders);
+    $('after').innerHTML = board(result.state, null);
+    $('checks').replaceChildren(...checks.map(([text, ok]) => el('li', ok ? '' : 'bad', text)));
+    $('orders').replaceChildren(...def.orders.flatMap((list, p) => list.map((o) => el('li', '', `${p === 0 ? 'Blue' : 'Plum'}: ${JSON.stringify(o).replace(/\{"q":(-?\d+),"r":(-?\d+)\}/g, (_m, q, r) => `"${label({ q: Number(q), r: Number(r) })}"`)}`))));
+    if ($('orders').children.length === 0) $('orders').append(el('li', '', 'none'));
+    $('events').replaceChildren(...result.events.map((e) => el('li', e.t === 'phase' ? 'phase' : '', JSON.stringify(e).replace(/\{"q":(-?\d+),"r":(-?\d+)\}/g, (_m, q, r) => `"${label({ q: Number(q), r: Number(r) })}"`))));
+    const lines = teller(viewFor(state, 0), ['Blue', 'Plum']).tell(result.playerEvents[0]);
+    $('lines').replaceChildren(...(lines.length > 0 ? lines : [{ text: '(nothing to report)', danger: false }]).map((l) => { const p = el('p', '', l.text); if (l.danger) p.style.color = 'var(--amber)'; return p; }));
+  }
+
+  for (const def of STAGES) {
+    const b = el('button', 'key small', def.title);
+    b.type = 'button';
+    b.dataset.id = def.id;
+    b.addEventListener('click', () => show(def));
+    $('stages').append(b);
+  }
+  show(STAGES[0]);
+  {
+    const failed = STAGES.flatMap((def) => stage(def).checks.filter(([, ok]) => !ok).map(([text]) => `${def.title}: ${text}`));
+    const total = STAGES.reduce((n, def) => n + stage(def).checks.length, 0);
+    $('all').textContent = failed.length === 0
+      ? `All ${STAGES.length} stages run when the page loaded: ${total} checks, all pass.`
+      : `Run when the page loaded: ${failed.length} of ${total} checks FAIL: ${failed.join('; ')}`;
+    if (failed.length > 0) $('all').style.color = 'var(--rust)';
+    window.eval14 = { failed, total };
+  }
+
+  // ------------------------------------------------------------ 2. the frames
+  let foe = 'hold';
+  const frames = [...document.querySelectorAll('.frame iframe')];
+  function load() {
+    for (const f of frames) {
+      try { sessionStorage.removeItem(`dawn-squad-draft-${f.dataset.slot}`); } catch { /* nothing kept */ }
+      f.src = `/eval/14-play-frame.html?slot=${f.dataset.slot}&foe=${foe}&t=${Date.now()}`;
+    }
+    $('foe-hold').setAttribute('aria-pressed', String(foe === 'hold'));
+    $('foe-ambush').setAttribute('aria-pressed', String(foe === 'ambush'));
+  }
+  $('foe-hold').addEventListener('click', () => { foe = 'hold'; load(); });
+  $('foe-ambush').addEventListener('click', () => { foe = 'ambush'; load(); });
+  $('restart').addEventListener('click', load);
+  load();
+  const pretty = (x) => JSON.stringify(x).replace(/\{"q":(-?\d+),"r":(-?\d+)\}/g, (_m, q, r) => `"${label({ q: Number(q), r: Number(r) })}"`);
+  let lastSent = '';
+  window.addEventListener('message', (m) => {
+    const d = m.data;
+    if (!d || !d.eval14) return;
+    if (d.eval14 === 'sent') { lastSent = `${d.slot} sent: ${pretty(d.msg)}`; $('feed').textContent = lastSent; }
+    if (d.eval14 === 'resolved') {
+      let on = false;
+      const assault = d.events.filter((e) => { if (e.t === 'phase') { on = e.phase === 'assault'; return false; } return on; });
+      $('feed').textContent = `${lastSent}\n\nAssault phase, full list: ${assault.length > 0 ? assault.map(pretty).join('\n') : '(nothing)'}`;
+    }
+  });
+
+  // ------------------------------------------------------------ 3. figures (recorded 2026-11-18; see the page text)
+  const FIG = {"before": {"all": {"matches": 300, "rounds": 12, "down": 8.62, "ambushes": 2.33, "shots": 30.82, "hits": 27, "treats": 0.44, "score": 26.53, "top": 14.54, "blocked": 25.81}, "two": {"matches": 100, "rounds": 12, "down": 4.15, "ambushes": 1.27, "shots": 18.65, "hits": 12.44, "treats": 0.24, "score": 22.42, "top": 15, "blocked": 18.83}, "three": {"matches": 100, "rounds": 12, "down": 8.41, "ambushes": 2.3, "shots": 31.02, "hits": 26.04, "treats": 0.4, "score": 26.37, "top": 14.23, "blocked": 26.71}, "four": {"matches": 100, "rounds": 12, "down": 13.29, "ambushes": 3.41, "shots": 42.8, "hits": 42.51, "treats": 0.67, "score": 30.79, "top": 14.39, "blocked": 31.88}}, "nofollow": {"all": {"matches": 300, "rounds": 12, "down": 9.74, "ambushes": 2.65, "shots": 32.11, "hits": 30.34, "treats": 0.54, "score": 30.39, "top": 16.9, "followRan": 0, "followNot": 0, "blocked": 13.33, "fellBack": 1.77}, "two": {"matches": 100, "rounds": 12, "down": 4.94, "ambushes": 1.64, "shots": 19.32, "hits": 14.38, "treats": 0.19, "score": 26.29, "top": 18.42, "followRan": 0, "followNot": 0, "blocked": 9.35, "fellBack": 1.79}, "three": {"matches": 100, "rounds": 12, "down": 9.79, "ambushes": 2.73, "shots": 31.73, "hits": 29.84, "treats": 0.63, "score": 29.97, "top": 16.16, "followRan": 0, "followNot": 0, "blocked": 13.03, "fellBack": 1.46}, "four": {"matches": 100, "rounds": 12, "down": 14.48, "ambushes": 3.59, "shots": 45.29, "hits": 46.8, "treats": 0.8, "score": 34.9, "top": 16.13, "followRan": 0, "followNot": 0, "blocked": 17.61, "fellBack": 2.05}}, "after": {"all": {"matches": 300, "rounds": 12, "down": 10.32, "ambushes": 2.53, "shots": 37.63, "hits": 31.85, "treats": 0.68, "score": 28.63, "top": 16.19, "followRan": 6.63, "followNot": 5.53, "followNot_down": 0.64, "followNot_pinned": 2.23, "followNot_range": 0.31, "followNot_sight": 1.65, "followNot_needs": 0.69, "blocked": 12.77, "fellBack": 1.87}, "two": {"matches": 100, "rounds": 12, "down": 5.22, "ambushes": 1.48, "shots": 22.28, "hits": 15.24, "treats": 0.33, "score": 24.33, "top": 16.16, "followRan": 4.07, "followNot": 3.39, "followNot_down": 0.26, "followNot_pinned": 1.07, "followNot_range": 0.23, "followNot_sight": 1.37, "followNot_needs": 0.46, "blocked": 9, "fellBack": 1.52}, "three": {"matches": 100, "rounds": 12, "down": 10.48, "ambushes": 2.71, "shots": 37.65, "hits": 31.36, "treats": 0.58, "score": 28.71, "top": 16.26, "followRan": 6.71, "followNot": 5.54, "followNot_down": 0.65, "followNot_pinned": 2.09, "followNot_range": 0.37, "followNot_sight": 1.72, "followNot_needs": 0.71, "blocked": 12.61, "fellBack": 1.91}, "four": {"matches": 100, "rounds": 12, "down": 15.27, "ambushes": 3.39, "shots": 52.97, "hits": 48.96, "treats": 1.14, "score": 32.85, "top": 16.15, "followRan": 9.1, "followNot": 7.65, "followNot_down": 1.01, "followNot_pinned": 3.52, "followNot_range": 0.34, "followNot_sight": 1.87, "followNot_needs": 0.91, "blocked": 16.7, "fellBack": 2.17}}};
+  const ROWS = [
+    ['down', 'Units down at the end'], ['ambushes', 'Ambushes sprung'], ['score', 'Score, all squads added up'], ['top', 'Winning score'],
+    ['followRan', 'Follow-ups that ran'], ['followNot', 'Follow-ups that did not'],
+    ['followNot_pinned', '— the unit was pinned'], ['followNot_down', '— the unit was down'], ['followNot_sight', '— no line'],
+    ['followNot_range', '— out of range'], ['followNot_needs', '— nobody on the hex to treat'],
+    ['shots', 'Shots and launches (ambushes not counted)'], ['hits', 'Hits'], ['treats', 'Treatments'],
+    ['blocked', '"blocked" events'], ['fellBack', 'Steps fallen back'], ['rounds', 'Rounds'],
+  ];
+  const GROUPS = [['all', 'All 300'], ['two', '2 squads'], ['three', '3 squads'], ['four', '4 squads']];
+  const COLS = [['before', 'Before'], ['nofollow', 'After, old script'], ['after', 'After']];
+  {
+    const t = $('figures');
+    const head = el('tr');
+    head.append(el('th', '', 'Per match'));
+    for (const [, g] of GROUPS) for (const [, c] of COLS) head.append(el('th', 'num', `${g}: ${c}`));
+    t.append(head);
+    for (const [k, name] of ROWS) {
+      const tr = el('tr');
+      tr.append(el('td', '', name));
+      for (const [g] of GROUPS) for (const [c] of COLS) tr.append(el('td', 'num', FIG[c][g][k] === undefined ? '–' : String(FIG[c][g][k])));
+      t.append(tr);
+    }
+    const a = FIG.after.all; const b = FIG.before.all; const n = FIG.nofollow.all;
+    const pct = (x, y) => `${x > y ? '+' : ''}${Math.round(((x - y) / y) * 100)}%`;
+    $('figures-note').innerHTML =
+      `<b>Read across "All 300".</b> Units down per match: ${b.down} before, ${n.down} with teammates no longer blocking (${pct(n.down, b.down)}), ${a.down} with follow-ups too (${pct(a.down, b.down)}). `
+      + `Ambushes sprung: ${b.ambushes}, ${n.ambushes}, ${a.ambushes}. Score per match: ${b.score}, ${n.score}, ${a.score}. `
+      + `Follow-ups: ${a.followRan} ran and ${a.followNot} did not per match, so ${Math.round((a.followRan / (a.followRan + a.followNot)) * 100)}% of those ordered happened; `
+      + `the commonest reason for one not happening is the unit being pinned on the way (${a.followNot_pinned}), then no line (${a.followNot_sight}). `
+      + `"blocked" events fell from ${b.blocked} to ${n.blocked} a match: most of the old ones were a squad in its own way. `
+      + 'The scripts aim poorly and do not hold back, so read the direction of each change, not its size.';
+  }
+
+  // ------------------------------------------------------------ 4. lessons, checked now
+  {
+    const t = $('lessons');
+    const head = el('tr');
+    for (const h of ['Lesson', 'Group', 'What it says', 'Holds now']) head.append(el('th', '', h));
+    t.append(head);
+    for (const id of ['move-fire', 'pass', 'collide', 'phases']) {
+      const l = LESSONS.find((x) => x.id === id);
+      const tr = el('tr');
+      if (!l) { tr.append(el('td', '', id), el('td', '', ''), el('td', '', ''), el('td', '', 'MISSING')); t.append(tr); continue; }
+      const failed = checkLesson(l, runLesson(l));
+      const a = el('a', '', l.title); a.href = `/?manual=${l.id}`;
+      const name = el('td'); name.append(a);
+      tr.append(name, el('td', '', l.group), el('td', '', l.text), el('td', '', failed.length === 0 ? 'yes' : `NO: ${failed.join(' ')}`));
+      t.append(tr);
+    }
+    void hex; void actionOf;
+  }
+</script>
+
+</body>
+</html>

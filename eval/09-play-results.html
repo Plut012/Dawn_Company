@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 09 — Play and results</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the game in the frames is the real client */
+  body { padding: var(--s-3); }
+  main { max-width: 1560px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p { max-width: 90ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  a { color: var(--amber); }
+  .bar { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; margin: var(--s-2) 0 var(--s-3); }
+  .frames { display: flex; gap: var(--s-3); overflow-x: auto; padding-bottom: var(--s-3); align-items: flex-start; }
+  .frame { flex: none; display: flex; flex-direction: column; gap: var(--s-1); }
+  .frame iframe { box-sizing: content-box; border: var(--w-frame) solid var(--ink); background: var(--slate); display: block; }
+  .check { list-style: none; margin: 0 0 var(--s-3); padding: 0; max-width: 100ch; }
+  .check li { display: grid; grid-template-columns: 28px 1fr; gap: var(--s-2); padding: var(--s-1) 0; border-top: var(--w-divider) solid rgba(233,223,198,0.25); }
+  .check input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--amber); }
+  .check b { font-family: var(--font-display); letter-spacing: 0.06em; text-transform: uppercase; }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; min-height: 1.5em; }
+  .shots { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  figure { margin: 0; display: flex; flex-direction: column; gap: var(--s-1); }
+  figure img { display: block; border: var(--w-frame) solid var(--ink); max-width: 100%; height: auto; }
+  figure.phone img { width: 390px; }
+  figure.laptop img { width: 960px; }
+  figcaption { font-size: var(--t-1); max-width: 60ch; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 09 — Play and results screens</h1>
+<p>Needs <code>npm run server</code> (port 8080) and <code>npm run dev</code>. The two frames below are the real
+client (<code>/?slot=a</code> and <code>/?slot=b</code>) against the real server: one laptop-shaped, one phone-shaped
+(390 × 844). One person can play a whole match from this page. Nothing here is mocked; the only help the page gives
+is the keys in the bar under the frames.</p>
+<p class="note">For the timer line of the checklist, run the server with a short timer:
+<code>npm run server -- --timer 30</code>. With the default 90 seconds everything else is easier to try.
+A third seat (to see a squad go out and keep watching) is one more tab at
+<a href="/?slot=c" target="_blank" rel="noopener"><code>/?slot=c</code></a>, joined before the host presses Start.</p>
+
+<h2>1. Play it</h2>
+<div class="frames" id="frames"></div>
+<div class="bar" id="bar"></div>
+<div class="observed" id="log" role="status">Join in both frames (any names), throw both ready levers, press Start in the left frame (the host).</div>
+
+<h2>2. Checklist</h2>
+<p class="note">Each line is something to do and something to see. The boxes are only for keeping your place.</p>
+<ul class="check" id="check"></ul>
+
+<h2>3. Screenshots from a real run</h2>
+<p>Taken from headless Chromium driving two real clients with real mouse and touch events against the real server,
+at 1280 × 800 and 390 × 844 (phone at 2× pixel density), during one match: Line section (Ann, blue bar) against
+Weapons section (Bo, plum chevron), 15-minute timer for the first ten rounds and 90 seconds for the last two.</p>
+<div class="shots">
+  <figure class="laptop"><img src="/eval/assets/09/laptop-planning.png" alt="Laptop, planning" />
+    <figcaption><b>Laptop, planning, round 1.</b> Calder is selected with the Move chit up: reachable hexes are
+    ringed. Hale's dash route was laid hex by hex (double arrowhead). Cobb is on ambush (eye). Barlow's fire at D1
+    covers Calder: the card says so in Rust. Finch's treat order is the second mark on D1.</figcaption></figure>
+  <figure class="phone"><img src="/eval/assets/09/phone-planning.png" alt="Phone, planning" />
+    <figcaption><b>Phone, planning, round 1.</b> Archer selected, Dash chit up, his route drawn among the options.
+    Booth's dash and Dawes's ambush stay drawn. The board has the screen between the bar and the tray.</figcaption></figure>
+  <figure class="phone"><img src="/eval/assets/09/phone-friendly-fire.png" alt="Phone, fire over own units" />
+    <figcaption><b>Phone, fire that covers own units.</b> First tap on L10 with a machine gun: the target and its
+    blast are drawn, the strip turns Rust and names who is in it, and nothing is ordered until L10 is tapped again.</figcaption></figure>
+  <figure class="phone"><img src="/eval/assets/09/phone-ready.png" alt="Phone, lever down" />
+    <figcaption><b>Phone, lever down.</b> Lamp Amber for Bo, chits locked, the strip says who is still planning.</figcaption></figure>
+  <figure class="laptop"><img src="/eval/assets/09/laptop-playback.png" alt="Laptop, mid-playback" />
+    <figcaption><b>Laptop, mid-playback, round 3.</b> Kit locked, both lamps Amber. Hale has just been pinned on
+    objective D by a rifleman who showed himself at E; the strip reports it in Rust. Dunn is being pinned by his
+    own side at B2. The rest of the map is under the Slate veil.</figcaption></figure>
+  <figure class="phone"><img src="/eval/assets/09/phone-playback.png" alt="Phone, mid-playback" />
+    <figcaption><b>Phone, mid-playback, same round, the other side.</b> The map was dragged with a finger first so
+    the hill is in view. The mortar round is on its way down onto the pinned rifleman at G6.</figcaption></figure>
+  <figure class="phone"><img src="/eval/assets/09/phone-log.png" alt="Phone, round log open" />
+    <figcaption><b>Phone, report strip opened</b> after that round: the round's lines, oldest first.</figcaption></figure>
+  <figure class="laptop"><img src="/eval/assets/09/laptop-pinned.png" alt="Laptop, a pinned unit and two down" />
+    <figcaption><b>Laptop, round 4.</b> Dunn is pinned (Rust card, Rust burst on the map) and the strip says what
+    that means for his orders. Hale and Calder are down: struck-through cards, bodies left on the map.</figcaption></figure>
+  <figure class="phone"><img src="/eval/assets/09/phone-timer-alert.png" alt="Phone, timer under ten seconds" />
+    <figcaption><b>Phone, timer alert</b> with 90 seconds a round: the Time readout turns Rust under ten seconds.</figcaption></figure>
+  <figure class="laptop"><img src="/eval/assets/09/laptop-results.png" alt="Laptop, results (host)" />
+    <figcaption><b>Laptop, results, host.</b> Winner outlined in Amber, player marks, units left, the dry line,
+    and the Rematch key.</figcaption></figure>
+  <figure class="phone"><img src="/eval/assets/09/phone-results.png" alt="Phone, results (guest)" />
+    <figcaption><b>Phone, results, guest.</b> No key; it says who can call the rematch.</figcaption></figure>
+  <figure class="laptop"><img src="/eval/assets/09/spectator.png" alt="A squad that is out keeps watching" />
+    <figcaption><b>Three players, 1024 × 768, round 6 of another match.</b> Cy's squad is out: the order kit is
+    replaced by one line, the lamp is dark and struck through, and the whole field is in sight.</figcaption></figure>
+</div>
+</main>
+
+<script type="module">
+  import { key } from '/src/client/ui/components.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const say = (text) => { $('log').textContent = text; };
+
+  // ---- the two real clients
+  const frames = {};
+  for (const [slot, w, h, caption] of [['a', 1180, 800, 'Seat A — laptop-shaped, 1180 × 800. Join here first to be the host.'], ['b', 390, 844, 'Seat B — phone-shaped, 390 × 844']]) {
+    const box = document.createElement('div'); box.className = 'frame';
+    const cap = document.createElement('span'); cap.className = 'cap'; cap.textContent = caption;
+    const f = document.createElement('iframe'); f.src = `/?slot=${slot}`; f.width = w; f.height = h; f.title = `client ${slot}`;
+    box.append(cap, f); $('frames').append(box); frames[slot] = f;
+  }
+
+  // ---- help for the checklist
+  const reload = (slot) => frames[slot].contentWindow.location.reload();
+  $('bar').append(
+    key({ label: 'Reload A', onPress: () => { reload('a'); say('Reloaded seat A. It takes its seat back and, mid-plan, shows the same draft.'); } }),
+    key({ label: 'Reload B', onPress: () => { reload('b'); say('Reloaded seat B. It takes its seat back and, mid-plan, shows the same draft.'); } }),
+    key({
+      label: 'Plant a bad order in B',
+      onPress: () => {
+        // The UI only ever builds legal orders, so to see a rejection the saved draft is edited by hand,
+        // as a stale page would have it: seat B's first living unit is told to move across the map in one step.
+        const store = frames.b.contentWindow.sessionStorage;
+        const raw = store.getItem('dawn-squad-draft-b');
+        if (!raw) { say('Seat B has no draft yet. Start a match first.'); return; }
+        const saved = JSON.parse(raw);
+        const live = [...saved.signature.matchAll(/(\d+-\d+):[a-z]+:-?\d+,-?\d+:(ready|pinned)/g)][0];
+        if (!live) { say('Could not read seat B\'s units from its draft.'); return; }
+        saved.draft[live[1]] = { unit: live[1], kind: 'move', path: [{ q: 0, r: 0 }] };
+        store.setItem('dawn-squad-draft-b', JSON.stringify(saved));
+        reload('b');
+        say(`Unit ${live[1]} of seat B now has a move order with a gap in it, and the frame was reloaded. Pull seat B's lever: it comes back up and the strip says why.`);
+      },
+    }),
+    key({
+      label: 'Forget seats',
+      onPress: () => {
+        for (const slot of ['a', 'b']) {
+          localStorage.removeItem(`dawn-squad-token-${slot}`);
+          sessionStorage.removeItem(`dawn-squad-draft-${slot}`);
+          reload(slot);
+        }
+        say('Seat tokens and drafts for A and B removed, frames reloaded. Use this after restarting the server.');
+      },
+    }),
+  );
+
+  // ---- the checklist
+  const LINES = [
+    ['Start', 'Join in both frames, throw both levers, press Start in seat A. Both frames show the board with your own squad in view (the phone opens on its squad, not on the middle of the map), the round, score, timer and one lamp per player.'],
+    ['Select', 'Tap a unit on the map, then another on its card. The card gets the Amber outline and the unit an Amber ring either way. The camera does not move. Tap the selected card again: the camera goes to that unit.'],
+    ['Move', 'With a rifleman selected press Move: reachable hexes are ringed. Tap one two hexes away: a dashed stroke with an arrowhead, and the card says MOVE and the hex.'],
+    ['Dash, hex by hex', 'Press Dash and tap a hex next to the unit, then the next, then the next: the route follows your taps (double arrowhead). Tap a hex already on the route: it is cut back to there. Tap the unit\'s own hex: the order is gone.'],
+    ['Fire', 'Press Fire: every hex in range and sight is ringed. Tap one: a crosshair with a thin line of fire. With a machine gunner or the mortar the six hexes around it are outlined too.'],
+    ['Fire over your own', 'Aim a machine gun at a hex next to your own units. The strip turns Rust and names them; the order is not set until you tap the same hex again. Once set, the units under it say OWN FIRE on their cards.'],
+    ['Ambush', 'Press Ambush: set at once; a broken ring and an eye over the unit.'],
+    ['Treat', 'Select the medic, press Treat, tap a man next to him.'],
+    ['Hold / clear', 'Press Hold on a unit that has an order: its mark goes and the card says HOLD.'],
+    ['The right chits', 'A machine gunner has no Dash chit; a mortar has neither Dash nor Ambush; a medic has Treat in place of Fire and Ambush. Walk a medic away from everyone: next round his Treat chit is greyed and does nothing.'],
+    ['Marks stay', 'Give four units orders and select a fifth: all four orders are still drawn.'],
+    ['Lever down', 'Pull the lever in seat B. Its lamp turns Amber in both frames; in seat B the chits lock and the strip says who is still planning.'],
+    ['Lever up', 'Push seat B\'s lever up again before seat A is ready: lamp back to Paper, chits live, orders unchanged.'],
+    ['Reload keeps the draft', 'Give seat B a few orders, press Reload B. The same orders are on the cards and the map. Reload with the lever down: it comes back down.'],
+    ['Rejected', 'Press Plant a bad order in B, then pull seat B\'s lever. It returns up, the strip turns Rust with the unit\'s name and the reason, and the card says ORDER REJECTED. Give that unit another order and pull again: accepted.'],
+    ['Playback', 'With both levers down the round plays: lever locked, marks gone, units move and fire, and the strip gets one line per event. When it ends the lever unlocks and the round number goes up.'],
+    ['Report log', 'Tap the report strip (it shows LOG and a count): the round\'s lines open above it, oldest first. Tap again to close.'],
+    ['Fog', 'Before the squads meet, each frame shows only its own squad; the far side of the map is under the Slate veil. Tap a veiled hex: the strip says "not in sight".'],
+    ['Spotted and lost', 'Bring two enemy units within sight of each other in open ground: the unit appears in the other frame and the strip says "spotted at". Walk it behind a wood: "lost from sight".'],
+    ['A pinned unit', 'Hit a unit standing in the open (your own will do). Its card and figure turn Rust and say PINNED. Select it: the strip says its orders run only if a medic treats it. Treat it next round with the medic: "treated … Back up".'],
+    ['A unit down', 'Hit a pinned unit again next round, or any unit that is dashing. Own: the card is struck through and the body stays on the map. Enemy: the figure is taken off.'],
+    ['Scoring', 'End a round with a unit standing on an objective: "Objective D held. +3." in your frame, "held by …" in the other, and the Score readout and lamps go up.'],
+    ['Timer alert', 'With <code>--timer 30</code>: the Time readout counts down and turns Rust under ten seconds. Leave one frame\'s lever up with orders set: since task 15 the server holds the draft the frame keeps sending and runs it at the bell (the frame no longer sends anything in the last second; see eval 15). Recall a commit and let the timer run out: the recalled orders still run.'],
+    ['Signal', 'Stop the server: both strips turn Rust with "Signal lost". Start it again with <code>--resume</code> and the log file it printed: both frames return to the same round.'],
+    ['Out', 'With a third seat (see above), lose every unit of one squad: that screen keeps the board, sees everything, and the kit is one line. Its lamp is dark and struck through for everyone.'],
+    ['To the end', 'Play (or pull both levers with no orders) to the end of round 12. The last round plays out first, then both frames show the results.'],
+    ['Results', 'Scores for every player, the winner outlined in Amber and first, player marks, units left, a dry line each. Seat A has the Rematch key; seat B is told who has it. Reload either frame: still the results.'],
+    ['Rematch', 'Press Rematch in seat A: both frames are back in the lobby with their squads. Start again: round 1, no orders left over from the last match.'],
+    ['One hand, no page scroll', 'In the phone frame every control is at least 40 px, nothing needs hover or a keyboard, and the page itself never scrolls sideways; only the squad row does.'],
+    ['Keyboard, as a bonus', 'Click the laptop frame, then: ← → pick a unit; H M D F A T press the chit; Esc backs out of aiming.'],
+  ];
+  for (const [title, text] of LINES) {
+    const li = document.createElement('li');
+    const box = document.createElement('input'); box.type = 'checkbox'; box.setAttribute('aria-label', title);
+    const body = document.createElement('span');
+    const b = document.createElement('b'); b.textContent = title + '. ';
+    const t = document.createElement('span'); t.innerHTML = text;      // our own constants above
+    body.append(b, t);
+    li.append(box, body);
+    $('check').append(li);
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 15 — Unsent orders count, and a bigger field</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the game in the frames is the real client */
+  body { padding: var(--s-3); }
+  main { max-width: 1200px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 90ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  pre { background: rgba(30,36,32,0.5); padding: var(--s-2); overflow-x: auto; max-width: 100ch; }
+  .bar { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; margin: var(--s-2) 0 var(--s-3); }
+  .frames { display: flex; gap: var(--s-3); overflow-x: auto; padding-bottom: var(--s-3); align-items: flex-start; }
+  .frame { flex: none; display: flex; flex-direction: column; gap: var(--s-1); }
+  .frame iframe { box-sizing: content-box; border: var(--w-frame) solid var(--ink); background: var(--slate); display: block; }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; min-height: 1.5em; }
+  .pending { border-left: 8px solid var(--rust, #a4472e); padding: var(--s-1) var(--s-3); max-width: 100ch; }
+  .check { list-style: none; margin: 0 0 var(--s-3); padding: 0; max-width: 100ch; }
+  .check li { display: grid; grid-template-columns: 28px 1fr; gap: var(--s-2); padding: var(--s-1) 0; border-top: var(--w-divider) solid rgba(233,223,198,0.25); }
+  .check input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--amber); }
+  .check b { font-family: var(--font-display); letter-spacing: 0.06em; text-transform: uppercase; }
+  .shots { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  figure { margin: 0; display: flex; flex-direction: column; gap: var(--s-1); }
+  figure img { display: block; border: var(--w-frame) solid var(--ink); max-width: 100%; height: auto; width: 450px; }
+  figcaption { font-size: var(--t-1); max-width: 60ch; }
+  #stage { position: relative; width: 100%; max-width: 1100px; height: 640px; border: var(--w-frame) solid var(--ink); background: var(--slate); }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  #plan svg { display: block; max-width: 1100px; width: 100%; height: auto; border: var(--w-frame) solid var(--ink); background: var(--slate); }
+  .legend { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); margin: var(--s-2) 0 var(--s-3); font-size: var(--t-1); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 16px; height: 16px; border: 2px solid var(--ink); display: inline-block; }
+  table.t { border-collapse: collapse; margin: 0 0 var(--s-3); font-size: var(--t-1); }
+  table.t caption { text-align: left; padding: var(--s-1) 0; max-width: 100ch; }
+  table.t th, table.t td { border: var(--w-divider) solid rgba(233,223,198,0.35); padding: 2px 8px; text-align: right; }
+  table.t th:first-child, table.t td:first-child { text-align: left; }
+  table.t thead th { background: rgba(30,36,32,0.6); }
+  table.t td.same { background: rgba(232,162,58,0.18); }
+
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 15 — Unsent orders count, and a bigger field</h1>
+
+<p>Two changes. <a href="#drafts">Part 1</a>: unsent orders go through (needs a game server). <a href="#field">Part 2</a>:
+the 17 &times; 13 field, squads of 20 points and 15 rounds (needs only Vite: everything in it is drawn from the real
+content and the real board).</p>
+
+<h2 id="drafts">1. Unsent orders go through</h2>
+<p>Start a game server on a spare port with a short clock and point Vite at it. These two commands leave a server
+already on 8080 and the usual Vite on 5173 alone (use another Vite port if 5173 is taken):</p>
+<pre>npx tsx src/server/main.ts --port 8095 --timer 20 --matches /tmp/ds15-matches
+DS_SERVER_PORT=8095 npx vite --port 5182 --strictPort
+# then open  http://localhost:5182/eval/15-drafts-and-bigger-field.html</pre>
+<p>The two frames are the real client (<code>/?slot=dev15a</code> and <code>dev15b</code>), each holding its own seat.
+Seat A is the one that draws and never pulls the lever; seat B pulls its lever at once, so the only thing that
+can end the round is the bell. The page only seats the frames and reloads them; it reaches into nothing else.</p>
+<div class="bar" id="bar"></div>
+<div class="observed" id="log" role="status">Press Seat both, then Start in seat A (the host).</div>
+<div class="frames" id="frames"></div>
+
+<h3>What to do and see</h3>
+<ul class="check" id="check"></ul>
+
+<h3>Screenshots from a real run</h3>
+<p>Headless Chromium over CDP, driving this very page against a real server with <code>--timer 20</code> (taps are real mouse events on the board; chit and card presses are DOM clicks).</p>
+<div class="shots" id="shots"></div>
+
+<h2 id="field">2. A bigger field and bigger squads</h2>
+<p>Everything here is read from <code>src/content</code> when the page loads: the map, the budget, the presets, the round
+count. The board is the real board; the plan and the table are drawn from the same <code>MAPS.crossroads</code>.</p>
+
+<h3>The numbers</h3>
+<div id="numbers"></div>
+
+<h3>The map on the real board</h3>
+<p>Four squads on their start lines (the Line, Weapons, Scout and Line sections), everything in sight. The rings mark the
+32 start hexes. Drag to pan, wheel or pinch to zoom; it opens on the whole map.</p>
+<div id="stage"></div>
+
+<h3>The plan</h3>
+<p>The same map as a flat plan. Numbers on the coloured rings are the start hexes in placement order (1 nearest the
+centre), one colour per start zone; amber discs are objectives with their value; a small digit in the corner of a hex is its
+level (1 or 2). Hatched hexes are not walkable (water).</p>
+<div id="plan"></div>
+<div id="legend" class="legend"></div>
+
+<h3>Measured step distances from each start zone</h3>
+<p>Walked over passable hexes one step at a time, as a unit moves (only water is in the way), with the same breadth-first
+search the content test uses. A rifleman moves 2 hexes a round, so rounds = steps divided by 2, rounded up.</p>
+<div id="steps"></div>
+<div class="observed" id="fair" role="status"></div>
+
+<h3>Cover on the way in</h3>
+<p>The way each start zone takes to its own hamlet (a 2), found three times over: the cheapest walk that prefers hiding
+ground, then again with the hexes of the first walks closed, then once more. Hiding ground (woods, crops, a building) hides a
+walking unit until an enemy is within 2 hexes. &ldquo;In sight of the centre&rdquo; is a clear line from the centre hex, within 6.</p>
+<div id="routes"></div>
+
+<h3>Seat fairness and match length</h3>
+<p>Numbers from real runs, 2026-11-18. The commands are in the table caption so they can be repeated.</p>
+<div id="fairness"></div>
+
+<h3>Framing the board</h3>
+<p>The real play screen, a match in progress, opened fresh at each size (headless Chromium over CDP, a real server on a
+spare port, two seated clients; this is seat 0, the north-west start zone). At 1280 &times; 800 the whole map is in frame. On the
+phone sizes the board opens at its smallest comfortable scale (28 px to a world unit): in portrait the whole height of the map is in frame and the width runs off to the east, in landscape the north-west corner fills the board; either can be panned and zoomed
+out to the whole map. The hex labels were made taller (0.26 to 0.44) so that they are readable at that scale.</p>
+<div class="shots" id="framing"></div>
+
+<h3>Not shown, or not working</h3>
+<ul>
+  <li>The held draft is lost if the server process is restarted (a resumed match replays the log, which holds only the orders that ran).</li>
+  <li>Edits made while the line is down never reach the server, and the plan that comes with the reconnect replaces them with what the server held.</li>
+  <li><b>Part 2.</b> Three players is not fair: the seat in the north-east corner (the middle of the three zones, opposite the empty one) scores 4 to 5 points a match less than the others in the seeded runs above, and wins about 0.18 of the matches where 0.33 would be even. Nothing in the map fixes that; see the open items in <code>docs/tasks/00-plan.md</code>.</li>
+  <li><b>Part 2.</b> Two and four players show a small edge for the north-west zone (about a point of 8 to 14) that follows the zone, not the seat. Line of sight is not exactly symmetric on a symmetric map (the hex line breaks ties with a fixed nudge: 3.8% of hex pairs within 6 disagree under a north-south mirror, 5.9% under a half turn), which is the likely cause; not proven, and not changed (it is a rules matter).</li>
+  <li><b>Part 2.</b> The Scout section had to change from the suggested 6 riflemen, a sniper and 2 medics: that is 9 units and the limit is 8. Spending 20 points on 8 units needs at least one heavier unit, so it is 5 riflemen, a sniper, a machine gunner and a medic.</li>
+  <li><b>Part 2.</b> The framing shots were taken in headless Chromium with software GL; no real phone was used. On the phone sizes only part of the map is in frame at the opening scale (the board then moves to your squad); the whole map is one pinch-out away. Pan and zoom were driven with synthetic mouse events only, not touch.</li>
+  <li>An order the server rejects at the lever stays on screen (the strip says why); the server still holds the last valid draft until the next change is sent, so a bell at that moment runs the older valid draft.</li>
+</ul>
+</main>
+
+<script type="module">
+  import { key } from '/src/client/ui/components.ts';
+  import { createBoard } from '/src/client/render/index.ts';
+  import { lowpolyKit, loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
+  import { MAPS, DEFAULT_MAP, PRESETS, RULES, TERRAIN, UNITS, NAMES, validateSquad } from '/src/content/index.ts';
+  import { canSee } from '/src/rules/index.ts';
+  import * as H from '/src/shared/hex.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const say = (text) => { $('log').textContent = text; };
+  const slots = { a: ['dev15a', 'Ann'], b: ['dev15b', 'Bo'] };
+  const frames = {};
+  for (const [id, [slot]] of Object.entries(slots)) {
+    const box = document.createElement('div'); box.className = 'frame';
+    const cap = document.createElement('span'); cap.className = 'cap';
+    cap.textContent = id === 'a' ? 'Seat A — draws, never pulls the lever (host)' : 'Seat B — pulls the lever at once';
+    const f = document.createElement('iframe'); f.width = 390; f.height = 844; f.title = `client ${slot}`;
+    f.src = `/?slot=${slot}`;
+    box.append(cap, f); $('frames').append(box); frames[id] = f;
+  }
+  const load = (f, url) => new Promise((done) => { f.addEventListener('load', () => done(), { once: true }); f.src = url; });
+  const PRESET = { a: 'line', b: 'support' };
+
+  $('bar').append(
+    key({ label: 'Seat both', onPress: async () => {
+      say('Seating A then B, each with a preset squad, readied…');
+      for (const id of ['a', 'b']) {
+        const [slot, name] = slots[id];
+        await load(frames[id], `/?slot=${slot}&auto=${PRESET[id]}&name=${name}`);
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      say('Seated and ready. Press Start in seat A. If a frame shows a match, one is already running on that server: restart it and press Forget seats.');
+    } }),
+    // The page also keeps a copy of the draft in the tab's sessionStorage (task 09). It is cleared here first,
+    // so what comes back after the reload can only have come from the server.
+    key({ label: 'Reload A', onPress: () => {
+      try { frames.a.contentWindow.sessionStorage.removeItem(`dawn-squad-draft-${slots.a[0]}`); } catch { /* none */ }
+      frames.a.contentWindow.location.reload();
+      say('Reloaded seat A with its tab-local copy of the draft removed: a new page, the seat taken back by its token. Mid-round it shows the draft the server held.');
+    } }),
+    key({ label: 'Reload B', onPress: () => { frames.b.contentWindow.location.reload(); say('Reloaded seat B.'); } }),
+    key({ label: 'Forget seats', onPress: () => {
+      for (const [slot] of Object.values(slots)) {
+        localStorage.removeItem(`dawn-squad-token-${slot}`);
+        localStorage.removeItem(`dawn-squad-name-${slot}`);
+        sessionStorage.removeItem(`dawn-squad-draft-${slot}`);
+        // the frames keep their own sessionStorage: reloading them with a plain URL is enough
+      }
+      for (const [id, [slot]] of Object.entries(slots)) frames[id].src = `/?slot=${slot}`;
+      say('Seat tokens for this page removed and the frames reloaded. After a server restart, use this first.');
+    } }),
+  );
+
+  const LINES = [
+    ['A draft runs at the bell', 'Start the match. In seat A give two or three units orders (a move, a fire, an ambush) and leave its lever up. Pull seat B\'s lever. Watch the Time readout: the round does not end when B is ready. At 0:00 the round plays and A\'s units do what was drawn, although A never touched its lever.'],
+    ['Both levers still end a round early', 'Next round pull the levers in both frames: the round ends at once, as before. Then leave A\'s lever up again: it waits for the bell.'],
+    ['Reload shows the draft', 'Mid-round, with orders drawn in seat A and its lever up, press Reload A. The frame comes back in the same round with the same orders on the cards and on the map, lever up, and the clock still counting. (Wait a second after the last tap first: drafts go out at most three times a second.)'],
+    ['Reload with the lever down', 'Pull A\'s lever, reload A: it comes back down, orders in. Push the lever up and change an order; reload again: the changed order shows.'],
+    ['Recall, then a new draft', 'Pull A\'s lever, push it up, change one order, then let the bell ring: the changed order runs.'],
+    ['A move\'s follow-up', 'Give a rifleman a move with a follow-up shot, leave the lever up, reload A: the move and its follow-up mark are both back. At the bell both run.'],
+    ['No last-second send', 'With orders drawn and the lever up, watch the strip in the last two seconds: nothing says "Orders sent as they stand". The old last-call is gone; the server\'s held draft does that job.'],
+    ['An unsent clear', 'Clear every order in seat A (Hold on each) with the lever up: the empty draft is sent too, so the units hold at the bell and do not run the earlier draft.'],
+  ];
+  for (const [title, text] of LINES) {
+    const li = document.createElement('li');
+    const box = document.createElement('input'); box.type = 'checkbox'; box.setAttribute('aria-label', title);
+    const body = document.createElement('span');
+    const b = document.createElement('b'); b.textContent = title + '. ';
+    const t = document.createElement('span'); t.textContent = text;
+    body.append(b, t);
+    li.append(box, body);
+    $('check').append(li);
+  }
+
+  // ---- screenshots, if any were taken
+  const SHOTS = [
+    ['draft-drawn.png', '2026-11-18. Seat A (left) with a move for Hale and ambushes for Barlow and Cobb drawn, lever up, 4 s into a 20 s round. Seat B (right) has not drawn anything.'],
+    ['draft-after-reload.png', '2026-11-18. Seat A after Reload A in the same round (clock at 0:16): its own tab copy of the draft was removed first, yet Hale\'s Move E4 and the two ambushes are back, lever up. At the bell the server ran them with A\'s lever never pulled (the match log line for that round holds the move and both ambushes for seat 0).'],
+  ];
+  for (const [file, caption] of SHOTS) {
+    const fig = document.createElement('figure');
+    const img = document.createElement('img'); img.src = `/eval/assets/15/${file}`; img.alt = caption;
+    const cap = document.createElement('figcaption'); cap.textContent = caption;
+    fig.append(img, cap); $('shots').append(fig);
+  }
+
+  // =====================================================================================
+  // Part 2: the map, from the real content
+  // =====================================================================================
+  const map = MAPS[DEFAULT_MAP];
+  const hk = H.key;
+  const ZONE = ['var(--p-blue)', 'var(--p-plum)', 'var(--p-teal)', 'var(--p-bone)'];
+  const ZONE_NAME = ['north-west', 'north-east', 'south-east', 'south-west'];
+  const walk = (h) => TERRAIN[map.cells[hk(h)]?.terrain ?? '']?.passable ?? false;
+  const centreObj = map.objectives.find((o) => o.value === 3);
+  const byValue = (v) => map.objectives.filter((o) => o.value === v);
+  const at = (o) => `${o.id} (${H.label(o.hex)})`;
+
+  function stepsFrom(from) {
+    const d = new Map([[hk(from), 0]]);
+    let frontier = [from];
+    while (frontier.length) {
+      const next = [];
+      for (const h of frontier) for (const n of H.neighbors(h)) {
+        if (!walk(n) || d.has(hk(n))) continue;
+        d.set(hk(n), d.get(hk(h)) + 1);
+        next.push(n);
+      }
+      frontier = next;
+    }
+    return d;
+  }
+
+  // ---- the numbers
+  {
+    const total = map.objectives.reduce((a, o) => a + o.value, 0);
+    const rows = [
+      ['Map', `${map.name}: ${map.cols} columns × ${map.rows} rows (${map.cols * map.rows} hexes)`],
+      ['Rounds per match', `${map.maxRounds} (<code>maxRounds</code> on the map)`],
+      ['Squad', `${RULES.budget} points, ${RULES.minUnits} to ${RULES.maxUnits} units`],
+      ['Objectives', `${map.objectives.length}: one 3 at the centre ${at(centreObj)}, four 2s ${byValue(2).map(at).join(', ')}, four 1s ${byValue(1).map(at).join(', ')}; ${total} points a round on the board`],
+      ['Start zones', `${map.spawns.length} of ${map.spawns[0].length} hexes; 2 players sit in zones ${map.seatSpawns[2].join(' and ')}, 3 in ${map.seatSpawns[3].join(', ')}, 4 in all`],
+    ];
+    const terrainCount = {};
+    for (const c of Object.values(map.cells)) terrainCount[c.terrain] = (terrainCount[c.terrain] ?? 0) + 1;
+    rows.push(['Ground', Object.entries(terrainCount).map(([t, n]) => `${n} ${TERRAIN[t].name.toLowerCase()}`).join(', ') + `; levels 0, 1, 2: ` + [0, 1, 2].map((e) => Object.values(map.cells).filter((c) => c.elevation === e).length).join(', ') + ' hexes']);
+    const t = document.createElement('table'); t.className = 't';
+    t.innerHTML = '<tbody>' + rows.map(([k, v]) => `<tr><td>${k}</td><td style="text-align:left">${v}</td></tr>`).join('') + '</tbody>';
+    $('numbers').append(t);
+    const pt = document.createElement('table'); pt.className = 't';
+    pt.innerHTML = '<caption>The presets (the three tabs on the lobby screen); each must be a legal squad.</caption><thead><tr><th>Preset</th><th>Units</th><th>Count</th><th>Points</th><th>Legal</th><th>Blurb</th></tr></thead><tbody>' +
+      PRESETS.map((p) => {
+        const v = validateSquad(p.units);
+        const counts = {};
+        for (const u of p.units) counts[u] = (counts[u] ?? 0) + 1;
+        return `<tr><td>${p.name}</td><td style="text-align:left">${Object.entries(counts).map(([u, n]) => `${n} ${UNITS[u].name.toLowerCase()}`).join(', ')}</td><td>${p.units.length}</td><td>${v.cost} / ${RULES.budget}</td><td>${v.ok ? 'yes' : 'NO: ' + v.errors.join(' ')}</td><td style="text-align:left">${p.blurb}</td></tr>`;
+      }).join('') + '</tbody>';
+    $('numbers').append(pt);
+  }
+
+  // ---- the real board
+  {
+    let serial = 0;
+    const squads = [PRESETS[0], PRESETS[1], PRESETS[2], PRESETS[0]];
+    const units = [];
+    squads.forEach((preset, owner) => preset.units.forEach((type, i) => units.push({
+      id: `${owner}-${i}`, owner, type, name: `${UNITS[type].rank} ${NAMES[serial++ % NAMES.length]}`, pos: map.spawns[owner][i],
+      status: 'ready', pinnedRound: null, revealed: false, posture: 'still',
+    })));
+    const view = {
+      player: 0, map, playerCount: 4, round: 1, maxRounds: map.maxRounds, units, visible: Object.keys(map.cells),
+      scores: [0, 0, 0, 0], eliminated: [false, false, false, false], over: false, winners: [],
+    };
+    await loadKitFonts();
+    const canvas = document.createElement('canvas');
+    $('stage').append(canvas);
+    const board = createBoard(canvas, lowpolyKit());
+    board.setView(view);
+    board.setMarks([{ kind: 'options', hexes: map.spawns.flat() }]);
+    addEventListener('resize', () => board.resize());
+    board.resize();
+  }
+
+  // ---- the plan, in SVG
+  {
+    const S = 24, M = 26, NS = 'http://www.w3.org/2000/svg';
+    const cells = Object.entries(map.cells).map(([k, c]) => ({ h: H.parseKey(k), c }));
+    const px = (h) => H.hexToPixel(h, S);
+    const xs = cells.map(({ h }) => px(h).x), ys = cells.map(({ h }) => px(h).y);
+    const minX = Math.min(...xs) - S - M, maxX = Math.max(...xs) + S + M, minY = Math.min(...ys) - S - M, maxY = Math.max(...ys) + S + M;
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', `${minX} ${minY} ${maxX - minX} ${maxY - minY}`);
+    svg.setAttribute('role', 'img');
+    svg.setAttribute('aria-label', `Plan of ${map.name}: terrain, start zones and objectives`);
+    const add = (tag, attrs, parent = svg, text) => {
+      const e = document.createElementNS(NS, tag);
+      for (const [a, v] of Object.entries(attrs)) e.setAttribute(a, v);
+      if (text !== undefined) e.textContent = text;
+      parent.append(e); return e;
+    };
+    const FILL = { open: '#B7A77A', woods: '#5E6B45', building: '#E9DFC6', crops: '#CDBE8C', wall: '#B7A77A', water: '#3F5A74' };
+    const corners = (x, y, r) => [0, 1, 2, 3, 4, 5].map((i) => { const a = ((60 * i - 30) * Math.PI) / 180; return `${(x + r * Math.cos(a)).toFixed(1)},${(y + r * Math.sin(a)).toFixed(1)}`; }).join(' ');
+    const defs = add('defs', {});
+    const hatch = add('pattern', { id: 'hatch', width: 6, height: 6, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, defs);
+    add('line', { x1: 0, y1: 0, x2: 0, y2: 6, stroke: '#1E2420', 'stroke-width': 2 }, hatch);
+    for (const { h, c } of cells) {
+      const { x, y } = px(h);
+      add('polygon', { points: corners(x, y, S), fill: FILL[c.terrain] ?? '#888', stroke: '#1E2420', 'stroke-width': 1.2 });
+      if (c.terrain === 'water') add('polygon', { points: corners(x, y, S - 1), fill: 'url(#hatch)', opacity: 0.55 });
+      if (c.terrain === 'woods') for (const [dx, dy] of [[-8, 5], [7, 5], [0, -6]]) add('polygon', { points: `${x + dx},${y + dy - 8} ${x + dx - 6},${y + dy + 3} ${x + dx + 6},${y + dy + 3}`, fill: '#2F3A24' });
+      if (c.terrain === 'crops') for (const dy of [-9, -3, 3, 9]) add('line', { x1: x - 14, y1: y + dy, x2: x + 14, y2: y + dy, stroke: '#8E7A3E', 'stroke-width': 2 });
+      if (c.terrain === 'building') add('rect', { x: x - 9, y: y - 8, width: 18, height: 16, fill: '#9A4B32', stroke: '#1E2420', 'stroke-width': 1.6 });
+      if (c.terrain === 'wall') add('line', { x1: x - 15, y1: y, x2: x + 15, y2: y, stroke: '#E9DFC6', 'stroke-width': 5 });
+      if (c.elevation > 0) add('text', { x: x + S * 0.52, y: y - S * 0.36, 'font-size': 9, 'font-weight': 700, fill: '#1E2420', 'text-anchor': 'middle' }, svg, String(c.elevation));
+      if (c.elevation > 0) add('polygon', { points: corners(x, y, S - 3), fill: 'none', stroke: '#1E2420', 'stroke-width': c.elevation === 2 ? 2.4 : 1.2, opacity: 0.7 });
+    }
+    map.spawns.forEach((zone, z) => zone.forEach((h, i) => {
+      const { x, y } = px(h);
+      add('circle', { cx: x, cy: y, r: 11, fill: `var(--p-${['blue', 'plum', 'teal', 'bone'][z]})`, stroke: '#1E2420', 'stroke-width': 2 });
+      add('text', { x, y: y + 4, 'font-size': 12, 'font-weight': 700, fill: z === 3 ? '#1E2420' : '#E9DFC6', 'text-anchor': 'middle' }, svg, String(i + 1));
+    }));
+    for (const o of map.objectives) {
+      const { x, y } = px(o.hex);
+      add('circle', { cx: x, cy: y, r: 15, fill: '#E8A23A', stroke: '#1E2420', 'stroke-width': 2.4 });
+      add('text', { x, y: y - 1, 'font-size': 13, 'font-weight': 700, fill: '#1E2420', 'text-anchor': 'middle' }, svg, o.id);
+      add('text', { x, y: y + 10, 'font-size': 10, 'font-weight': 700, fill: '#1E2420', 'text-anchor': 'middle' }, svg, `+${o.value}`);
+    }
+    $('plan').append(svg);
+    const sw = (color, text) => `<span><i style="background:${color}"></i>${text}</span>`;
+    $('legend').innerHTML = [sw('#B7A77A', 'open'), sw('#5E6B45', 'woods'), sw('#E9DFC6', 'building'), sw('#CDBE8C', 'crops'), sw('#B7A77A;border-top:6px solid #E9DFC6', 'low wall'), sw('#3F5A74', 'water'),
+      ...ZONE.map((c, z) => sw(c, `zone ${z} (${ZONE_NAME[z]})`)), sw('#E8A23A', 'objective +value per round')].join('');
+  }
+
+  // ---- step distances from each start zone
+  const walks = map.spawns.map((zone) => zone.map((h) => {
+    const d = stepsFrom(h);
+    const near = (v) => Math.min(...byValue(v).map((o) => d.get(hk(o.hex))));
+    return { centre: d.get(hk(centreObj.hex)), two: near(2), one: near(1) };
+  }));
+  {
+    const MEAS = [['centre', `the centre ${H.label(centreObj.hex)} (3)`], ['two', 'nearest 2'], ['one', 'nearest 1']];
+    const rows = [];
+    let identical = true;
+    map.spawns.forEach((zone, z) => MEAS.forEach(([f, name]) => {
+      const vals = walks[z].map((w) => w[f]);
+      const same = walks.every((zz) => zz.every((w, i) => w[f] === walks[0][i][f]));
+      if (!same) identical = false;
+      const rounds = [...new Set(vals.map((v) => Math.ceil(v / UNITS.rifleman.move)))].sort((a, b) => a - b);
+      rows.push(`<tr><td>zone ${z} ${ZONE_NAME[z]}</td><td style="text-align:left">to ${name}</td>${vals.map((v) => `<td class="${same ? 'same' : ''}">${v}</td>`).join('')}<td>${Math.min(...vals)}</td><td>${rounds.join(' or ')}</td></tr>`);
+    }));
+    const t = document.createElement('table'); t.className = 't';
+    t.innerHTML = `<caption>Steps from each start hex (columns 1 to 8, in placement order). Last two columns: the best of the zone, and the rounds a rifleman needs from the start hexes of the zone (2 hexes a round).</caption>
+      <thead><tr><th>Zone</th><th>Steps</th>${[1, 2, 3, 4, 5, 6, 7, 8].map((i) => `<th>${i}</th>`).join('')}<th>Best</th><th>Rounds</th></tr></thead><tbody>${rows.join('')}</tbody>`;
+    $('steps').append(t);
+    const lone = Object.keys(map.cells).filter((k) => !(() => { const c = H.offsetToAxial(Math.floor(map.cols / 2), Math.floor(map.rows / 2)); const o = H.axialToOffset({ q: 2 * c.q - H.parseKey(k).q, r: 2 * c.r - H.parseKey(k).r }); return o.col >= 0 && o.col < map.cols && o.row >= 0 && o.row < map.rows; })()).map((k) => H.label(H.parseKey(k)));
+    $('fair').innerHTML = `All four start zones are the same hex for hex: <b>${identical ? 'yes' : 'NO'}</b> (every number above is the same in each zone, so the shaded cells are all of them).<br>
+      Asymmetry left: the board is a rectangle of hexes, and under a half turn the last hex of every second row has no partner: <b>${lone.join(', ')}</b>. They are plain open level ground with no mark (the test checks it), and they change no start zone's distances. Everything else, terrain, levels, objectives and start hexes, is the same after a half turn, and also after a mirror north to south or east to west. Three players is still not perfectly fair: one corner is empty.`;
+  }
+
+  // ---- cover on the way in
+  {
+    const hides = (h) => TERRAIN[map.cells[hk(h)].terrain].hide !== null;
+    function route(from, to, blocked) {
+      const dist = new Map([[hk(from), 0]]), prev = new Map(), open = [from];
+      while (open.length) {
+        open.sort((a, b) => dist.get(hk(a)) - dist.get(hk(b)));
+        const h = open.shift();
+        if (hk(h) === hk(to)) break;
+        for (const n of H.neighbors(h)) {
+          if (!walk(n) || (blocked.has(hk(n)) && hk(n) !== hk(to))) continue;
+          const nd = dist.get(hk(h)) + 1 + (hides(n) ? 0 : 3);
+          if (nd < (dist.get(hk(n)) ?? Infinity)) { dist.set(hk(n), nd); prev.set(hk(n), h); open.push(n); }
+        }
+      }
+      if (!dist.has(hk(to))) return null;
+      const out = [];
+      for (let h = to; hk(h) !== hk(from); h = prev.get(hk(h))) out.push(h);
+      return out.reverse();
+    }
+    const out = [];
+    const sums = [];
+    map.spawns.forEach((zone, z) => {
+      const dd = stepsFrom(zone[0]);
+      const home = [...byValue(2)].sort((a, b) => dd.get(hk(a.hex)) - dd.get(hk(b.hex)))[0];
+      let hid = 0, len = 0, seen = 0;
+      for (const slot of [0, 3, 7]) {
+        const used = new Set();
+        for (let n = 1; n <= 3; n++) {
+          const p = route(zone[slot], home.hex, used);
+          if (!p) break;
+          const hidden = p.filter(hides).length;
+          const inSight = p.filter((h) => H.distance(h, centreObj.hex) <= 6 && canSee(map, centreObj.hex, h)).length;
+          hid += hidden; len += p.length; seen += inSight;
+          if (z === 0) out.push(`<tr><td>slot ${slot + 1} (${H.label(zone[slot])})</td><td>${n}</td><td>${p.length}</td><td>${hidden} of ${p.length}</td><td>${inSight}</td><td style="text-align:left">${p.map(H.label).join(' ')}</td></tr>`);
+          p.slice(0, -1).forEach((h) => used.add(hk(h)));
+        }
+      }
+      sums.push(`zone ${z} to ${at(home)}: ${hid} of ${len} route hexes on hiding ground, ${seen} in sight of the centre`);
+    });
+    const t = document.createElement('table'); t.className = 't';
+    t.innerHTML = `<caption>Zone 0 (north-west), to its own hamlet ${sums[0].split(' to ')[1].split(':')[0]}. Three walks from each of three start hexes.</caption>
+      <thead><tr><th>From</th><th>Walk</th><th>Steps</th><th>On hiding ground</th><th>In sight of centre</th><th>The hexes</th></tr></thead><tbody>${out.join('')}</tbody>`;
+    $('routes').append(t);
+    const p = document.createElement('p');
+    p.textContent = 'All four zones, same method: ' + sums.join('; ') + '. The hiding-ground share is the same in each zone, as the mirrored ground says it must be. The sight counts are not: the hex line breaks exact ties with a fixed nudge, so sight is not exactly symmetric on a symmetric map (see the end of the page).';
+    $('routes').append(p);
+  }
+
+  // ---- the fairness figures (real runs, written in by hand from the commands in the caption) and the framing shots
+  const FAIRNESS_HTML = "<table class=\"t\"><caption>Seeded scripted matches played straight through the rules (no server): seeds 1001 to 2800, 600 matches for each of 2, 3 and 4 squads, each seat dealt one of the three presets at random. Repeat with <code>npx tsx scripts/seeded.ts --figures 1800</code> (about a minute). The players are random legal-order bots that lean towards contact, not opponents; they say how the board plays, not how people will. \"Units down\" is at the end of the match; \"rounds\" is the mean rounds played of 15; seats are listed in seat order (zones 0, 1, 2 and 3), win share counts a tie as a share.</caption>\n<thead><tr><th>Squads</th><th>Matches</th><th>Rounds played</th><th>Ended before 15</th><th>Units down</th><th>Points scored (all squads)</th><th>Winner's score</th><th>Mean score by seat</th><th>Win share by seat</th></tr></thead><tbody><tr><td>2</td><td>600</td><td>15</td><td>3</td><td>6.04 of about 14</td><td>27.66</td><td>18.56</td><td>14.49 / 13.17</td><td>0.53 / 0.47</td></tr><tr><td>3</td><td>600</td><td>15</td><td>0</td><td>11.9 of about 21</td><td>31.63</td><td>17.56</td><td>12.34 / 7.65 / 11.64</td><td>0.44 / 0.18 / 0.38</td></tr><tr><td>4</td><td>600</td><td>15</td><td>0</td><td>18.13 of about 28</td><td>33.88</td><td>15.79</td><td>8.56 / 8.4 / 8.97 / 7.95</td><td>0.26 / 0.24 / 0.27 / 0.24</td></tr></tbody></table><table class=\"t\"><caption>Seat fairness: each seat's final score minus the mean of the other seats' in the same match, averaged over the 600 matches (mean &plusmn; one standard error). Zero everywhere would be fair. Same runs with <code>--same line</code>, <code>--same support</code>, <code>--same scouts</code>. Seats 0 to 3 sit in zones 0 (NW), 1 (NE), 2 (SE), 3 (SW); two squads sit in zones 0 and 2, three in zones 0, 1 and 2.</caption>\n<thead><tr><th>Squads dealt</th><th>2 squads</th><th>3 squads</th><th>4 squads</th></tr></thead><tbody><tr><td>Random preset per seat</td><td style='text-align:left'>seat 0: +1.32 \u00b1 0.48<br>seat 1: -1.32 \u00b1 0.48</td><td style='text-align:left'>seat 0: +2.69 \u00b1 0.38<br>seat 1: -4.34 \u00b1 0.35<br>seat 2: +1.65 \u00b1 0.39</td><td style='text-align:left'>seat 0: +0.11 \u00b1 0.32<br>seat 1: -0.09 \u00b1 0.30<br>seat 2: +0.67 \u00b1 0.31<br>seat 3: -0.69 \u00b1 0.32</td></tr><tr><td>Everyone Line section</td><td style='text-align:left'>seat 0: +1.10 \u00b1 0.44<br>seat 1: -1.10 \u00b1 0.44</td><td style='text-align:left'>seat 0: +3.14 \u00b1 0.34<br>seat 1: -4.19 \u00b1 0.32<br>seat 2: +1.05 \u00b1 0.33</td><td style='text-align:left'>seat 0: +1.05 \u00b1 0.31<br>seat 1: +0.10 \u00b1 0.29<br>seat 2: -0.04 \u00b1 0.29<br>seat 3: -1.11 \u00b1 0.29</td></tr><tr><td>Everyone Weapons section</td><td style='text-align:left'>seat 0: +0.08 \u00b1 0.40<br>seat 1: -0.08 \u00b1 0.40</td><td style='text-align:left'>seat 0: +1.62 \u00b1 0.30<br>seat 1: -2.84 \u00b1 0.27<br>seat 2: +1.22 \u00b1 0.31</td><td style='text-align:left'>seat 0: +0.25 \u00b1 0.27<br>seat 1: -0.30 \u00b1 0.24<br>seat 2: +0.32 \u00b1 0.25<br>seat 3: -0.27 \u00b1 0.26</td></tr><tr><td>Everyone Scout section</td><td style='text-align:left'>seat 0: -0.30 \u00b1 0.52<br>seat 1: +0.30 \u00b1 0.52</td><td style='text-align:left'>seat 0: +4.53 \u00b1 0.39<br>seat 1: -5.03 \u00b1 0.37<br>seat 2: +0.50 \u00b1 0.39</td><td style='text-align:left'>seat 0: -0.18 \u00b1 0.35<br>seat 1: -0.42 \u00b1 0.33<br>seat 2: +0.62 \u00b1 0.36<br>seat 3: -0.01 \u00b1 0.35</td></tr></tbody></table><table class=\"t\"><caption>Seat or zone? The Line section for everyone, 1000 matches each, with the zones the seats sit in swapped (a scratch script over <code>playSeeded</code> that set <code>MAPS.crossroads.seatSpawns</code>; not in the repo). Score against the other seats, mean &plusmn; one standard error.</caption>\n<thead><tr><th>Squads</th><th>Seat 0 / 1 / 2 / 3 in zones</th><th>Seat 0</th><th>Seat 1</th><th>Seat 2</th><th>Seat 3</th></tr></thead><tbody>\n<tr><td>2</td><td>0, 2</td><td>+1.09 &plusmn; 0.34</td><td>&minus;1.09 &plusmn; 0.34</td><td></td><td></td></tr>\n<tr><td>2</td><td>2, 0</td><td>&minus;0.68 &plusmn; 0.35</td><td>+0.68 &plusmn; 0.35</td><td></td><td></td></tr>\n<tr><td>4</td><td>0, 1, 2, 3</td><td>+1.03 &plusmn; 0.24</td><td>&minus;0.03 &plusmn; 0.22</td><td>+0.10 &plusmn; 0.22</td><td>&minus;1.10 &plusmn; 0.23</td></tr>\n<tr><td>4</td><td>3, 2, 1, 0</td><td>&minus;0.95 &plusmn; 0.23</td><td>&minus;0.05 &plusmn; 0.22</td><td>+0.31 &plusmn; 0.23</td><td>+0.69 &plusmn; 0.23</td></tr>\n</tbody></table><p><b>Reading it.</b> With four squads nobody is far from even: every seat is within about a point of a score of 8 to 11, and the\nlargest gap (north-west against south-west, Line section, about 1 point a side) follows the zone when the seats are swapped. With two squads\nthe north-west zone is about a point ahead of the south-east with the Line section and with random squads, and level with the Weapons and\nScout sections; swapped, the zone still wins, so it is the board and not the seat. <b>With three squads it is not fair</b>: the seat in the\nnorth-east (zone 1, opposite the empty corner) scores 3 to 5 points a match less than the other two whatever is dealt, and wins about 0.18 of\nthe matches where 0.33 would be even. The two seats beside the empty corner can take its objectives. The map cannot fix that; it is listed in the\nplan's open items. The small zone edges are probably the line of sight (it is not exactly symmetric on a symmetric map, see below); not proven.</p>\n<p><b>Match length.</b> 15 rounds at the 90-second clock is <b>22.5 minutes</b> if every round runs to the bell: the next round's clock starts as the round resolves, so playback (8 to 10 seconds on a busy four-squad round) is inside it. With the lobby and the result screen, about 25 minutes. The matches above ran to the last round in all but 3, 0 and 0 of 600 (two, three, four squads); the bots against the real server (below) ended early in 2 of 300.</p>\n<p><b>The checks.</b> <code>npm test</code>: 18 files, 553 tests passed. <code>npm run typecheck</code>: clean. <code>npx vite build --outDir &lt;scratch&gt;</code> (not <code>npm run build</code>, which would overwrite the <code>dist/</code> a server on 8080 is serving): built. <code>npm run bots -- --matches 300</code> (seed 21584469, over real sockets, each match replayed from its log): 300 of 300 passed in 23.5 s; per match, units down 4.2 / 9.2 / 11.9 and 1497 / 1500 / 1500 rounds for two, three, four squads.</p>";
+  const FRAMING = [
+    ['framing-390x844.png', '390 x 844 (phone, portrait), 2026-11-18, device pixel ratio 2. The board opens at 28 px to a world unit with the whole height of the map in frame and the squad in the north-west corner on screen; the east part is a drag away. Hex labels and objective discs are readable.'],
+    ['framing-844x390.png', '844 x 390 (phone, landscape), device pixel ratio 2. The board takes the left of the screen at full height and opens on the north-west corner and the hamlet C; the rest is a drag or a pinch away.'],
+    ['framing-1280x800.png', '1280 x 800 (laptop), device pixel ratio 1. The whole map is in frame; the unseen part of the board is fog.'],
+  ];
+  $('fairness').innerHTML = FAIRNESS_HTML;
+  for (const [file, caption] of FRAMING) {
+    const fig = document.createElement('figure');
+    const img = document.createElement('img'); img.src = `/eval/assets/15/${file}`; img.alt = caption;
+    const cap = document.createElement('figcaption'); cap.textContent = caption;
+    fig.append(img, cap); $('framing').append(fig);
+  }
+</script>
+</body>
+</html>

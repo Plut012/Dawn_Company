@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 03 — Sight</title>
+<style>
+  @font-face { font-family: 'Stardos Stencil'; src: url('/docs/design/fonts/StardosStencil-Bold.ttf'); font-weight: 700; }
+  @font-face { font-family: 'Courier Prime'; src: url('/docs/design/fonts/CourierPrime-Regular.ttf'); }
+  @font-face { font-family: 'Courier Prime'; src: url('/docs/design/fonts/CourierPrime-Bold.ttf'); font-weight: 700; }
+  :root {
+    --ink: #1E2420; --paper: #E9DFC6; --khaki: #B7A77A; --olive: #5E6B45;
+    --slate: #3D4F5C; --rust: #9A4B32; --amber: #E8A23A;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--slate); color: var(--paper);
+         font: 14px/1.4 'Courier Prime', 'Courier New', monospace; }
+  h1, h2, th, .num { font-family: 'Stardos Stencil', 'Courier New', monospace; font-weight: 700;
+         text-transform: uppercase; letter-spacing: 0.08em; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 0 0 8px; }
+  p { margin: 0 0 16px; max-width: 80ch; }
+  .layout { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
+  .board { flex: 2 1 560px; min-width: 0; max-width: 900px; background: var(--slate);
+           border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); }
+  svg { display: block; width: 100%; height: auto; touch-action: none; user-select: none; }
+  .side { flex: 1 1 300px; max-width: 480px; display: grid; gap: 16px; }
+  .panel { background: var(--ink); border: 2px solid var(--ink); box-shadow: 3px 3px 0 #0006; padding: 8px 16px 16px; min-width: 0; }
+  .panel h2 { color: var(--khaki); border-bottom: 1px solid var(--olive); padding: 4px 0; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0; }
+  dt { color: var(--khaki); } dd { margin: 0; }
+  .ok { color: var(--amber); } .bad { color: #E08A6C; font-weight: bold; }
+  .dim { color: var(--khaki); }
+  table { border-collapse: collapse; width: 100%; }
+  th { font-size: 12px; color: var(--khaki); text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--olive); white-space: nowrap; }
+  td { padding: 4px 8px 4px 0; border-bottom: 1px solid #ffffff18; vertical-align: top; }
+  select, button { font: inherit; font-weight: 700; background: var(--khaki); color: var(--ink); border: 2px solid var(--ink);
+           border-radius: 2px; padding: 4px 8px; box-shadow: 2px 2px 0 #000; }
+  button { cursor: pointer; }
+  button:active { background: var(--amber); box-shadow: none; transform: translate(2px, 2px); }
+  label.row { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .row-grid { display: grid; grid-template-columns: auto 1fr; gap: 8px 16px; align-items: center; }
+  input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--amber); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; }
+  .legend li { display: flex; align-items: center; gap: 8px; }
+  .sw { width: 18px; height: 18px; border: 2px solid var(--ink); outline: 1px solid #ffffff30; display: inline-block; }
+  .views { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+  .wide { overflow-x: auto; }
+  #error { color: #fff; background: var(--rust); padding: 8px; display: none; margin-bottom: 16px; }
+  .hexline { stroke: var(--ink); stroke-width: 1.2; }
+  .t { font-family: 'Stardos Stencil', 'Courier New', monospace; font-weight: 700; text-anchor: middle;
+       dominant-baseline: central; pointer-events: none; }
+  svg .grab { cursor: grab; }
+</style>
+</head>
+<body>
+<h1>Eval 03 — Sight</h1>
+<p>The real <code>src/rules/index.ts</code> running on the real <code>crossroads</code> map. Drag the blue unit
+(seat 0) or any of the three purple enemies (seat 1). Bright hexes are in <code>visibleHexes</code>, veiled hexes
+are not. An enemy is drawn solid only when <code>visibleEnemies</code> returns it; otherwise only its ghost
+outline is shown. Hover a hex to draw the sight line to it from the blue unit; the hex that stops it is marked
+with a red cross. Every sight figure on the page comes from the rules functions.</p>
+<div id="error"></div>
+
+<div class="layout">
+  <div class="board"><svg id="map" xmlns="http://www.w3.org/2000/svg"></svg></div>
+
+  <div class="side">
+    <div class="panel">
+      <h2>Blue unit (seat 0)</h2>
+      <div class="row-grid">
+        <label for="type">Type</label><select id="type"></select>
+        <label for="status">Status</label>
+        <select id="status"><option>ready</option><option>pinned</option><option>down</option></select>
+        <label for="elim">Eliminated</label><label class="row"><input type="checkbox" id="elim"> seat 0 is out (sees the whole board)</label>
+      </div>
+      <p class="dim" id="unit-facts" style="margin:8px 0 0"></p>
+    </div>
+    <div class="panel">
+      <h2>Enemies (seat 1)</h2>
+      <table id="enemies"></table>
+      <p class="dim" style="margin:8px 0 0">Stealth range is <span id="stealth"></span>. The reason column is worked out here from
+        <code>canSee</code>, range and cover, and checked against <code>visibleEnemies</code>.</p>
+    </div>
+    <div class="panel">
+      <h2>Hovered hex</h2>
+      <dl>
+        <dt>Hex</dt><dd id="h-label">—</dd>
+        <dt>Ground</dt><dd id="h-ground">—</dd>
+        <dt>Distance</dt><dd id="h-dist">—</dd>
+        <dt>Line</dt><dd id="h-line">—</dd>
+        <dt>In <code>visibleHexes</code></dt><dd id="h-vis">—</dd>
+      </dl>
+    </div>
+    <div class="panel">
+      <h2>Legend</h2>
+      <ul class="legend" id="legend"></ul>
+    </div>
+  </div>
+</div>
+
+<div class="views">
+  <div class="panel wide"><h2>What seat 0 is sent (<code>viewFor</code>)</h2><div id="view0"></div></div>
+  <div class="panel wide"><h2>What player 2 (seat 1) is sent</h2><div id="view1"></div></div>
+</div>
+
+<div class="panel" style="margin-top: 16px; max-width: 640px;">
+  <h2>Tests</h2>
+  <!-- Pasted from a real `npx vitest run src/rules src/shared src/content` run. Re-run and update when sight changes. -->
+  <div id="tests">Vitest: 103 passed, 0 failed, 3 test files (42 of them in <code>src/rules/sight.test.ts</code>; <code>npx vitest run src/rules src/shared src/content</code>, run 2026-11-17).</div>
+  <p class="dim" style="margin:8px 0 0">URL parameters for a fixed state: <code>?type=sniper&amp;status=pinned&amp;me=G6&amp;e=C4,K8,H3&amp;rev=1&amp;hover=D9&amp;elim=1</code>
+    (hexes by label; <code>rev</code> is a list of enemy numbers, from 0).</p>
+</div>
+
+<script type="module">
+  import { UNITS, TERRAIN, MAPS, DEFAULT_MAP, RULES } from '/src/content/index.ts';
+  import { key, parseKey, eq, distance, offsetToAxial, label, hexToPixel, pixelToHex, line } from '/src/shared/hex.ts';
+  import { canSee, blockingHex, visibleHexes, visibleEnemies, viewFor } from '/src/rules/index.ts';
+
+  const showError = (m) => { const e = document.getElementById('error'); e.style.display = 'block'; e.textContent = 'Error: ' + m; };
+  window.addEventListener('error', (e) => showError(e.message));
+  window.addEventListener('unhandledrejection', (e) => showError(String(e.reason)));
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, attrs = {}, text) => {
+    const n = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  const h = (tag, text, cls) => {
+    const n = document.createElement(tag);
+    if (text !== undefined) n.textContent = text;
+    if (cls) n.className = cls;
+    return n;
+  };
+
+  const map = MAPS[DEFAULT_MAP];
+  const INK = '#1E2420';
+  const FILL = {
+    open: ['#B7A77A', '#C6B88E', '#D5C9A4'],
+    woods: ['#5E6B45', '#77855B', '#909E74'],
+    building: ['#8C7B5A', '#A08F6C', '#B3A380'],
+  };
+  const fillFor = (cell) => (FILL[cell.terrain] ?? ['#888', '#999', '#AAA'])[cell.elevation] ?? '#F0F';
+  const BLUE = '#3F6E8C', PURPLE = '#6B4E7A', PAPER = '#E9DFC6', AMBER = '#E8A23A', RUST = '#C4553A';
+
+  // ---- geometry
+  const SIZE = 30, PAD = 10;
+  const W = Math.sqrt(3) * SIZE;
+  const ox = PAD + W / 2, oy = PAD + SIZE;
+  const svg = $('map');
+  svg.setAttribute('viewBox', `0 0 ${W * (map.cols + 0.5) + PAD * 2} ${SIZE * (1.5 * (map.rows - 1) + 2) + PAD * 2}`);
+  const centreOf = (hex) => { const p = hexToPixel(hex, SIZE); return { x: p.x + ox, y: p.y + oy }; };
+  const onMap = (hex) => map.cells[key(hex)] !== undefined;
+  const corners = (c, size) => {
+    const pts = [];
+    for (let i = 0; i < 6; i++) {
+      const a = Math.PI / 180 * (60 * i - 30);
+      pts.push(`${(c.x + size * Math.cos(a)).toFixed(2)},${(c.y + size * Math.sin(a)).toFixed(2)}`);
+    }
+    return pts.join(' ');
+  };
+  const fromLabel = (s) => {
+    const m = /^([A-Za-z]+)(\d+)$/.exec(s ?? '');
+    if (!m) return null;
+    let col = 0;
+    for (const ch of m[1].toUpperCase()) col = col * 26 + (ch.charCodeAt(0) - 64);
+    const hex = offsetToAxial(col - 1, Number(m[2]) - 1);
+    return onMap(hex) ? hex : null;
+  };
+
+  // ---- the state we are playing with
+  const params = new URLSearchParams(location.search);
+  const typeIds = Object.keys(UNITS);
+  const state = {
+    me: { type: typeIds.includes(params.get('type')) ? params.get('type') : 'rifleman',
+          status: ['ready', 'pinned', 'down'].includes(params.get('status')) ? params.get('status') : 'ready',
+          pos: fromLabel(params.get('me')) ?? fromLabel('G8') },
+    enemies: [
+      { name: 'Hale', type: 'rifleman', pos: fromLabel('G4'), revealed: false },
+      { name: 'Marsh', type: 'gunner', pos: fromLabel('D3'), revealed: false },
+      { name: 'Quill', type: 'rifleman', pos: fromLabel('K7'), revealed: false },
+    ],
+    eliminated0: params.get('elim') === '1',
+    hover: fromLabel(params.get('hover')),
+  };
+  (params.get('e') ?? '').split(',').forEach((s, i) => { const p = fromLabel(s); if (p && state.enemies[i]) state.enemies[i].pos = p; });
+  (params.get('rev') ?? '').split(',').forEach((s) => { const e = state.enemies[Number(s)]; if (s !== '' && e) e.revealed = true; });
+
+  // The real GameState for the real functions.
+  function gameState() {
+    const units = [{ id: '0-0', owner: 0, type: state.me.type, name: 'Pvt. Blue', pos: state.me.pos,
+                     status: state.me.status, pinnedRound: state.me.status === 'pinned' ? 1 : null, revealed: false }];
+    state.enemies.forEach((e, i) => units.push({ id: `1-${i}`, owner: 1, type: e.type, name: e.name, pos: e.pos,
+                     status: 'ready', pinnedRound: null, revealed: e.revealed }));
+    return { map, playerCount: 2, units, round: 1, scores: [0, 0], eliminated: [state.eliminated0, false], over: false, winners: [] };
+  }
+
+  // ---- the static map
+  const objectiveAt = new Map(map.objectives.map((o) => [key(o.hex), o]));
+  const ground = el('g'); const fog = el('g'); const lineLayer = el('g'); const tokens = el('g');
+  svg.append(ground, fog, lineLayer, tokens);
+  for (const [k, cell] of Object.entries(map.cells)) {
+    const hex = parseKey(k); const c = centreOf(hex);
+    ground.append(el('polygon', { points: corners(c, SIZE), fill: fillFor(cell), class: 'hexline' }));
+    if (cell.terrain === 'woods') {
+      for (const [dx, dy, r] of [[-9, 5, 8], [8, 6, 7], [0, -8, 9]]) {
+        ground.append(el('circle', { cx: c.x + dx, cy: c.y + dy, r, fill: '#3E4A2E', stroke: INK, 'stroke-width': 1 }));
+      }
+    } else if (cell.terrain === 'building') {
+      ground.append(el('rect', { x: c.x - 15, y: c.y - 11, width: 30, height: 22, fill: PAPER, stroke: INK, 'stroke-width': 2 }));
+      ground.append(el('line', { x1: c.x - 15, y1: c.y, x2: c.x + 15, y2: c.y, stroke: INK, 'stroke-width': 1 }));
+    }
+    if (cell.elevation > 0) ground.append(el('text', { x: c.x + 15, y: c.y - 12, class: 't', 'font-size': 10, fill: INK }, `+${cell.elevation}`));
+    const obj = objectiveAt.get(k);
+    if (obj) {
+      ground.append(el('circle', { cx: c.x, cy: c.y, r: 15, fill: AMBER, stroke: INK, 'stroke-width': 2.5 }));
+      ground.append(el('text', { x: c.x - 5, y: c.y + 1, class: 't', 'font-size': 16, fill: INK }, obj.id));
+      ground.append(el('text', { x: c.x + 7, y: c.y + 2, class: 't', 'font-size': 11, fill: INK }, obj.value));
+    }
+  }
+
+  // ---- drawing the live part
+  const reasonFor = (gs, e) => {
+    const me = gs.units[0];
+    if (gs.eliminated[0]) return { seen: true, text: 'seat 0 is eliminated: sees all' };
+    if (me.status === 'down') return { seen: false, text: 'your unit is down' };
+    const d = distance(me.pos, e.pos);
+    const sight = UNITS[me.type].sight;
+    if (d > sight) return { seen: false, text: `out of range (${d} > sight ${sight})` };
+    const block = blockingHex(map, me.pos, e.pos);
+    if (block) return { seen: false, text: `line stopped at ${label(block)}` };
+    const cover = TERRAIN[map.cells[key(e.pos)].terrain].cover;
+    if (cover && !e.revealed && d > RULES.stealthRange) return { seen: false, text: `in cover, ${d} away: beyond stealth range ${RULES.stealthRange}, not revealed` };
+    if (!cover) return { seen: true, text: `in the open, ${d} away` };
+    return { seen: true, text: e.revealed ? 'in cover but revealed' : `in cover but within stealth range (${d})` };
+  };
+
+  function token(cx, cy, fill, glyph, opts = {}) {
+    const g = el('g', opts.cls ? { class: opts.cls } : {});
+    if (opts.ghost) {
+      g.append(el('circle', { cx, cy, r: 14, fill: 'none', stroke: PAPER, 'stroke-width': 2, 'stroke-dasharray': '4 3', opacity: 0.8 }));
+      g.append(el('text', { x: cx, y: cy + 1, class: 't', 'font-size': 13, fill: PAPER, opacity: 0.8 }, glyph));
+      return g;
+    }
+    g.append(el('circle', { cx, cy, r: 14, fill, stroke: INK, 'stroke-width': 2.5 }));
+    if (opts.status === 'pinned') g.append(el('circle', { cx, cy, r: 18, fill: 'none', stroke: AMBER, 'stroke-width': 2.5, 'stroke-dasharray': '5 3' }));
+    g.append(el('text', { x: cx, y: cy + 1, class: 't', 'font-size': 15, fill: PAPER }, glyph));
+    if (opts.status === 'down') {
+      g.append(el('line', { x1: cx - 11, y1: cy - 11, x2: cx + 11, y2: cy + 11, stroke: RUST, 'stroke-width': 4 }));
+      g.append(el('line', { x1: cx - 11, y1: cy + 11, x2: cx + 11, y2: cy - 11, stroke: RUST, 'stroke-width': 4 }));
+    }
+    if (opts.revealed) {
+      g.append(el('circle', { cx: cx + 12, cy: cy - 12, r: 6, fill: AMBER, stroke: INK, 'stroke-width': 1.5 }));
+      g.append(el('text', { x: cx + 12, y: cy - 11, class: 't', 'font-size': 9, fill: INK }, '!'));
+    }
+    return g;
+  }
+  const glyphOf = (type) => type === 'medic' ? '+' : type === 'gunner' ? 'G' : type[0].toUpperCase();
+
+  function render() {
+    const gs = gameState();
+    const vis = visibleHexes(gs, 0);
+    const seen = new Set(visibleEnemies(gs, 0).map((u) => u.id));
+
+    // fog: a veil on every hex that is not visible
+    fog.replaceChildren();
+    for (const k of Object.keys(map.cells)) {
+      if (vis.has(k)) continue;
+      fog.append(el('polygon', { points: corners(centreOf(parseKey(k)), SIZE), fill: '#1E2A33', 'fill-opacity': 0.62, stroke: 'none' }));
+    }
+    // a bright rim on the visible hexes next to veiled ones helps the eye; keep it simple: outline visible set
+    // (only the outer border: edges whose neighbour is not visible)
+    // sight line to the hovered hex
+    lineLayer.replaceChildren();
+    const me = gs.units[0];
+    if (state.hover && onMap(state.hover) && !eq(state.hover, me.pos)) {
+      const path = line(me.pos, state.hover);
+      const block = blockingHex(map, me.pos, state.hover);
+      const clear = !block;
+      const pts = path.map((p) => { const c = centreOf(p); return `${c.x},${c.y}`; }).join(' ');
+      lineLayer.append(el('polygon', { points: corners(centreOf(state.hover), SIZE - 2), fill: 'none', stroke: PAPER, 'stroke-width': 3 }));
+      lineLayer.append(el('polyline', { points: pts, fill: 'none', stroke: INK, 'stroke-width': 7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', opacity: 0.7 }));
+      lineLayer.append(el('polyline', { points: pts, fill: 'none', stroke: clear ? AMBER : PAPER, 'stroke-width': 3.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }));
+      path.forEach((p, i) => {
+        if (i === 0 || i === path.length - 1) return;
+        const c = centreOf(p);
+        lineLayer.append(el('circle', { cx: c.x, cy: c.y, r: 4, fill: eq(p, block ?? { q: NaN, r: NaN }) ? RUST : INK, stroke: PAPER, 'stroke-width': 1.5 }));
+      });
+      if (block) {
+        const c = centreOf(block);
+        lineLayer.append(el('polygon', { points: corners(c, SIZE - 3), fill: 'none', stroke: RUST, 'stroke-width': 4 }));
+        lineLayer.append(el('line', { x1: c.x - 12, y1: c.y - 12, x2: c.x + 12, y2: c.y + 12, stroke: RUST, 'stroke-width': 5 }));
+        lineLayer.append(el('line', { x1: c.x - 12, y1: c.y + 12, x2: c.x + 12, y2: c.y - 12, stroke: RUST, 'stroke-width': 5 }));
+      }
+    }
+    // tokens
+    tokens.replaceChildren();
+    state.enemies.forEach((e, i) => {
+      const c = centreOf(e.pos);
+      const t = token(c.x, c.y, PURPLE, glyphOf(e.type), { ghost: !seen.has(`1-${i}`), revealed: e.revealed, cls: 'grab' });
+      t.dataset.who = `e${i}`;
+      tokens.append(t);
+    });
+    const c = centreOf(me.pos);
+    const mt = token(c.x, c.y, BLUE, glyphOf(me.type), { status: me.status, cls: 'grab' });
+    mt.dataset.who = 'me';
+    tokens.append(mt);
+
+    // side panels
+    const def = UNITS[state.me.type];
+    $('unit-facts').textContent = `${def.name}: sight ${def.sight}, at ${label(me.pos)} (level ${map.cells[key(me.pos)].elevation}). ` +
+      `Sees ${vis.size} of ${Object.keys(map.cells).length} hexes.`;
+    $('stealth').textContent = RULES.stealthRange;
+
+    const tbl = $('enemies');
+    tbl.replaceChildren();
+    const head = h('tr'); for (const x of ['Enemy', 'At', 'Revealed', 'Seen?']) head.append(h('th', x)); tbl.append(head);
+    state.enemies.forEach((e, i) => {
+      const r = reasonFor(gs, e);
+      const real = seen.has(`1-${i}`);
+      const tr = h('tr');
+      tr.append(h('td', `${e.name} (${UNITS[e.type].name})`), h('td', `${label(e.pos)}${TERRAIN[map.cells[key(e.pos)].terrain].cover ? ' cover' : ''}`));
+      const cb = h('input'); cb.type = 'checkbox'; cb.checked = e.revealed; cb.setAttribute('aria-label', `${e.name} revealed`);
+      cb.addEventListener('change', () => { e.revealed = cb.checked; render(); });
+      const td = h('td'); td.append(cb); tr.append(td);
+      const verdict = h('td'); verdict.append(h('b', real ? 'SEEN' : 'hidden', real ? 'ok' : 'dim'), h('div', r.text, 'dim'));
+      if (r.seen !== real) verdict.append(h('div', `MISMATCH: reason says ${r.seen ? 'seen' : 'hidden'}`, 'bad'));
+      tr.append(verdict);
+      tbl.append(tr);
+    });
+
+    // hover facts
+    if (state.hover && onMap(state.hover)) {
+      const hv = state.hover, cell = map.cells[key(hv)], d = distance(me.pos, hv);
+      const block = blockingHex(map, me.pos, hv);
+      $('h-label').textContent = `${label(hv)} (axial ${key(hv)})`;
+      $('h-ground').textContent = `${TERRAIN[cell.terrain].name}, level ${cell.elevation}`;
+      $('h-dist').textContent = `${d} (sight ${def.sight})`;
+      const bc = block ? map.cells[key(block)] : null;
+      $('h-line').textContent = eq(hv, me.pos) ? 'own hex'
+        : block ? `stopped at ${label(block)} (${TERRAIN[bc.terrain].name}, level ${bc.elevation}); canSee = ${canSee(map, me.pos, hv)}`
+                : `clear; canSee = ${canSee(map, me.pos, hv)}${canSee(map, hv, me.pos) === canSee(map, me.pos, hv) ? ' (same from the other end)' : ' (ASYMMETRIC!)'}`;
+      $('h-vis').textContent = vis.has(key(hv)) ? 'yes' : 'no';
+    }
+
+    renderViews(gs);
+  }
+
+  function renderViews(gs) {
+    for (const seat of [0, 1]) {
+      const v = viewFor(gs, seat);
+      const box = $(`view${seat}`);
+      box.replaceChildren();
+      const inView = new Set(v.units.map((u) => u.id));
+      const absent = gs.units.filter((u) => !inView.has(u.id));
+      box.append(h('div', `Round ${v.round} of ${v.maxRounds}. ${v.visible.length} hexes visible. Eliminated: ${v.eliminated.join(', ')}.`, 'dim'));
+      const t = h('table');
+      const head = h('tr'); for (const x of ['Id', 'Unit', 'Owner', 'At', 'Status', 'Revealed']) head.append(h('th', x)); t.append(head);
+      for (const u of v.units) {
+        const tr = h('tr');
+        tr.append(h('td', u.id), h('td', `${u.name} (${u.type})`), h('td', u.owner === seat ? 'own' : 'ENEMY'), h('td', label(u.pos)), h('td', u.status), h('td', String(u.revealed)));
+        t.append(tr);
+      }
+      if (v.units.length === 0) { const tr = h('tr'); const td = h('td', 'No units at all.', 'dim'); td.colSpan = 6; tr.append(td); t.append(tr); }
+      box.append(t);
+      // leak check against the full state
+      const text = JSON.stringify(v);
+      const leaked = absent.filter((u) => text.includes(`"id":"${u.id}"`) || text.includes(u.name));
+      const hiddenList = absent.map((u) => `${u.name} (${u.status === 'down' ? 'down' : label(u.pos)})`).join(', ') || 'none';
+      box.append(h('div', `Not in this view: ${hiddenList}`, 'dim'));
+      box.append(h('div', leaked.length ? `LEAK: the payload mentions ${leaked.map((u) => u.name).join(', ')}` : 'Leak check: nothing about the units above appears anywhere in the JSON payload.', leaked.length ? 'bad' : 'ok'));
+    }
+  }
+
+  // ---- controls
+  const typeSel = $('type');
+  for (const u of Object.values(UNITS)) { const o = h('option', `${u.name} (sight ${u.sight})`); o.value = u.id; typeSel.append(o); }
+  typeSel.value = state.me.type;
+  typeSel.addEventListener('change', () => { state.me.type = typeSel.value; render(); });
+  $('status').value = state.me.status;
+  $('status').addEventListener('change', (e) => { state.me.status = e.target.value; render(); });
+  $('elim').checked = state.eliminated0;
+  $('elim').addEventListener('change', (e) => { state.eliminated0 = e.target.checked; render(); });
+
+  // ---- dragging
+  let drag = null;
+  const hexAt = (ev) => {
+    const pt = new DOMPoint(ev.clientX, ev.clientY).matrixTransform(svg.getScreenCTM().inverse());
+    return pixelToHex(pt.x - ox, pt.y - oy, SIZE);
+  };
+  svg.addEventListener('pointerdown', (ev) => {
+    const hex = hexAt(ev);
+    if (eq(hex, state.me.pos)) drag = 'me';
+    else { const i = state.enemies.findIndex((e) => eq(e.pos, hex)); if (i >= 0) drag = `e${i}`; }
+    if (drag) { svg.setPointerCapture(ev.pointerId); svg.style.cursor = 'grabbing'; ev.preventDefault(); }
+  });
+  svg.addEventListener('pointermove', (ev) => {
+    const hex = hexAt(ev);
+    if (!onMap(hex)) return;
+    if (drag) {
+      const target = drag === 'me' ? state.me : state.enemies[Number(drag.slice(1))];
+      if (!eq(target.pos, hex)) target.pos = hex;
+    }
+    state.hover = hex;
+    render();
+  });
+  const drop = () => { drag = null; svg.style.cursor = ''; };
+  svg.addEventListener('pointerup', drop);
+  svg.addEventListener('pointercancel', drop);
+
+  // ---- legend
+  const legend = $('legend');
+  const swatch = (colour, text) => {
+    const li = h('li'); const s = h('span', undefined, 'sw'); s.style.background = colour;
+    li.append(s, h('span', text)); legend.append(li);
+  };
+  swatch(BLUE, 'Your unit (seat 0)'); swatch(PURPLE, 'Enemy, seen'); swatch('transparent', 'Dashed outline: enemy, not seen');
+  swatch('#1E2A33', 'Veiled: not in visibleHexes'); swatch(AMBER, 'Sight line, clear'); swatch(RUST, 'Hex that stops the line');
+  swatch('#909E74', 'Woods / building: height +1 and hides units beyond 2');
+
+  render();
+  window.__sight = { state, render };   // for screenshots and poking from the console
+</script>
+</body>
+</html>

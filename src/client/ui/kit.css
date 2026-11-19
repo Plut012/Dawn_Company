@@ -1,0 +1,214 @@
+/* Dawn Squad kit: tokens and components, ported from docs/design/stylesheet.html.
+   Same names, same values. If this and the style sheet disagree, the style sheet wins. */
+
+/* ---------- Fonts (bundled; no network needed) ---------- */
+@font-face { font-family: "Stardos Stencil"; src: url("/fonts/StardosStencil-Regular.ttf"); font-weight: 400; }
+@font-face { font-family: "Stardos Stencil"; src: url("/fonts/StardosStencil-Bold.ttf"); font-weight: 700; }
+@font-face { font-family: "Courier Prime"; src: url("/fonts/CourierPrime-Regular.ttf"); font-weight: 400; }
+@font-face { font-family: "Courier Prime"; src: url("/fonts/CourierPrime-Bold.ttf"); font-weight: 700; }
+
+/* ---------- Tokens ---------- */
+:root {
+  /* palette */
+  --ink:   #1E2420;
+  --paper: #E9DFC6;
+  --khaki: #B7A77A;
+  --olive: #5E6B45;
+  --slate: #3D4F5C;
+  --rust:  #9A4B32;
+  --amber: #E8A23A;   /* the one accent */
+
+  /* player marks */
+  --p-blue:  #3F6E8C;
+  --p-plum:  #6B4E7A;
+  --p-teal:  #2F7F78;
+  --p-bone:  #E9DFC6;
+
+  /* type */
+  --font-display: "Stardos Stencil", "Impact", sans-serif;
+  --font-text: "Courier Prime", "Courier New", monospace;
+  --t-1: 12px; --t-2: 14px; --t-3: 18px; --t-4: 24px; --t-5: 36px;
+
+  /* spacing */
+  --s-1: 4px; --s-2: 8px; --s-3: 16px; --s-4: 32px;
+
+  /* linework */
+  --w-frame: 3px; --w-outline: 2px; --w-divider: 1px;
+  --radius: 2px;
+}
+
+/* ---------- Page ---------- */
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: var(--s-3);
+  background: var(--slate); color: var(--paper);
+  font-family: var(--font-text); font-size: var(--t-2); line-height: 1.45;
+}
+main { max-width: 960px; margin: 0 auto; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; margin: 0; }
+h1 { font-size: var(--t-5); }
+h2 { font-size: var(--t-4); margin: var(--s-4) 0 var(--s-3); padding-bottom: var(--s-1); border-bottom: var(--w-divider) solid var(--paper); }
+h3 { font-size: var(--t-3); margin: var(--s-3) 0 var(--s-2); }
+p { margin: 0 0 var(--s-2); max-width: 64ch; }
+.note { font-size: var(--t-1); opacity: 0.8; }
+.row { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+.cell { display: flex; flex-direction: column; gap: var(--s-1); align-items: flex-start; }
+.cap { font-size: var(--t-1); text-transform: uppercase; letter-spacing: 0.08em; opacity: 0.85; }
+
+/* ---------- Component: Panel ---------- */
+.panel {
+  position: relative;
+  background: var(--olive); color: var(--paper);
+  border: var(--w-frame) solid var(--ink); border-radius: var(--radius);
+  padding: var(--s-4) var(--s-3) var(--s-3);
+}
+.panel > .label {
+  position: absolute; top: var(--s-1); left: var(--s-4);
+  font-family: var(--font-display); font-size: var(--t-2); letter-spacing: 0.1em; text-transform: uppercase;
+}
+/* corner screws */
+.panel::before, .panel::after {
+  content: ""; position: absolute; top: 6px; width: 10px; height: 10px; border-radius: 50%;
+  background: linear-gradient(var(--ink), var(--ink)) center / 100% 2px no-repeat, var(--khaki);
+  border: var(--w-outline) solid var(--ink);
+}
+.panel::before { left: 6px; }
+.panel::after { right: 6px; }
+.panel.inset { background: var(--ink); }
+
+/* ---------- Component: Order chit ---------- */
+.chit {
+  width: 72px; height: 72px; padding: var(--s-1);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: var(--paper); color: var(--ink);
+  border: var(--w-outline) solid var(--ink); border-radius: var(--radius);
+  box-shadow: 3px 3px 0 var(--ink);
+  font-family: var(--font-display); font-size: var(--t-1); letter-spacing: 0.08em; text-transform: uppercase;
+  cursor: pointer; user-select: none;
+}
+.chit svg { width: 32px; height: 32px; fill: none; stroke: var(--ink); stroke-width: 2.5; stroke-linecap: square; stroke-linejoin: miter; }
+.chit.selected { background: var(--amber); transform: translate(-2px, -2px); box-shadow: 5px 5px 0 var(--ink); }
+.chit.issued { background: var(--khaki); transform: translate(3px, 3px); box-shadow: none; }
+.chit.issued::after { content: "✓"; position: absolute; }
+.chit.issued { position: relative; }
+.chit.issued::after { top: 0; right: 4px; font-family: var(--font-text); font-weight: 700; font-size: var(--t-2); }
+.chit.disabled { background: var(--khaki); opacity: 0.45; box-shadow: none; cursor: not-allowed; }
+
+/* ---------- Component: Key ---------- */
+.key {
+  min-width: 96px; height: 44px; padding: 0 var(--s-3);
+  background: var(--khaki); color: var(--ink);
+  border: var(--w-outline) solid var(--ink); border-radius: var(--radius);
+  box-shadow: 0 4px 0 var(--ink);
+  font-family: var(--font-display); font-size: var(--t-2); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  cursor: pointer;
+}
+.key:active, .key.pressed { transform: translateY(4px); box-shadow: none; background: var(--amber); }
+.key:disabled { opacity: 0.45; box-shadow: 0 2px 0 var(--ink); transform: translateY(2px); cursor: not-allowed; }
+
+/* ---------- Component: Ready lever ---------- */
+.lever {
+  position: relative; width: 64px; height: 112px;
+  background: var(--ink); border: var(--w-outline) solid var(--ink); border-radius: var(--radius);
+  outline: var(--w-outline) solid var(--khaki); outline-offset: -6px;
+  cursor: pointer;
+}
+.lever .slot { position: absolute; left: 50%; top: 16px; bottom: 16px; width: 8px; margin-left: -4px; background: var(--slate); }
+.lever .handle {
+  position: absolute; left: 8px; right: 8px; height: 28px; top: 14px;
+  background: var(--paper); border: var(--w-outline) solid var(--ink); border-radius: var(--radius);
+  transition: top 120ms ease-out, background 120ms;
+}
+.lever.down .handle { top: 68px; background: var(--amber); }
+.lever.locked { cursor: not-allowed; }
+.lever.locked .handle { top: 68px; background: var(--khaki); opacity: 0.6; }
+.lever-legend { font-family: var(--font-display); font-size: var(--t-1); letter-spacing: 0.1em; text-transform: uppercase; }
+
+/* ---------- Component: Lamp ---------- */
+.lamp { display: inline-flex; align-items: center; gap: var(--s-2); font-size: var(--t-2); }
+.lamp i { width: 16px; height: 16px; border-radius: 50%; border: var(--w-outline) solid var(--ink); background: var(--slate); }
+.lamp.planning i { background: var(--paper); }
+.lamp.ready i { background: var(--amber); box-shadow: 0 0 0 2px var(--amber); }
+.lamp.disconnected i { background: var(--rust); animation: blink 1s steps(2) infinite; }
+.lamp.out i { background: var(--ink); }
+.lamp.out { opacity: 0.6; text-decoration: line-through; }
+@keyframes blink { 50% { background: var(--ink); } }
+
+/* ---------- Component: Readout ---------- */
+.readout {
+  display: inline-flex; flex-direction: column; align-items: center; min-width: 88px;
+  padding: var(--s-1) var(--s-2);
+  background: var(--ink); color: var(--paper);
+  border: var(--w-outline) solid var(--khaki); border-radius: var(--radius);
+}
+.readout b { font-family: var(--font-display); font-size: var(--t-5); line-height: 1; letter-spacing: 0.04em; }
+.readout span { font-family: var(--font-display); font-size: var(--t-1); letter-spacing: 0.12em; text-transform: uppercase; opacity: 0.8; }
+.readout.alert { border-color: var(--rust); }
+.readout.alert b { color: var(--rust); }
+
+/* ---------- Component: Unit card ---------- */
+.unit {
+  display: grid; grid-template-columns: 48px 1fr 20px; gap: var(--s-2); align-items: center;
+  width: 232px; padding: var(--s-2);
+  background: var(--paper); color: var(--ink);
+  border: var(--w-outline) solid var(--ink); border-radius: var(--radius);
+}
+.unit .face { width: 48px; height: 48px; background: var(--khaki); border: var(--w-outline) solid var(--ink); display: grid; place-items: center; }
+.unit .face svg { width: 36px; height: 36px; fill: var(--ink); }
+.unit b { display: block; font-family: var(--font-text); font-size: var(--t-2); }
+.unit small { display: block; font-family: var(--font-display); font-size: var(--t-1); letter-spacing: 0.1em; text-transform: uppercase; }
+.unit .mark { width: 20px; height: 20px; }
+.unit.selected { outline: var(--w-frame) solid var(--amber); outline-offset: 2px; }
+.unit.pinned { border-color: var(--rust); }
+.unit.pinned small { color: var(--rust); }
+.unit.pinned .face { background: var(--rust); }
+.unit.down { background: var(--khaki); opacity: 0.6; }
+.unit.down b { text-decoration: line-through; }
+
+/* ---------- Component: Stepper ---------- */
+.stepper {
+  display: inline-grid; grid-template-columns: 36px 44px 36px auto; align-items: stretch; height: 40px;
+  background: var(--paper); color: var(--ink);
+  border: var(--w-outline) solid var(--ink); border-radius: var(--radius);
+}
+.stepper button {
+  border: 0; background: var(--khaki); color: var(--ink);
+  font-family: var(--font-display); font-size: var(--t-4); line-height: 1; cursor: pointer;
+}
+.stepper button:first-child { border-right: var(--w-outline) solid var(--ink); }
+.stepper button:nth-child(3) { border-left: var(--w-outline) solid var(--ink); border-right: var(--w-outline) solid var(--ink); }
+.stepper button:active { background: var(--amber); }
+.stepper button:disabled { opacity: 0.35; cursor: not-allowed; }
+.stepper .count { display: grid; place-items: center; font-family: var(--font-display); font-size: var(--t-4); }
+.stepper .cost { display: grid; place-items: center; padding: 0 var(--s-2); font-family: var(--font-display); font-size: var(--t-2); letter-spacing: 0.08em; }
+.stepper.unaffordable .cost { color: var(--rust); }
+.stepper.unaffordable { border-color: var(--rust); }
+
+/* ---------- Component: Report strip ---------- */
+.report {
+  display: block; width: 100%; max-width: 520px; padding: var(--s-2) var(--s-3);
+  background: var(--paper); color: var(--ink);
+  border-left: 8px solid var(--ink);
+  font-family: var(--font-text); font-size: var(--t-2);
+}
+.report.danger { border-left-color: var(--rust); }
+.report time { font-weight: 700; margin-right: var(--s-2); }
+
+
+/* ---------- Additions not yet in the style sheet (need sign-off; see task 08 report) ---------- */
+
+/* Stepper: 44 px tall and buttons 40 px wide inside the frame, so each is at least a 40 px touch target
+   (the sheet has 36 wide by 36 tall inside its frame). */
+.stepper { grid-template-columns: 40px 44px 40px auto; height: 44px; }
+
+/* Component: Field. Paper plate with a hard inset shadow, for typing a name. */
+.field {
+  display: block; width: 100%; height: 44px; padding: 0 var(--s-2);
+  background: var(--paper); color: var(--ink);
+  border: var(--w-outline) solid var(--ink); border-radius: var(--radius);
+  box-shadow: inset 3px 3px 0 rgba(30,36,32,0.25);
+  font-family: var(--font-text); font-size: 16px;
+}
+.field::placeholder { color: var(--ink); opacity: 0.5; }
+.field:focus { outline: var(--w-frame) solid var(--amber); outline-offset: 2px; }
+.field:disabled { opacity: 0.45; cursor: not-allowed; }

@@ -1,0 +1,491 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<title>Eval 07 — Playback</title>
+<style>
+  @font-face { font-family: 'Stardos Stencil'; src: url('/docs/design/fonts/StardosStencil-Bold.ttf'); font-weight: 700; }
+  @font-face { font-family: 'Courier Prime'; src: url('/docs/design/fonts/CourierPrime-Regular.ttf'); }
+  @font-face { font-family: 'Courier Prime'; src: url('/docs/design/fonts/CourierPrime-Bold.ttf'); font-weight: 700; }
+  :root {
+    --ink: #1E2420; --paper: #E9DFC6; --khaki: #B7A77A; --olive: #5E6B45;
+    --slate: #3D4F5C; --rust: #9A4B32; --amber: #E8A23A;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--slate); color: var(--paper);
+               font: 14px/1.3 'Courier Prime', 'Courier New', monospace; }
+  #stage { position: fixed; inset: 0; }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  .kit { position: fixed; left: 8px; top: 8px; max-width: min(560px, calc(100vw - 16px)); background: var(--olive);
+         border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); padding: 4px 8px 8px; }
+  .kit h1 { font: 700 12px 'Stardos Stencil', 'Courier New', monospace; letter-spacing: 0.1em; text-transform: uppercase;
+            color: var(--ink); margin: 0 0 4px; display: flex; justify-content: space-between; gap: 16px; cursor: pointer; }
+  .kit.shut .rows { display: none; }
+  .row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; }
+  .row > span { font: 700 12px 'Stardos Stencil', 'Courier New', monospace; letter-spacing: 0.08em; text-transform: uppercase;
+              color: var(--ink); width: 52px; }
+  button { font: 700 12px 'Stardos Stencil', 'Courier New', monospace; letter-spacing: 0.06em; text-transform: uppercase;
+           background: var(--khaki); color: var(--ink); border: 2px solid var(--ink); border-radius: 2px;
+           min-height: 40px; min-width: 40px; padding: 4px 8px; box-shadow: 2px 2px 0 var(--ink); cursor: pointer; }
+  button.on { background: var(--amber); box-shadow: none; transform: translate(2px, 2px); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #play { background: var(--paper); min-width: 96px; }
+  #readout { position: fixed; left: 8px; right: 8px; bottom: 8px; background: var(--ink); color: var(--paper);
+             border: 2px solid var(--ink); border-left: 6px solid var(--amber); padding: 8px; pointer-events: none;
+             display: flex; gap: 16px; align-items: flex-start; }
+  #readout.bad { border-left-color: var(--rust); }
+  #readout b { font-family: 'Stardos Stencil', 'Courier New', monospace; letter-spacing: 0.08em; color: var(--amber); }
+  #clock { font: 700 36px/1 'Stardos Stencil', 'Courier New', monospace; letter-spacing: 0.06em; color: var(--amber);
+           min-width: 5.2ch; text-align: right; }
+  #clock small { font-size: 12px; display: block; color: var(--paper); letter-spacing: 0.1em; margin-top: 4px; }
+  #text { flex: 1; min-width: 0; }
+  #text small { color: var(--khaki); }
+  #error { position: fixed; left: 8px; right: 8px; top: 40%; color: #fff; background: var(--rust); padding: 8px; display: none; z-index: 9; }
+  body.bare .kit, body.bare #readout { display: none; }
+</style>
+</head>
+<body>
+<div id="stage"></div>
+
+<div class="kit" id="kit">
+  <h1 id="kit-title"><span>Eval 07 · Playback</span><span id="fold">–</span></h1>
+  <div class="rows">
+    <div class="row" id="scenarios"><span>Round</span></div>
+    <div class="row" id="seats"><span>View as</span></div>
+    <div class="row" id="kits"><span>Kit</span></div>
+    <div class="row"><span>Run</span><button id="play">Play</button></div>
+  </div>
+</div>
+<div id="readout"><div id="clock">0.0<small>seconds</small></div><div id="text"></div></div>
+<div id="error"></div>
+
+<script type="module">
+  // The real board, the real low-poly kit, the real playback — and the real rules:
+  // every event list on this page comes from resolve() in src/rules, run here in the
+  // page on scripted orders. Nothing is hand-written. The starting positions are
+  // staged (createMatch, then units set down where the scene needs them).
+  //
+  // From the URL, for screenshots and scripts:
+  //   ?scenario=<id>  &as=<seat>  &kit=lowpoly|crude|faulty  &bare=1 (hide the controls)
+  //   &play=1 (start at once)   &at=<ms> (with play: freeze a copy of the frame at that time)
+  //   &focus=G6 &zoom=2 (override the scenario's framing)
+  //   &probe=1  keep the drawn frame readable (preserveDrawingBuffer), which window.dawn needs:
+  //     dawn.run(id, seat, kit?, without?) -> { ms, events, jump }   jump = pixels that change when setView follows play
+  //                                      (without: an event type to drop, to prove the measure can see a jump)
+  //     dawn.frames(id, seat, [ms..]) -> PNG data URLs of the board at those times into the round
+  import * as THREE from 'three';
+  import { createBoard } from '/src/client/render/index.ts';
+  import { lowpolyKit, loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
+  import { moments } from '/src/client/render/playback.ts';
+  import { MAPS, DEFAULT_MAP, PRESETS, UNITS } from '/src/content/index.ts';
+  import { key, parseKey, label, within, distance } from '/src/shared/hex.ts';
+  import { createMatch, resolve, viewFor, validateOrders, orderOptions, findPath } from '/src/rules/index.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const showError = (m) => { $('error').style.display = 'block'; $('error').textContent = 'Error: ' + m; };
+  window.addEventListener('error', (e) => showError(e.message));
+  window.addEventListener('unhandledrejection', (e) => showError(String(e.reason)));
+
+  const params = new URLSearchParams(location.search);
+  const probe = params.get('probe') === '1' || params.has('at');
+  if (probe) {
+    // Test harness only: lets a frame be copied at any time, not just while it is being drawn.
+    const real = HTMLCanvasElement.prototype.getContext;
+    HTMLCanvasElement.prototype.getContext = function (type, attrs) {
+      return real.call(this, type, type.startsWith('webgl') ? { ...attrs, preserveDrawingBuffer: true } : attrs);
+    };
+  }
+
+  const map = MAPS[DEFAULT_MAP];
+  const H = {};                                    // hexes by label: H.F4
+  for (const k of Object.keys(map.cells)) H[label(parseKey(k))] = parseKey(k);
+
+  // ---- staging a round for the real rules
+
+  /** seats: per seat, a list of [type, hex label, status?]. A unit staged as pinned was pinned last round. */
+  function stage(seats) {
+    const state = createMatch(map, seats.map((list, player) => ({ player, units: list.map((u) => u[0]) })));
+    const units = state.units.map((u) => {
+      const [owner, index] = u.id.split('-').map(Number);
+      const [, at, status = 'ready'] = seats[owner][index];
+      if (!H[at]) throw new Error(`No hex ${at}`);
+      return { ...u, pos: { ...H[at] }, status, pinnedRound: status === 'pinned' ? 0 : null };
+    });
+    return { ...state, units };
+  }
+  const fire = (unit, at) => ({ unit, kind: 'fire', target: H[at] });
+  const move = (unit, ...path) => ({ unit, kind: 'move', path: path.map((l) => H[l]) });
+  const dash = (unit, ...path) => ({ unit, kind: 'dash', path: path.map((l) => H[l]) });
+  const ambush = (unit) => ({ unit, kind: 'ambush' });
+  const treat = (unit, at) => ({ unit, kind: 'special', target: H[at] });
+
+  const SCENARIOS = [
+    {
+      id: 'duel', name: 'Rifle duel', focus: 'F3', zoom: 2.2,
+      note: 'Two riflemen in the open fire at each other. Both shots count; both are pinned.',
+      seats: [[['rifleman', 'E3']], [['rifleman', 'H3']]],
+      orders: [[fire('0-0', 'H3')], [fire('1-0', 'E3')]],
+    },
+    {
+      id: 'mg', name: 'MG on a group', focus: 'G9', zoom: 2,
+      note: 'Blue\'s machine gun sprays H9 and the six hexes round it: two plum men in the open are pinned, the one in the woods (G8) is saved by cover — and blue\'s own man at H10 is pinned too.',
+      seats: [[['gunner', 'E9'], ['rifleman', 'H10']], [['rifleman', 'H9'], ['rifleman', 'I9'], ['rifleman', 'G8']]],
+      orders: [[fire('0-0', 'H9')], []],
+    },
+    {
+      id: 'mortar', name: 'Mortar', focus: 'F4', zoom: 1.6,
+      note: 'Blue\'s mortar (B3) fires at H3, spotted by the rifleman at E3. It lands after movement: the two who stayed (H3, I3) are pinned, the one who walked off (G3 to F4) is missed. Viewed as plum, the launch is not seen — only the shell coming in.',
+      seats: [[['mortar', 'B3'], ['rifleman', 'E3']], [['rifleman', 'H3'], ['rifleman', 'I3'], ['rifleman', 'G3']]],
+      orders: [[fire('0-0', 'H3')], [move('1-2', 'F3', 'F4')]],
+    },
+    {
+      id: 'ambush', name: 'Ambush', focus: 'H9', zoom: 1.9,
+      note: 'Plum dashes west from L9. Blue\'s rifleman waits in ambush at E9 and fires when the runner comes within range at I9. A dashing man goes down from one hit. Viewed as blue, the runner is unseen in the woods at K9 and appears at J9.',
+      seats: [[['rifleman', 'E9']], [['rifleman', 'L9'], ['rifleman', 'M11']]],
+      orders: [[ambush('0-0')], [dash('1-0', 'K9', 'J9', 'I9', 'H9')]],
+    },
+    {
+      id: 'collide', name: 'Collision', focus: 'G9', zoom: 2.2,
+      note: 'Blue (E9) and plum (I9) both head for G9: after one step each, both stop. Blue\'s second man, following from D8, stops behind the first.',
+      seats: [[['rifleman', 'E9'], ['rifleman', 'D8']], [['rifleman', 'I9']]],
+      orders: [[move('0-0', 'F9', 'G9'), move('0-1', 'E9', 'F9')], [move('1-0', 'H9', 'G9')]],
+    },
+    {
+      id: 'sniper', name: 'Sniper v cover', focus: 'G3', zoom: 1.5,
+      note: 'Plum is in the woods at D3. Blue\'s rifleman at E3 fires: cover takes it (a spark, no change). Blue\'s sniper in the building at K3 fires too, and a sniper ignores cover: pinned. Viewed as plum, the sniper is out of sight: his shot comes in with no source shown.',
+      seats: [[['rifleman', 'E3'], ['sniper', 'K3']], [['rifleman', 'D3']]],
+      orders: [[fire('0-0', 'D3'), fire('0-1', 'D3')], []],
+    },
+    {
+      id: 'medic', name: 'Medic', focus: 'D3', zoom: 2.4,
+      note: 'Blue\'s medic (B3) treats the pinned man beside him (C3) at the start of the round. The pinned man at E3 gets no help and recovers by himself at the end of it.',
+      seats: [[['medic', 'B3'], ['rifleman', 'C3', 'pinned'], ['rifleman', 'E3', 'pinned']], [['rifleman', 'L9']]],
+      orders: [[treat('0-0', 'C3')], []],
+    },
+    {
+      id: 'score', name: 'Scoring', focus: 'E5', zoom: 1.5,
+      note: 'Blue walks onto objective A (E2, worth 1) and already stands on C (D6, worth 2). Plum climbs the hill from E6 onto D (G6, worth 3). Each marker pulses and shows what it paid.',
+      seats: [[['rifleman', 'E3'], ['rifleman', 'D6']], [['rifleman', 'E6']]],
+      orders: [[move('0-0', 'E2')], [move('1-0', 'F6', 'G6')]],
+    },
+  ];
+
+  // ---- a busy round: four preset squads play themselves, and the fullest round is kept
+
+  function autoOrders(state, p) {
+    const view = viewFor(state, p);
+    const mine = view.units.filter((u) => u.owner === p && u.status !== 'down');
+    const foes = view.units.filter((u) => u.owner !== p);
+    const orders = [];
+    mine.forEach((u, i) => {
+      const opt = orderOptions(view, u.id);
+      const def = UNITS[u.type];
+      const can = (kind) => opt.kinds.includes(kind);
+      if (def.special === 'treat') {
+        const friend = mine.find((f) => f.status === 'pinned' && opt.special.includes(key(f.pos)));
+        if (friend) return orders.push({ unit: u.id, kind: 'special', target: friend.pos });
+      }
+      const foe = foes.filter((e) => opt.fire.includes(key(e.pos))).sort((a, b) => distance(a.pos, u.pos) - distance(b.pos, u.pos))[0];
+      if (foe && can('fire')) return orders.push({ unit: u.id, kind: 'fire', target: foe.pos });
+      if (can('ambush') && (i + state.round) % 4 === 3) return orders.push({ unit: u.id, kind: 'ambush' });
+      const kind = can('dash') && (i + state.round) % 3 === 0 ? 'dash' : 'move';
+      if (!can(kind)) return;
+      const goal = map.objectives[i % 3 === 0 ? (i + p * 2) % map.objectives.length : 3].hex;   // mostly the middle
+      const end = opt[kind].map(parseKey).sort((a, b) => distance(a, goal) - distance(b, goal))[0];
+      if (!end || distance(end, goal) >= distance(u.pos, goal)) return;
+      const path = findPath(map, u.pos, end, def.move * (kind === 'dash' ? 2 : 1));
+      if (path?.length) orders.push({ unit: u.id, kind, path });
+    });
+    return orders;
+  }
+
+  const AUTO = [];   // every round of the self-played match: { state, orders, result }
+  {
+    let state = createMatch(map, [0, 1, 2, 3].map((player) => ({ player, units: PRESETS[player % PRESETS.length].units })));
+    while (!state.over && AUTO.length < map.maxRounds) {
+      const orders = [0, 1, 2, 3].map((p) => autoOrders(state, p));
+      const result = resolve(state, orders);
+      AUTO.push({ state, orders, result });
+      state = result.state;
+    }
+  }
+  // "Fullest" = the most separate moments to watch, summed over the four seats.
+  const fullness = (r) => r.result.playerEvents.reduce((n, events) => n + moments(events).length, 0);
+  const busiest = AUTO.reduce((best, r, i) => (fullness(r) > fullness(AUTO[best]) ? i : best), 0);
+  SCENARIOS.push({
+    id: 'busy', name: 'Busy round', focus: null, zoom: 1,
+    note: `Round ${busiest + 1} of a four-player match that plays itself (preset squads; each unit fires at what it sees, else moves, dashes or lies in ambush): the fullest round of the ${AUTO.length} played. Watch the clock: the aim is 6 to 12 seconds.`,
+    state: AUTO[busiest].state, orders: AUTO[busiest].orders,
+  });
+  SCENARIOS.push({
+    id: 'empty', name: 'Empty round', focus: null, zoom: 1,
+    note: 'Round 1 of the same match with nobody ordered to do anything: five phases, nothing to watch. It must take under 2 seconds.',
+    state: AUTO[0].state, orders: [[], [], [], []],
+  });
+
+  for (const s of SCENARIOS) {
+    s.state ??= stage(s.seats);
+    s.players = s.state.playerCount;
+    s.errors = s.orders.flatMap((list, p) => validateOrders(s.state, p, list).map((e) => `seat ${p} ${e.unit ?? ''}: ${e.reason}`));
+    s.result = resolve(s.state, s.orders);   // the real rules
+  }
+
+  // ---- a deliberately crude second kit with no `effect` (as in eval 06), and a faulty one
+
+  function crudeKit() {
+    const mat = (c) => new THREE.MeshLambertMaterial({ color: c, flatShading: true });
+    const TERRAIN = { open: '#7fb069', woods: '#2d6a4f', building: '#c9ada7' };
+    const OWNERS = ['#1d4ed8', '#9333ea', '#0d9488', '#f5f5f4'];
+    const prism = (r, h, c) => new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 6).translate(0, h / 2, 0), mat(c));
+    return {
+      tokens: { ...TERRAIN },
+      environment(scene) {
+        scene.background = new THREE.Color('#101418');
+        scene.add(new THREE.AmbientLight('#ffffff', 1.6));
+        const sun = new THREE.DirectionalLight('#ffffff', 2.2);
+        sun.position.set(-3, 6, 4);
+        scene.add(sun);
+      },
+      tile(terrain, elevation) {
+        const g = new THREE.Group();
+        const body = prism(0.96, 0.6 + elevation * 0.5, TERRAIN[terrain] ?? '#ff00ff');
+        body.position.y = -0.6;
+        g.add(body);
+        if (terrain === 'woods' || terrain === 'building') {
+          const lump = prism(0.4, terrain === 'woods' ? 0.7 : 0.45, terrain === 'woods' ? '#1b4332' : '#6d6875');
+          lump.position.set(0, elevation * 0.5, -0.45);
+          g.add(lump);
+        }
+        return g;
+      },
+      unit(type, owner) {
+        const object = new THREE.Group();
+        const sides = { rifleman: 4, gunner: 3, sniper: 5, mortar: 8, medic: 16 }[type] ?? 6;
+        const peg = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.3, 0.9, sides).translate(0, 0.45, 0), mat(OWNERS[owner] ?? '#ff00ff'));
+        object.add(peg);
+        return { object, setStatus(s) { peg.scale.y = s === 'ready' ? 1 : s === 'pinned' ? 0.5 : 0.12; peg.material.wireframe = s === 'down'; } };
+      },
+      mark() { return new THREE.Group(); },
+      objective() { return prism(0.15, 1.6, '#ffd60a'); },
+      fog() {
+        return new THREE.MeshBasicMaterial({ color: '#101418', transparent: true, opacity: 0.85, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1 });
+      },
+    };
+  }
+
+  /** The real kit, but every effect breaks in one of three ways: throws, rejects, or never ends... */
+  function faultyKit() {
+    const kit = lowpolyKit();
+    let n = 0;
+    return {
+      ...kit,
+      effect(event, ctx) {
+        const fault = n++ % 4;
+        if (fault === 0) throw new Error('faulty kit: threw');
+        if (fault === 1) return Promise.reject(new Error('faulty kit: rejected'));
+        if (fault === 2 && event.t === 'score') return new Promise(() => {});   // ...which playback cuts off after 4 s
+        return kit.effect(event, ctx);
+      },
+    };
+  }
+  const KITS = { lowpoly: ['Low-poly', lowpolyKit], crude: ['Crude, no effects', crudeKit], faulty: ['Faulty effects', faultyKit] };
+
+  // ---- state and controls
+
+  let scenario = SCENARIOS.find((s) => s.id === params.get('scenario')) ?? SCENARIOS[0];
+  let seat = Math.min(Number(params.get('as') ?? 0) || 0, scenario.players - 1);
+  let kitName = KITS[params.get('kit')] ? params.get('kit') : 'lowpoly';
+  let board = null;
+  let canvas = null;
+  let running = false;
+  let last = null;            // { ms, jump } of the last finished run
+  let started = 0;
+
+  function frameCamera(focus = scenario.focus, zoom = scenario.zoom) {
+    board.resize();
+    // Zoom is the board's own wheel handler; right out first, so the factor is from the whole-map view.
+    const wheel = (factor) => canvas.dispatchEvent(new WheelEvent('wheel', {
+      clientX: innerWidth / 2, clientY: innerHeight / 2, deltaY: -Math.log(factor) / 0.0015, bubbles: true, cancelable: true,
+    }));
+    wheel(0.01);
+    board.focus(H[focus] ?? H.G6);
+    if (zoom > 1) wheel(zoom);
+  }
+
+  function say() {
+    const events = scenario.result.playerEvents[seat];
+    const counts = {};
+    for (const e of events) counts[e.t] = (counts[e.t] ?? 0) + 1;
+    const list = Object.entries(counts).filter(([t]) => t !== 'phase').map(([t, n]) => `${n} ${t}`).join(', ') || 'nothing but the five phases';
+    const state = running ? 'playing…' : last ? `done in <b>${(last.ms / 1000).toFixed(2)} s</b>; setView with the next view followed at once` : 'ready — press Play';
+    $('text').innerHTML = `<b>${scenario.name}</b> as seat ${seat} — ${scenario.note}<br>` +
+      `<small>Events: REAL RULES — resolve() from src/rules on scripted orders (${scenario.id === 'busy' || scenario.id === 'empty' ? 'self-played match' : 'staged positions'}). ` +
+      `Seat ${seat} is sent ${events.length}: ${list}. Kit: ${KITS[kitName][0]}. ${state}.` +
+      (scenario.errors.length ? ` <b>ORDER ERRORS: ${scenario.errors.join('; ')}</b>` : '') + '</small>';
+    $('readout').classList.toggle('bad', scenario.errors.length > 0);
+    document.querySelectorAll('button[data-scenario]').forEach((b) => b.classList.toggle('on', b.dataset.scenario === scenario.id));
+    document.querySelectorAll('button[data-seat]').forEach((b) => {
+      b.classList.toggle('on', Number(b.dataset.seat) === seat);
+      b.style.display = Number(b.dataset.seat) < scenario.players ? '' : 'none';
+    });
+    document.querySelectorAll('button[data-kit]').forEach((b) => b.classList.toggle('on', b.dataset.kit === kitName));
+    $('play').disabled = running;
+    $('play').textContent = last && !running ? 'Replay' : 'Play';
+  }
+  const clock = (ms) => { $('clock').firstChild.textContent = (ms / 1000).toFixed(1); };
+
+  /** Put the round's starting view on the board. */
+  function reset() {
+    last = null;
+    clock(0);
+    board.setView(viewFor(scenario.state, seat));
+    say();
+  }
+
+  // A new board needs a new canvas: the old one keeps its WebGL context.
+  function build() {
+    board?.dispose();
+    $('stage').replaceChildren(document.createElement('canvas'));
+    canvas = $('stage').firstChild;
+    board = createBoard(canvas, KITS[kitName][1]());
+    reset();
+    frameCamera(params.get('focus') ?? scenario.focus, Number(params.get('zoom')) || scenario.zoom);
+  }
+
+  const frames = (n = 2) => new Promise((done) => { const step = () => (n-- > 0 ? requestAnimationFrame(step) : done()); step(); });
+  function grab() {
+    const copy = document.createElement('canvas');
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    copy.getContext('2d', { willReadFrequently: true }).drawImage(canvas, 0, 0);
+    return copy;
+  }
+  function differing(a, b) {
+    const x = a.getContext('2d').getImageData(0, 0, a.width, a.height).data;
+    const y = b.getContext('2d').getImageData(0, 0, b.width, b.height).data;
+    let n = 0;
+    for (let i = 0; i < x.length; i += 4) {
+      if (Math.abs(x[i] - y[i]) > 6 || Math.abs(x[i + 1] - y[i + 1]) > 6 || Math.abs(x[i + 2] - y[i + 2]) > 6) n++;
+    }
+    return n;
+  }
+
+  /**
+   * Play the round as the chosen seat, then do what a caller does: setView with the next view.
+   * `shots`: times (ms into the round) at which to keep a copy of the frame.
+   * `keep`: a filter on the events, for the control test: with events missing, setView must be seen to jump.
+   */
+  async function run(shots = [], keep = () => true) {
+    if (running) return null;
+    running = true;
+    reset();
+    await frames();
+    const before = viewFor(scenario.state, seat);
+    const after = viewFor(scenario.result.state, seat);
+    const kept = [];
+    const pending = [...shots].sort((a, b) => a - b);
+    started = performance.now();
+    const tick = () => {
+      if (!running) return;
+      const t = performance.now() - started;
+      clock(t);
+      while (pending.length && t >= pending[0]) kept.push({ at: pending.shift(), t: Math.round(t), canvas: grab() });
+      requestAnimationFrame(tick);
+    };
+    const done = board.play(scenario.result.playerEvents[seat].filter(keep));
+    requestAnimationFrame(tick);
+    await done;
+    const ms = performance.now() - started;
+    running = false;
+    clock(ms);
+    let jump = null;
+    if (probe) {
+      // The units of the next view under the fog of the old one: if playback ended where the
+      // rules did, not one pixel moves. (Fog itself is not played, so it is left out.)
+      await frames();
+      const a = grab();
+      board.setView({ ...after, visible: before.visible });
+      await frames();
+      jump = differing(a, grab());
+    }
+    board.setView(after);
+    last = { ms: Math.round(ms), events: scenario.result.playerEvents[seat].length, jump, kept };
+    say();
+    return last;
+  }
+
+  function choose(id, as = seat, kit = kitName) {
+    const next = SCENARIOS.find((s) => s.id === id);
+    if (!next) throw new Error(`No scenario ${id}`);
+    const rebuild = kit !== kitName;
+    scenario = next;
+    seat = Math.min(as, scenario.players - 1);
+    kitName = kit;
+    if (rebuild) build();
+    else { reset(); frameCamera(); }
+  }
+
+  const button = (row, text, data, click) => {
+    const b = document.createElement('button');
+    b.textContent = text;
+    Object.assign(b.dataset, data);
+    b.addEventListener('click', () => { if (!running) click(); });
+    $(row).appendChild(b);
+  };
+  for (const s of SCENARIOS) button('scenarios', s.name, { scenario: s.id }, () => choose(s.id));
+  for (let p = 0; p < 4; p++) button('seats', `Seat ${p}`, { seat: p }, () => choose(scenario.id, p));
+  for (const [id, [text]] of Object.entries(KITS)) button('kits', text, { kit: id }, () => choose(scenario.id, seat, id));
+  $('play').addEventListener('click', () => run());
+  $('kit-title').addEventListener('click', () => { $('kit').classList.toggle('shut'); $('fold').textContent = $('kit').classList.contains('shut') ? '+' : '–'; });
+  if (params.get('bare') === '1') document.body.classList.add('bare');
+  if (innerWidth < 600) $('kit').classList.add('shut'), $('fold').textContent = '+';
+  window.addEventListener('resize', () => board?.resize());
+
+  await loadKitFonts();
+  build();
+
+  // ---- for scripts (needs &probe=1)
+
+  window.dawn = {
+    scenarios: SCENARIOS.map((s) => ({ id: s.id, players: s.players, errors: s.errors, events: s.result.playerEvents.map((e) => e.length) })),
+    events: (id, as) => SCENARIOS.find((s) => s.id === id).result.playerEvents[as],
+    autoRounds: AUTO.length,
+    busiest,
+    async run(id, as = 0, kit = 'lowpoly', without = null) {   // without: an event type to leave out (control test)
+      choose(id, as, kit);
+      const r = await run([], (e) => e.t !== without);
+      return { ms: r.ms, events: r.events, jump: r.jump };
+    },
+    async frames(id, as, times, opts = {}) {
+      choose(id, as, opts.kit ?? 'lowpoly');
+      if (opts.focus || opts.zoom) frameCamera(opts.focus ?? scenario.focus, opts.zoom ?? scenario.zoom);
+      if (opts.bare) document.body.classList.add('bare');
+      const r = await run(times);
+      return { ms: r.ms, shots: r.kept.map((k) => ({ at: k.at, t: k.t, png: k.canvas.toDataURL('image/png') })) };
+    },
+    /** Every round of the self-played match, as one seat: how long each takes to play. */
+    async timeMatch(as = 0) {
+      const out = [];
+      for (let i = 0; i < AUTO.length; i++) {
+        board.setView(viewFor(AUTO[i].state, as));
+        const t = performance.now();
+        await board.play(AUTO[i].result.playerEvents[as]);
+        out.push({ round: i + 1, events: AUTO[i].result.playerEvents[as].length, ms: Math.round(performance.now() - t) });
+      }
+      return out;
+    },
+  };
+
+  // &play=1 [&at=ms]: start at once; with `at`, lay a copy of that moment's frame over the board.
+  if (params.get('play') === '1') {
+    const at = params.has('at') ? [Number(params.get('at'))] : [];
+    run(at).then((r) => {
+      if (!r.kept.length) return;
+      r.kept[0].canvas.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none';
+      $('stage').appendChild(r.kept[0].canvas);
+    });
+  }
+</script>
+</body>
+</html>

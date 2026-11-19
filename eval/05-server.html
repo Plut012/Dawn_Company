@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 05 — Server</title>
+<style>
+  @font-face { font-family: 'Stardos Stencil'; src: url('/docs/design/fonts/StardosStencil-Bold.ttf'); font-weight: 700; }
+  @font-face { font-family: 'Courier Prime'; src: url('/docs/design/fonts/CourierPrime-Regular.ttf'); }
+  @font-face { font-family: 'Courier Prime'; src: url('/docs/design/fonts/CourierPrime-Bold.ttf'); font-weight: 700; }
+  :root {
+    --ink: #1E2420; --paper: #E9DFC6; --khaki: #B7A77A; --olive: #5E6B45;
+    --slate: #3D4F5C; --rust: #9A4B32; --amber: #E8A23A;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--slate); color: var(--paper);
+         font: 14px/1.4 'Courier Prime', 'Courier New', monospace; }
+  h1, h2, .num { font-family: 'Stardos Stencil', 'Courier New', monospace; font-weight: 700;
+         text-transform: uppercase; letter-spacing: 0.08em; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 0 0 8px; color: var(--khaki); border-bottom: 1px solid var(--olive); padding: 4px 0; }
+  p { margin: 0 0 12px; max-width: 110ch; }
+  code, pre { background: #0003; padding: 0 4px; }
+  pre { padding: 8px; overflow-x: auto; white-space: pre-wrap; margin: 0 0 8px; }
+  button, input, select { font: inherit; font-weight: 700; background: var(--khaki); color: var(--ink); border: 2px solid var(--ink);
+         border-radius: 2px; padding: 3px 8px; box-shadow: 2px 2px 0 #000; }
+  input { background: var(--paper); box-shadow: none; font-weight: 400; min-width: 0; }
+  button { cursor: pointer; }
+  button:active { background: var(--amber); box-shadow: none; transform: translate(2px, 2px); }
+  button:disabled { opacity: 0.4; cursor: default; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin-bottom: 12px; }
+  .cols { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; }
+  @media (max-width: 1300px) { .cols { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 700px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+  .col { background: var(--ink); border: 2px solid var(--ink); box-shadow: 3px 3px 0 #0006; padding: 8px 12px 12px; min-width: 0; }
+  .col.on h2 { color: var(--amber); }
+  .keys { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  .keys.tight button { padding: 2px 6px; }
+  .who { display: flex; gap: 6px; margin-bottom: 6px; }
+  .who input { flex: 1; }
+  .stat { margin: 0 0 8px; font-size: 13px; min-height: 5.6em; }
+  .stat div { display: flex; justify-content: space-between; gap: 8px; }
+  .stat span:first-child { color: var(--khaki); }
+  .log { height: 360px; overflow-y: auto; margin: 0; padding: 0; list-style: none; font-size: 12px; border-top: 1px solid var(--olive); }
+  .log li { padding: 2px 2px; border-bottom: 1px dotted #fff2; word-break: break-word; }
+  .log li.out { color: var(--khaki); }
+  .log li.err { color: #fff; background: var(--rust); }
+  .log li.sys { color: var(--olive); font-style: italic; }
+  .log li b { color: var(--amber); }
+  .log details { display: inline; }
+  .log summary { display: inline; cursor: pointer; color: var(--khaki); }
+  .log pre { font-size: 11px; max-height: 160px; }
+  .ts { color: var(--khaki); opacity: 0.7; }
+  .dim { color: var(--khaki); }
+  .panel { background: var(--ink); padding: 8px 16px 12px; margin-top: 16px; box-shadow: 3px 3px 0 #0006; }
+  #ws { max-width: 100%; word-break: break-all; }
+</style>
+</head>
+<body>
+<h1>Eval 05 — Server</h1>
+<p>A plain protocol console on the real server, over <code id="ws">/ws</code> (through Vite's proxy to <code>npm run server</code>
+on port 8080; add <code>?ws=ws://host:port/ws</code> to the page address to talk to a server somewhere else).
+Each column is its own socket and its own seat. Every message the server sends is logged as it arrives, with the unit counts of
+the view it carries: <b>own / enemy / visible hexes</b>. Nothing here is mocked and nothing decides an outcome.</p>
+<p class="dim">Try: <i>Table of four</i>, <i>Start</i> in the first column, then <i>Sample move</i> or <i>Hold all</i> in each column. The round resolves
+when every seat is ready or the server's timer fires (default 90 s). <i>Disconnect</i> a seat mid-match, then <i>Reconnect</i>: it returns to the same seat by token.
+Each seat's <i>resolve</i> and <i>plan</i> lines carry only that seat's units; compare the counts.</p>
+
+<div class="bar">
+  <button id="table">Table of four</button>
+  <button id="clear">Clear logs</button>
+  <span id="srv" class="dim"></span>
+</div>
+
+<div class="cols" id="cols"></div>
+
+<div class="panel">
+  <h2>Resume</h2>
+  <p>The match log is one JSON line per round in <code>matches/&lt;timestamp&gt;.jsonl</code> (first line: map, seat names, tokens, squads). To test it:</p>
+<pre>npm run server -- --timer 0                 # play a few rounds with this page, note the round and scores
+kill -9 &lt;server pid&gt;                        # the crash
+npm run server -- --timer 0 --resume matches/&lt;file&gt;.jsonl
+# then press Reconnect in each column: the same seats come back by token</pre>
+  <p><b>Observed</b> (live run on port 8097 with scripted sockets, four seats, four rounds resolved, one of them by the 4 s timer with a seat missing):
+  the server was killed with <code>kill -9</code> while in round 5; restarted with <code>--resume</code> it printed
+  "Resumed ... at round 5 (playing)". All four tokens were accepted, each seat got <code>welcome</code> with its old seat number and a
+  <code>plan</code> whose view was byte-for-byte identical to the one seen before the kill (round 5, scores 0,0,0,0, same units and positions).
+  The planning timer restarted at the first seat's return. Rounds played after the resume are appended to the same file.
+  The unit test <code>src/server/match.test.ts</code> ("replaying the log gives the same state as the live match") compares the whole game state after moves.</p>
+</div>
+
+<script type="module">
+  import { PRESETS } from '/src/content/index.ts';
+  import { orderOptions, findPath } from '/src/rules/index.ts';
+
+  const params = new URLSearchParams(location.search);
+  const WS_URL = params.get('ws') ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/ws`;
+  document.getElementById('ws').textContent = WS_URL;
+
+  const SEATS = 4;
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch { /* private window */ } },
+  };
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = Object.assign(document.createElement(tag), attrs);
+    kids.forEach((k) => n.append(k));
+    return n;
+  };
+  const tsNow = () => new Date().toISOString().slice(11, 23);
+
+  class Column {
+    constructor(i) {
+      this.i = i;
+      this.ws = null;
+      this.token = store.get(`dawn-eval05-token-${i}`);
+      this.view = null;
+      this.timer = null;       // { at, ms }
+      this.info = { seat: '-', host: '-', stage: 'not connected', round: '-', ready: '-' };
+      this.preset = el('select');
+      PRESETS.forEach((p) => this.preset.append(el('option', { value: p.id, textContent: p.name })));
+      this.name = el('input', { value: ['Ann', 'Bob', 'Cy', 'Di'][i], size: 8 });
+      this.stat = el('div', { className: 'stat' });
+      this.logEl = el('ul', { className: 'log' });
+      this.btn = {};
+      const b = (key, label, fn, title = '') => (this.btn[key] = el('button', { textContent: label, title, onclick: fn }));
+      this.root = el('div', { className: 'col' },
+        el('h2', { textContent: `Seat column ${i + 1}` }),
+        el('div', { className: 'who' }, this.name, b('join', 'Join', () => this.join(false), 'Open a socket and take a fresh seat')),
+        el('div', { className: 'keys tight' },
+          this.preset, b('squad', 'Set squad', () => this.setSquad()),
+          b('ready', 'Ready', () => this.send({ t: 'ready', ready: true })),
+          b('unready', 'Not ready', () => this.send({ t: 'ready', ready: false }))),
+        el('div', { className: 'keys tight' },
+          b('start', 'Start (host)', () => this.send({ t: 'start' })),
+          b('hold', 'Hold all', () => this.send({ t: 'orders', orders: [] }), 'Send an empty orders list'),
+          b('move', 'Sample move', () => this.sampleMove(), 'One move order for the first unit that can move'),
+          b('recall', 'Recall', () => this.send({ t: 'recall' })),
+          b('rematch', 'Rematch (host)', () => this.send({ t: 'rematch' }))),
+        el('div', { className: 'keys tight' },
+          b('bad', 'Bad orders', () => this.send({ t: 'orders', orders: [{ unit: '9-9', kind: 'ambush' }] }), 'An order for a unit that is not yours: should be rejected'),
+          b('junk', 'Junk', () => this.raw('{"t":'), 'Send malformed JSON: the server answers with an error and carries on')),
+        el('div', { className: 'keys tight' },
+          b('disc', 'Disconnect', () => this.disconnect(), 'Close the socket; the seat stays'),
+          b('reco', 'Reconnect', () => this.join(true), 'Open a socket and join with the token this seat was given')),
+        this.stat, this.logEl);
+      this.refresh();
+    }
+
+    line(cls, html) {
+      const li = el('li', { className: cls });
+      li.innerHTML = `<span class="ts">${tsNow()}</span> ${html}`;
+      this.logEl.append(li);
+      this.logEl.scrollTop = this.logEl.scrollHeight;
+      return li;
+    }
+    esc(s) { return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]); }
+
+    open() {
+      if (this.ws && this.ws.readyState <= 1) return Promise.resolve();
+      return new Promise((resolve, reject) => {
+        const ws = new WebSocket(WS_URL);
+        this.ws = ws;
+        ws.onopen = () => { this.line('sys', 'socket open'); this.refresh(); resolve(); };
+        ws.onerror = () => { this.line('err', 'socket error (is `npm run server` running?)'); reject(new Error('socket')); };
+        ws.onclose = (e) => {
+          if (this.ws === ws) this.ws = null;
+          this.line('sys', `socket closed (${e.code}${e.reason ? ' ' + this.esc(e.reason) : ''})`);
+          this.info.stage = 'not connected';
+          this.refresh();
+        };
+        ws.onmessage = (e) => this.receive(e.data);
+      });
+    }
+    async join(withToken) {
+      try { await this.open(); } catch { return; }
+      if (withToken && !this.token) { this.line('err', 'no token held yet: use Join first'); return; }
+      const msg = { t: 'join', name: this.name.value, ...(withToken ? { token: this.token } : {}) };
+      this.send(msg);
+    }
+    disconnect() { if (this.ws) { this.line('sys', 'closing the socket on purpose'); this.ws.close(); } }
+    send(msg) {
+      if (!this.ws || this.ws.readyState !== 1) { this.line('err', 'not connected'); return; }
+      this.line('out', `&rarr; <b>${msg.t}</b> ${this.esc(JSON.stringify({ ...msg, t: undefined }).slice(0, 160))}`);
+      this.ws.send(JSON.stringify(msg));
+    }
+    raw(text) {
+      if (!this.ws || this.ws.readyState !== 1) { this.line('err', 'not connected'); return; }
+      this.line('out', `&rarr; raw ${this.esc(text)}`);
+      this.ws.send(text);
+    }
+    setSquad() {
+      const p = PRESETS.find((x) => x.id === this.preset.value);
+      if (p) this.send({ t: 'squad', units: p.units });
+    }
+    sampleMove() {
+      const v = this.view;
+      if (!v) { this.line('err', 'no view yet: start a match first'); return; }
+      for (const u of v.units.filter((x) => x.owner === v.player)) {
+        const opt = orderOptions(v, u.id);
+        if (!opt.move.length) continue;
+        const [q, r] = opt.move[opt.move.length >> 1].split(',').map(Number);
+        const path = findPath(v.map, u.pos, { q, r }, 99);
+        if (path && path.length) { this.send({ t: 'orders', orders: [{ unit: u.id, kind: 'move', path }] }); return; }
+      }
+      this.line('err', 'no unit of this seat can move');
+    }
+
+    counts(view) {
+      const own = view.units.filter((u) => u.owner === view.player).length;
+      return `own <b>${own}</b> / enemy <b>${view.units.length - own}</b> / visible hexes <b>${view.visible.length}</b>`;
+    }
+    seatsText(seats) {
+      return seats.map((s) => `${s.seat}:${s.name}${s.connected ? '' : ' (off)'}${s.out ? ' OUT' : ''}${s.ready ? ' ✓' : ''}`).join(', ');
+    }
+    receive(data) {
+      let m;
+      try { m = JSON.parse(data); } catch { this.line('err', 'unparseable frame'); return; }
+      let text = `&larr; <b>${m.t}</b> `;
+      switch (m.t) {
+        case 'welcome':
+          this.token = m.token; store.set(`dawn-eval05-token-${this.i}`, m.token);
+          Object.assign(this.info, { seat: m.seat, host: m.host });
+          text += `seat ${m.seat}${m.host ? ' (host)' : ''}, token ${m.token.slice(0, 6)}…, squad ${m.squad.length} units`; break;
+        case 'lobby': this.info.stage = 'lobby'; this.seats = m.seats; this.view = null; text += this.esc(this.seatsText(m.seats)); break;
+        case 'plan':
+          this.view = m.view; this.seats = m.seats; this.info.stage = m.view.over ? 'over' : 'playing';
+          this.timer = m.timer === null ? null : { at: Date.now(), ms: m.timer };
+          text += `round ${m.view.round}/${m.view.maxRounds}, ${this.counts(m.view)}, timer ${m.timer === null ? 'none' : Math.round(m.timer / 1000) + 's'}<br>${this.esc(this.seatsText(m.seats))}`; break;
+        case 'seats': this.seats = m.seats; text += this.esc(this.seatsText(m.seats)); break;
+        case 'resolve':
+          this.view = m.view; this.seats = m.seats; this.info.stage = m.view.over ? 'over' : 'playing';
+          this.timer = m.timer === null ? null : { at: Date.now(), ms: m.timer };
+          text += `${m.events.length} events (yours to see), next round ${m.view.round}, ${this.counts(m.view)}, scores ${m.view.scores.join('/')}${m.view.over ? ` <b>OVER</b>, winners ${m.view.winners.join(',')}` : ''}`; break;
+        case 'rejected': text += this.esc(m.errors.map((e) => `${e.unit ?? '-'}: ${e.reason}`).join('; ')); break;
+        case 'error': text += this.esc(m.message); break;
+      }
+      const li = this.line(m.t === 'error' || m.t === 'rejected' ? 'err' : '', text);
+      li.append(' ', el('details', {}, el('summary', { textContent: 'raw' }), el('pre', { textContent: JSON.stringify(m, null, 1) })));
+      this.refresh();
+    }
+
+    refresh() {
+      const v = this.view;
+      const open = !!this.ws && this.ws.readyState === 1;
+      const me = v ? this.seats?.[v.player] : null;
+      const rows = [
+        ['socket', open ? 'open' : 'closed'],
+        ['seat', this.info.seat === '-' ? '-' : `${this.info.seat}${this.info.host ? ' (host)' : ''}`],
+        ['stage', this.info.stage],
+        ['round', v ? `${v.round}/${v.maxRounds}` : '-'],
+        ['view', v ? `own ${v.units.filter((u) => u.owner === v.player).length} / enemy ${v.units.filter((u) => u.owner !== v.player).length} / vis ${v.visible.length}` : '-'],
+        ['committed', me ? (me.ready ? 'yes' : 'no') : '-'],
+        ['timer', this.timer ? `${Math.max(0, Math.round((this.timer.ms - (Date.now() - this.timer.at)) / 1000))}s` : 'none'],
+      ];
+      this.stat.replaceChildren(...rows.map(([k, val]) => el('div', {}, el('span', { textContent: k }), el('span', { textContent: val }))));
+      this.root.classList.toggle('on', open);
+    }
+  }
+
+  const cols = Array.from({ length: SEATS }, (_, i) => new Column(i));
+  document.getElementById('cols').append(...cols.map((c) => c.root));
+  setInterval(() => cols.forEach((c) => c.refresh()), 500);
+
+  document.getElementById('clear').onclick = () => cols.forEach((c) => c.logEl.replaceChildren());
+  document.getElementById('table').onclick = async () => {
+    // Fresh seats in order, then each readies up with its preset (rotating).
+    for (const c of cols) { await c.join(false); await new Promise((r) => setTimeout(r, 120)); }
+    cols.forEach((c, i) => { c.preset.selectedIndex = i % PRESETS.length; c.setSquad(); });
+    await new Promise((r) => setTimeout(r, 250));
+    cols.forEach((c) => c.send({ t: 'ready', ready: true }));
+  };
+  document.getElementById('srv').textContent = 'Fresh page = new seats; a seat already taken by an earlier page stays taken until the match ends or 30 s after it drops in the lobby.';
+</script>
+</body>
+</html>

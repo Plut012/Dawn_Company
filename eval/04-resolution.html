@@ -1,0 +1,632 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 04 — Resolution</title>
+<style>
+  @font-face { font-family: 'Stardos Stencil'; src: url('/docs/design/fonts/StardosStencil-Bold.ttf'); font-weight: 700; }
+  @font-face { font-family: 'Courier Prime'; src: url('/docs/design/fonts/CourierPrime-Regular.ttf'); }
+  @font-face { font-family: 'Courier Prime'; src: url('/docs/design/fonts/CourierPrime-Bold.ttf'); font-weight: 700; }
+  :root {
+    --ink: #1E2420; --paper: #E9DFC6; --khaki: #B7A77A; --olive: #5E6B45;
+    --slate: #3D4F5C; --rust: #9A4B32; --amber: #E8A23A;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; background: var(--slate); color: var(--paper);
+         font: 14px/1.4 'Courier Prime', 'Courier New', monospace; }
+  h1, h2, .num { font-family: 'Stardos Stencil', 'Courier New', monospace; font-weight: 700;
+         text-transform: uppercase; letter-spacing: 0.08em; }
+  h1 { font-size: 24px; margin: 0 0 4px; }
+  h2 { font-size: 14px; margin: 0 0 8px; color: var(--khaki); border-bottom: 1px solid var(--olive); padding: 4px 0; }
+  p { margin: 0 0 12px; max-width: 100ch; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; margin-bottom: 12px; }
+  .bar label { display: flex; align-items: center; gap: 8px; }
+  .layout { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+  .board { flex: 2 1 560px; min-width: 0; max-width: 940px; background: var(--slate);
+           border: 3px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); }
+  svg { display: block; width: 100%; height: auto; user-select: none; }
+  .side { flex: 1 1 320px; max-width: 520px; display: grid; gap: 12px; min-width: 0; }
+  .panel { background: var(--ink); border: 2px solid var(--ink); box-shadow: 3px 3px 0 #0006; padding: 8px 16px 12px; min-width: 0; }
+  select, button { font: inherit; font-weight: 700; background: var(--khaki); color: var(--ink); border: 2px solid var(--ink);
+           border-radius: 2px; padding: 4px 8px; box-shadow: 2px 2px 0 #000; }
+  button { cursor: pointer; }
+  button:active, button.on { background: var(--amber); }
+  button:active { box-shadow: none; transform: translate(2px, 2px); }
+  button:disabled { opacity: 0.45; cursor: default; }
+  .keys { display: flex; flex-wrap: wrap; gap: 8px; }
+  .ok { color: var(--amber); } .bad { color: #E08A6C; font-weight: bold; } .dim { color: var(--khaki); }
+  .scores { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+  .score { display: flex; align-items: center; gap: 8px; }
+  .score .num { font-size: 22px; }
+  .sw { width: 16px; height: 16px; border: 2px solid var(--paper); display: inline-block; border-radius: 50%; }
+  #log { max-height: 420px; overflow-y: auto; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+  #log li { padding: 1px 4px; white-space: pre-wrap; }
+  #log li.todo { opacity: 0.4; }
+  #log li.now { background: var(--amber); color: var(--ink); font-weight: 700; }
+  #log li.head { color: var(--khaki); margin-top: 4px; font-weight: 700; }
+  #log li.now.head { color: var(--ink); }
+  #error { color: #fff; background: var(--rust); padding: 8px; display: none; margin-bottom: 12px; white-space: pre-wrap; }
+  .hexline { stroke: var(--ink); stroke-width: 1.2; }
+  .t { font-family: 'Stardos Stencil', 'Courier New', monospace; font-weight: 700; text-anchor: middle;
+       dominant-baseline: central; pointer-events: none; }
+  #units, #marks, #fx, #fog, #opts { pointer-events: none; }
+  #ground polygon { cursor: pointer; }
+</style>
+</head>
+<body>
+<h1>Eval 04 — Resolution</h1>
+<p>A hot-seat of the real rules: <code>createMatch</code>, <code>orderOptions</code>, <code>findPath</code>,
+<code>validateOrders</code> and <code>resolve</code> from <code>src/rules/index.ts</code> on the real <code>crossroads</code> map.
+Click a unit, pick an order, click a lit hex. Give orders for every seat, then Resolve and step through the events.
+Nothing on this page decides an outcome: the board is redrawn from the events and, when they are done, from the returned state.</p>
+<div id="error"></div>
+
+<div class="bar">
+  <label>Players <select id="count"><option>2</option><option>3</option><option>4</option></select></label>
+  <span id="presets" class="bar" style="margin:0"></span>
+  <button id="new">New match</button>
+  <label>View <select id="view"></select></label>
+</div>
+
+<div class="layout">
+  <div class="board"><svg id="map" xmlns="http://www.w3.org/2000/svg"></svg></div>
+
+  <div class="side">
+    <div class="panel">
+      <h2 id="round-title">Round</h2>
+      <div class="scores" id="scores"></div>
+      <p id="result" class="ok" style="margin:8px 0 0"></p>
+    </div>
+    <div class="panel">
+      <h2>Orders</h2>
+      <p id="sel" style="margin:0 0 8px">Click a unit.</p>
+      <div class="keys" id="kinds"></div>
+      <p id="order-count" class="dim" style="margin:8px 0"></p>
+      <div class="keys">
+        <button id="random" title="Fill in random legal orders for every seat (this page's own dice, not the rules')">Random orders</button>
+        <button id="clear">Clear orders</button>
+        <button id="resolve">Resolve</button>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>Playback <span id="play-pos" class="dim"></span></h2>
+      <div class="keys" style="margin-bottom:8px">
+        <button id="step">Next event</button>
+        <button id="auto">Play</button>
+        <button id="skip">To the end</button>
+      </div>
+      <ul id="log"><li class="dim">No round resolved yet.</li></ul>
+    </div>
+    <div class="panel">
+      <h2>Replay</h2>
+      <div class="keys"><button id="replay">Replay from the recorded orders</button></div>
+      <p id="replay-out" style="margin:8px 0 0" class="dim">Re-runs every recorded round from <code>createMatch</code> and compares the final state.</p>
+    </div>
+    <div class="panel">
+      <h2>Tests</h2>
+      <!-- Pasted from a real `npx vitest run src/rules src/shared src/content` run. Re-run and update when the rules change. -->
+      <div id="tests">Vitest: 183 passed, 0 failed, 6 test files (80 of them new in <code>src/rules</code>: 60 in <code>resolve.test.ts</code>, 19 in <code>orders.test.ts</code>, and <code>property.test.ts</code>, which plays 240 full random matches; <code>npx vitest run src/rules src/shared src/content</code>, run 2026-11-17).</div>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+  import { UNITS, TERRAIN, MAPS, DEFAULT_MAP, PRESETS } from '/src/content/index.ts';
+  import { key, parseKey, distance, within, label, hexToPixel } from '/src/shared/hex.ts';
+  import { createMatch, validateOrders, resolve, orderOptions, findPath, viewFor } from '/src/rules/index.ts';
+
+  const showError = (m) => { const e = document.getElementById('error'); e.style.display = 'block'; e.textContent = 'Error: ' + m; };
+  window.addEventListener('error', (e) => showError(e.message));
+  window.addEventListener('unhandledrejection', (e) => showError(String(e.reason)));
+
+  const NS = 'http://www.w3.org/2000/svg';
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, attrs = {}, text) => {
+    const n = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    if (text !== undefined) n.textContent = text;
+    return n;
+  };
+  const html = (tag, text, cls) => {
+    const n = document.createElement(tag);
+    if (text !== undefined) n.textContent = text;
+    if (cls) n.className = cls;
+    return n;
+  };
+
+  const map = MAPS[DEFAULT_MAP];
+  const INK = '#1E2420', PAPER = '#E9DFC6', AMBER = '#E8A23A', RUST = '#9A4B32';
+  const SEAT = ['#3F6E8C', '#6B4E7A', '#2F7F78', '#D9CFB4'];
+  const SEAT_NAME = ['Blue', 'Plum', 'Teal', 'Bone'];
+  const GLYPH = { rifleman: 'R', gunner: 'G', sniper: 'S', mortar: 'M', medic: '+' };
+  const FILL = { open: ['#B7A77A', '#C6B88E', '#D5C9A4'], woods: ['#5E6B45', '#6C7A52', '#7A885F'], building: ['#B7A77A', '#C6B88E', '#D5C9A4'] };
+  const SIZE = 30;
+
+  // ---- the match. Everything here comes from the rules; this page keeps only the bookkeeping.
+  let squads, state, history, orders, selected, pendingKind, playback, lastOrders;
+  let viewAs = 'all';          // 'all' or a seat number
+  let autoTimer = null;
+
+  function newMatch() {
+    const n = Number($('count').value);
+    squads = Array.from({ length: n }, (_, player) => ({ player, units: PRESETS.find((p) => p.id === $(`preset${player}`).value).units }));
+    state = createMatch(map, squads);
+    history = [];              // one Order[][] per resolved round
+    orders = new Map();        // unit id -> Order, for the round being planned
+    lastOrders = new Map();
+    selected = null; pendingKind = null; playback = null;
+    stopAuto();
+    $('replay-out').textContent = 'Nothing to replay yet.';
+    $('replay-out').className = 'dim';
+    fillViewSelect();
+    draw();
+  }
+
+  // ---- geometry
+  const centre = (h) => hexToPixel(h, SIZE);
+  const corners = (c, size) => Array.from({ length: 6 }, (_, i) => {
+    const a = Math.PI / 180 * (60 * i - 30);
+    return `${(c.x + size * Math.cos(a)).toFixed(1)},${(c.y + size * Math.sin(a)).toFixed(1)}`;
+  }).join(' ');
+  const svg = $('map');
+  {
+    const pts = Object.keys(map.cells).map((k) => centre(parseKey(k)));
+    const x0 = Math.min(...pts.map((p) => p.x)) - SIZE - 4, x1 = Math.max(...pts.map((p) => p.x)) + SIZE + 4;
+    const y0 = Math.min(...pts.map((p) => p.y)) - SIZE - 4, y1 = Math.max(...pts.map((p) => p.y)) + SIZE + 4;
+    svg.setAttribute('viewBox', `${x0} ${y0} ${x1 - x0} ${y1 - y0}`);
+  }
+  const layers = {};
+  for (const id of ['ground', 'fog', 'opts', 'marks', 'units', 'fx']) { layers[id] = el('g', { id }); svg.append(layers[id]); }
+
+  function drawGround() {
+    const g = layers.ground;
+    for (const [k, cell] of Object.entries(map.cells)) {
+      const hx = parseKey(k), c = centre(hx);
+      g.append(el('polygon', { points: corners(c, SIZE), fill: (FILL[cell.terrain] ?? ['#888'])[cell.elevation] ?? '#F0F', class: 'hexline', 'data-hex': k }));
+      if (cell.terrain === 'woods') {
+        for (const [dx, dy, r] of [[-9, -6, 8], [8, -8, 7], [0, 8, 9]]) g.append(el('circle', { cx: c.x + dx, cy: c.y + dy, r, fill: '#3E4A2E', stroke: INK, 'stroke-width': 1, 'pointer-events': 'none' }));
+      } else if (cell.terrain === 'building') {
+        g.append(el('rect', { x: c.x - 15, y: c.y - 11, width: 30, height: 22, fill: PAPER, stroke: INK, 'stroke-width': 2, 'pointer-events': 'none' }));
+      }
+      if (cell.elevation > 0) g.append(el('text', { x: c.x + 16, y: c.y - 13, class: 't', 'font-size': 10, fill: INK }, `+${cell.elevation}`));
+      g.append(el('text', { x: c.x, y: c.y + 21, class: 't', 'font-size': 7, fill: INK, opacity: 0.55 }, label(hx)));
+    }
+    for (const obj of map.objectives) {
+      const c = centre(obj.hex);
+      g.append(el('polygon', { points: corners(c, SIZE - 4), fill: 'none', stroke: AMBER, 'stroke-width': 3, 'pointer-events': 'none' }));
+      g.append(el('text', { x: c.x - 15, y: c.y - 13, class: 't', 'font-size': 11, fill: INK }, `${obj.id}${obj.value}`));
+    }
+    g.addEventListener('click', (e) => { const k = e.target.getAttribute?.('data-hex'); if (k) clickHex(k); });
+  }
+
+  // ---- what is on the board right now
+  /** The units and fog to draw: from the real state or view, or from the playback picture. */
+  function picture() {
+    if (playback && !playback.done) return { units: [...playback.model.values()], visible: playback.visible };
+    if (viewAs === 'all') return { units: state.units, visible: null };
+    const view = viewFor(state, viewAs);
+    return { units: view.units, visible: new Set(view.visible) };
+  }
+  const planning = () => !state.over && (!playback || playback.done);
+  const unitName = (id) => { const u = state.units.find((x) => x.id === id); return u ? `${u.name} (${SEAT_NAME[u.owner]} ${UNITS[u.type].name.toLowerCase()})` : id; };
+
+  function draw() {
+    const pic = picture();
+    // fog
+    layers.fog.replaceChildren();
+    if (pic.visible) {
+      for (const k of Object.keys(map.cells)) {
+        if (!pic.visible.has(k)) layers.fog.append(el('polygon', { points: corners(centre(parseKey(k)), SIZE), fill: '#1E2A33', 'fill-opacity': 0.66 }));
+      }
+    }
+    // options for the order being given
+    layers.opts.replaceChildren();
+    const sel = planning() && selected ? state.units.find((u) => u.id === selected) : null;
+    const opts = sel ? orderOptions(viewFor(state, sel.owner), sel.id) : null;
+    if (sel && pendingKind && opts[pendingKind]) {
+      for (const k of opts[pendingKind]) layers.opts.append(el('polygon', { 'data-opt': k, points: corners(centre(parseKey(k)), SIZE - 5), fill: AMBER, 'fill-opacity': 0.28, stroke: AMBER, 'stroke-width': 2 }));
+    }
+    // order marks
+    layers.marks.replaceChildren();
+    const shown = planning() ? orders : (playback ? lastOrders : new Map());
+    for (const o of shown.values()) {
+      const u = state.units.find((x) => x.id === o.unit);
+      if (!u || (viewAs !== 'all' && u.owner !== viewAs)) continue;
+      const from = planning() ? u.pos : (playback.startPos.get(u.id) ?? u.pos);
+      drawMark(o, u, from, planning() ? 1 : 0.35);
+    }
+    // units
+    layers.units.replaceChildren();
+    for (const u of pic.units) {
+      const c = centre(u.pos);
+      const g = el('g', { opacity: u.status === 'down' ? 0.45 : 1 });
+      if (u.id === selected && planning()) g.append(el('circle', { cx: c.x, cy: c.y, r: 21, fill: 'none', stroke: AMBER, 'stroke-width': 4 }));
+      g.append(el('circle', { cx: c.x, cy: c.y, r: 14, fill: SEAT[u.owner], stroke: INK, 'stroke-width': 2.5 }));
+      g.append(el('text', { x: c.x, y: c.y + 1, class: 't', 'font-size': 15, fill: u.owner === 3 ? INK : PAPER }, GLYPH[u.type] ?? '?'));
+      if (u.status === 'pinned') g.append(el('circle', { cx: c.x, cy: c.y, r: 18, fill: 'none', stroke: RUST, 'stroke-width': 3.5, 'stroke-dasharray': '5 3' }));
+      if (u.status === 'down') g.append(el('path', { d: `M${c.x - 12},${c.y - 12} L${c.x + 12},${c.y + 12} M${c.x + 12},${c.y - 12} L${c.x - 12},${c.y + 12}`, stroke: RUST, 'stroke-width': 4 }));
+      if (u.revealed) g.append(el('circle', { cx: c.x + 12, cy: c.y - 12, r: 5, fill: AMBER, stroke: INK, 'stroke-width': 1.5 }));
+      layers.units.append(g);
+    }
+    drawFx();
+    drawPanels(sel, opts);
+  }
+
+  function drawMark(o, u, from, opacity) {
+    const g = el('g', { opacity });
+    const a = centre(from);
+    const stroke = SEAT[u.owner];
+    const lineTo = (pts, dash) => {
+      g.append(el('polyline', { points: pts, fill: 'none', stroke: INK, 'stroke-width': 7, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', opacity: 0.6 }));
+      g.append(el('polyline', { points: pts, fill: 'none', stroke, 'stroke-width': 3.5, 'stroke-linecap': 'round', 'stroke-linejoin': 'round', ...(dash ? { 'stroke-dasharray': dash } : {}) }));
+    };
+    if (o.kind === 'move' || o.kind === 'dash') {
+      const pts = [a, ...o.path.map(centre)];
+      lineTo(pts.map((p) => `${p.x},${p.y}`).join(' '), o.kind === 'dash' ? '3 9' : null);
+      const end = pts[pts.length - 1];
+      g.append(el('circle', { cx: end.x, cy: end.y, r: 6, fill: stroke, stroke: INK, 'stroke-width': 2 }));
+      if (o.kind === 'dash') g.append(el('text', { x: end.x, y: end.y - 14, class: 't', 'font-size': 10, fill: PAPER, stroke: INK, 'stroke-width': 3, 'paint-order': 'stroke' }, 'DASH'));
+    } else if (o.kind === 'fire' || o.kind === 'special') {
+      const b = centre(o.target);
+      g.append(el('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: INK, 'stroke-width': 4, opacity: 0.6 }));
+      g.append(el('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: o.kind === 'fire' ? RUST : PAPER, 'stroke-width': 2, 'stroke-dasharray': '8 4' }));
+      if (o.kind === 'fire') {
+        for (const hx of within(o.target, UNITS[u.type].blast)) {
+          if (map.cells[key(hx)]) g.append(el('polygon', { points: corners(centre(hx), SIZE - 3), fill: RUST, 'fill-opacity': 0.18, stroke: RUST, 'stroke-width': 2 }));
+        }
+        g.append(el('path', { d: `M${b.x - 9},${b.y} H${b.x + 9} M${b.x},${b.y - 9} V${b.y + 9}`, stroke: RUST, 'stroke-width': 3 }));
+        g.append(el('circle', { cx: b.x, cy: b.y, r: 7, fill: 'none', stroke: RUST, 'stroke-width': 2.5 }));
+      } else {
+        g.append(el('text', { x: b.x + 14, y: b.y - 14, class: 't', 'font-size': 18, fill: PAPER, stroke: INK, 'stroke-width': 3, 'paint-order': 'stroke' }, '+'));
+      }
+    } else if (o.kind === 'ambush') {
+      g.append(el('circle', { cx: a.x, cy: a.y, r: 20, fill: 'none', stroke, 'stroke-width': 3, 'stroke-dasharray': '2 5' }));
+      g.append(el('text', { x: a.x, y: a.y - 22, class: 't', 'font-size': 10, fill: PAPER, stroke: INK, 'stroke-width': 3, 'paint-order': 'stroke' }, 'AMBUSH'));
+    }
+    layers.marks.append(g);
+  }
+
+  /** A mark for the event just shown. */
+  function drawFx() {
+    layers.fx.replaceChildren();
+    if (!playback || playback.done || playback.index === 0) return;
+    const e = playback.events[playback.index - 1];
+    const ring = (hx, color, w = 4) => layers.fx.append(el('polygon', { points: corners(centre(hx), SIZE - 2), fill: 'none', stroke: color, 'stroke-width': w }));
+    const tag = (hx, text, color = PAPER) => { const c = centre(hx); layers.fx.append(el('text', { x: c.x, y: c.y - 22, class: 't', 'font-size': 12, fill: color, stroke: INK, 'stroke-width': 4, 'paint-order': 'stroke' }, text)); };
+    const where = (id) => playback.model.get(id)?.pos;
+    if (e.t === 'fire') {
+      const b = centre(e.target);
+      if (e.from) { const a = centre(e.from); layers.fx.append(el('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: AMBER, 'stroke-width': 4 })); }
+      for (const hx of within(e.target, e.blast)) if (map.cells[key(hx)]) ring(hx, AMBER, 3);
+      tag(e.target, e.from ? (e.ambush ? 'AMBUSH FIRE' : 'FIRE') : 'FIRE FROM ?');
+    } else if (e.t === 'launch') { ring(e.from, AMBER); tag(e.from, 'LAUNCH'); }
+    else if (e.t === 'impact') { for (const hx of within(e.target, e.blast)) if (map.cells[key(hx)]) ring(hx, RUST); tag(e.target, 'IMPACT'); }
+    else if (e.t === 'hit') { ring(e.at, e.result === 'cover' ? PAPER : RUST, 5); tag(e.at, e.result.toUpperCase(), e.result === 'cover' ? PAPER : '#F2A083'); }
+    else if (e.t === 'move') { const a = centre(e.from), b = centre(e.to); layers.fx.append(el('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: PAPER, 'stroke-width': 4, 'stroke-linecap': 'round' })); ring(e.to, PAPER, 3); }
+    else if (e.t === 'blocked') { ring(e.at, RUST, 3); tag(e.at, 'BLOCKED'); }
+    else if (e.t === 'spotted') { ring(e.unit.pos, AMBER, 3); tag(e.unit.pos, 'SPOTTED'); }
+    else if ((e.t === 'treat' && where(e.target)) || (e.t === 'recover' && where(e.unit))) {
+      const hx = where(e.t === 'treat' ? e.target : e.unit); ring(hx, PAPER, 3); tag(hx, e.t === 'treat' ? 'TREATED' : 'RECOVERED');
+    } else if (e.t === 'score') { const obj = map.objectives.find((o) => o.id === e.objective); ring(obj.hex, AMBER, 5); tag(obj.hex, `+${e.value} ${SEAT_NAME[e.player].toUpperCase()}`, AMBER); }
+  }
+
+  // ---- side panels
+  function drawPanels(sel, opts) {
+    // round and scores: during playback the scores are the ones the events have shown so far
+    const scores = playback && !playback.done ? playback.scores : state.scores;
+    const shownRound = playback && !playback.done ? state.round - 1 : state.round;
+    $('round-title').textContent = state.over && (!playback || playback.done)
+      ? `Match over after ${state.round - 1} rounds`
+      : playback && !playback.done ? `Resolving round ${shownRound} of ${map.maxRounds}` : `Planning round ${shownRound} of ${map.maxRounds}`;
+    const s = $('scores'); s.replaceChildren();
+    scores.forEach((v, p) => {
+      const d = html('div', undefined, 'score');
+      const sw = html('span', undefined, 'sw'); sw.style.background = SEAT[p];
+      const living = state.units.filter((u) => u.owner === p && u.status !== 'down').length;
+      d.append(sw, html('span', `${SEAT_NAME[p]} (seat ${p})`), html('span', String(v), 'num'),
+        html('span', state.eliminated[p] && (!playback || playback.done) ? 'eliminated' : `${living} standing`, 'dim'));
+      d.id = `score${p}`;
+      s.append(d);
+    });
+    $('result').textContent = state.over && (!playback || playback.done)
+      ? `Winner${state.winners.length > 1 ? 's (shared)' : ''}: ${state.winners.map((p) => SEAT_NAME[p]).join(' and ')}. Final score ${state.scores.join(' : ')}.`
+      : '';
+
+    // orders
+    const kinds = $('kinds'); kinds.replaceChildren();
+    if (!planning()) {
+      $('sel').textContent = state.over ? 'The match is over.' : 'Step through the round, or jump to the end, to plan the next one.';
+    } else if (!sel) {
+      $('sel').textContent = viewAs === 'all' ? 'Click a unit of any seat.' : `Click one of ${SEAT_NAME[viewAs]}'s units.`;
+    } else {
+      const cur = orders.get(sel.id);
+      $('sel').textContent = `${unitName(sel.id)} at ${label(sel.pos)}, ${sel.status}. Order: ${cur ? describeOrder(cur) : 'hold'}.`;
+      for (const k of opts.kinds) {
+        const n = k === 'ambush' ? '' : ` (${opts[k].length})`;
+        const b = html('button', `${k === 'special' ? 'treat' : k}${n}`);
+        b.dataset.kind = k;
+        if (pendingKind === k || (k === 'ambush' && cur?.kind === 'ambush')) b.className = 'on';
+        if (k !== 'ambush' && opts[k].length === 0) b.disabled = true;
+        b.addEventListener('click', () => pickKind(k));
+        kinds.append(b);
+      }
+      const hold = html('button', 'hold');
+      hold.dataset.kind = 'hold';
+      hold.addEventListener('click', () => { orders.delete(sel.id); pendingKind = null; draw(); });
+      kinds.append(hold);
+    }
+    const perSeat = Array.from({ length: state.playerCount }, (_, p) => [...orders.values()].filter((o) => o.unit.startsWith(`${p}-`)).length);
+    $('order-count').textContent = planning() ? `Orders given: ${perSeat.map((n, p) => `${SEAT_NAME[p]} ${n}`).join(', ')}.` : '';
+    $('resolve').disabled = !planning();
+    $('random').disabled = !planning();
+    $('clear').disabled = !planning();
+    const playing = playback && !playback.done;
+    $('step').disabled = !playing; $('auto').disabled = !playing; $('skip').disabled = !playing;
+    $('auto').textContent = autoTimer ? 'Pause' : 'Play';
+    $('replay').disabled = history.length === 0 || playing;
+    drawLog();
+  }
+
+  function describeOrder(o) {
+    if (o.kind === 'move' || o.kind === 'dash') return `${o.kind} to ${label(o.path[o.path.length - 1])} (${o.path.length} hex${o.path.length > 1 ? 'es' : ''})`;
+    if (o.kind === 'fire') return `fire at ${label(o.target)}`;
+    if (o.kind === 'special') return `treat ${label(o.target)}`;
+    return 'ambush';
+  }
+
+  function describeEvent(e) {
+    switch (e.t) {
+      case 'phase': return `— ${{ treat: '0 treat', fire: '1 fire', move: '2 movement', mortar: '3 mortars land', score: '4 score and recover' }[e.phase]} —`;
+      case 'treat': return `${unitName(e.unit)} treats ${unitName(e.target)}: ready again`;
+      case 'fire': return `${e.unit ? unitName(e.unit) : 'Someone unseen'} ${e.ambush ? 'springs an ambush on' : 'fires at'} ${label(e.target)}${e.blast ? ' and the hexes around it' : ''}`;
+      case 'launch': return `${unitName(e.unit)} launches from ${label(e.from)}`;
+      case 'impact': return `A mortar round lands on ${label(e.target)} and the hexes around it`;
+      case 'hit': return `  ${unitName(e.unit)} at ${label(e.at)} is hit: ${{ cover: 'saved by cover', pinned: 'PINNED', down: 'DOWN' }[e.result]}`;
+      case 'move': return `step ${e.step}: ${unitName(e.unit)} ${label(e.from)} → ${label(e.to)}`;
+      case 'blocked': return `${unitName(e.unit)} is blocked at ${label(e.at)} and stops`;
+      case 'spotted': return `  spotted: ${unitName(e.unit.id)} at ${label(e.unit.pos)}`;
+      case 'lost': return `  lost sight of ${unitName(e.unit)}`;
+      case 'recover': return `${unitName(e.unit)} recovers`;
+      case 'score': return `${SEAT_NAME[e.player]} holds ${e.objective}: +${e.value}`;
+      case 'eliminated': return `${SEAT_NAME[e.player]} is eliminated`;
+      case 'over': return `Match over. Scores ${e.scores.join(' : ')}. Winner: ${e.winners.map((p) => SEAT_NAME[p]).join(' and ')}`;
+      default: return JSON.stringify(e);
+    }
+  }
+
+  function drawLog() {
+    const log = $('log');
+    if (!playback) { log.replaceChildren(html('li', 'No round resolved yet.', 'dim')); $('play-pos').textContent = ''; return; }
+    log.replaceChildren();
+    const at = playback.done ? playback.events.length : playback.index;
+    playback.events.forEach((e, i) => {
+      const li = html('li', describeEvent(e), [e.t === 'phase' ? 'head' : '', i === at - 1 && !playback.done ? 'now' : '', i >= at ? 'todo' : ''].join(' ').trim());
+      li.dataset.t = e.t;
+      log.append(li);
+    });
+    $('play-pos').textContent = `round ${playback.round}: ${at} / ${playback.events.length} events, ${viewAs === 'all' ? 'everything' : `as ${SEAT_NAME[viewAs]} (playerEvents[${viewAs}])`}`;
+    const now = log.querySelector('.now');
+    if (now) log.scrollTop = Math.max(0, now.offsetTop - log.offsetTop - 160);
+  }
+
+  // ---- giving orders
+  function pickKind(k) {
+    if (k === 'ambush') { orders.set(selected, { unit: selected, kind: 'ambush' }); pendingKind = null; }
+    else pendingKind = k;
+    draw();
+  }
+
+  function clickHex(k) {
+    if (!planning()) return;
+    const hx = parseKey(k);
+    const sel = selected ? state.units.find((u) => u.id === selected) : null;
+    // A click on another unit of the same seat while plotting a move selects that unit rather than walking onto it.
+    const mate = sel && state.units.some((u) => u.owner === sel.owner && u.id !== sel.id && u.status !== 'down' && key(u.pos) === k);
+    const walking = pendingKind === 'move' || pendingKind === 'dash';
+    if (sel && pendingKind && !(walking && mate)) {
+      const opts = orderOptions(viewFor(state, sel.owner), sel.id);
+      if (opts[pendingKind].includes(k)) {
+        const def = UNITS[sel.type];
+        let order;
+        if (pendingKind === 'move' || pendingKind === 'dash') {
+          const path = findPath(map, sel.pos, hx, pendingKind === 'dash' ? def.move * 2 : def.move);
+          order = { unit: sel.id, kind: pendingKind, path };
+        } else {
+          order = { unit: sel.id, kind: pendingKind, target: hx };
+        }
+        const errors = validateOrders(state, sel.owner, [order]);
+        if (errors.length) { showError(`validateOrders refused an option it was offered: ${JSON.stringify(errors)}`); return; }
+        orders.set(sel.id, order);
+        pendingKind = null;        // the next click picks a unit; press a key above to change this order
+        draw();
+        return;
+      }
+    }
+    // otherwise: select the unit standing there, if this view may command it
+    const pic = picture();
+    const u = pic.units.find((x) => key(x.pos) === k && x.status !== 'down' && (viewAs === 'all' || x.owner === viewAs));
+    if (u) {
+      selected = u.id;
+      const o = orderOptions(viewFor(state, u.owner), u.id);
+      pendingKind = orders.has(u.id) ? null : (o.kinds.includes('move') ? 'move' : null);
+    } else { selected = null; pendingKind = null; }
+    draw();
+  }
+
+  function randomOrders() {
+    const pick = (list) => list[Math.floor(Math.random() * list.length)];
+    orders = new Map();
+    for (let p = 0; p < state.playerCount; p++) {
+      const view = viewFor(state, p);
+      const enemies = new Set(view.units.filter((u) => u.owner !== p).map((u) => key(u.pos)));
+      for (const u of view.units.filter((x) => x.owner === p)) {
+        const o = orderOptions(view, u.id);
+        if (o.kinds.length === 0) continue;
+        const targets = o.fire.filter((k) => enemies.has(k));
+        const roll = Math.random();
+        if (targets.length && roll < 0.6) orders.set(u.id, { unit: u.id, kind: 'fire', target: parseKey(pick(targets)) });
+        else if (o.special.length && roll < 0.7) orders.set(u.id, { unit: u.id, kind: 'special', target: parseKey(pick(o.special)) });
+        else if (roll < 0.15 && o.kinds.includes('ambush')) orders.set(u.id, { unit: u.id, kind: 'ambush' });
+        else if (roll < 0.22) { /* hold */ }
+        else {
+          const kind = o.kinds.includes('dash') && Math.random() < 0.3 ? 'dash' : 'move';
+          const ends = o[kind];
+          if (!ends.length) continue;
+          const goal = pick(map.objectives).hex;
+          const end = Math.random() < 0.75 ? ends.reduce((b, k) => (distance(parseKey(k), goal) < distance(parseKey(b), goal) ? k : b)) : pick(ends);
+          const path = findPath(map, u.pos, parseKey(end), UNITS[u.type].move * (kind === 'dash' ? 2 : 1));
+          if (path?.length) orders.set(u.id, { unit: u.id, kind, path });
+        }
+      }
+    }
+    selected = null; pendingKind = null;
+    draw();
+  }
+
+  // ---- resolving and stepping through
+  function doResolve() {
+    if (!planning()) return;
+    const bySeat = Array.from({ length: state.playerCount }, (_, p) => [...orders.values()].filter((o) => o.unit.startsWith(`${p}-`)));
+    for (let p = 0; p < state.playerCount; p++) {
+      const errors = validateOrders(state, p, bySeat[p]);
+      if (errors.length) { showError(`Seat ${p}: ${errors.map((e) => `${e.unit}: ${e.reason}`).join('; ')}`); return; }
+    }
+    const before = state;
+    const result = resolve(before, bySeat);
+    history.push(bySeat);
+    lastOrders = orders;
+    orders = new Map();
+    selected = null; pendingKind = null;
+    state = result.state;
+    playback = { round: before.round, before, result, startPos: new Map(before.units.map((u) => [u.id, u.pos])) };
+    startPlayback();
+  }
+
+  /** (Re)start the playback of the last round for the current view. */
+  function startPlayback() {
+    const { before, result } = playback;
+    const start = viewAs === 'all' ? before.units : viewFor(before, viewAs).units;
+    playback.events = viewAs === 'all' ? result.events : result.playerEvents[viewAs];
+    playback.model = new Map(start.map((u) => [u.id, { ...u, pos: { ...u.pos } }]));
+    playback.visible = viewAs === 'all' ? null : new Set(viewFor(before, viewAs).visible);
+    playback.scores = [...before.scores];
+    playback.index = 0;
+    playback.done = playback.events.length === 0;
+    draw();
+  }
+
+  /** Apply one event to the picture being shown. This is display only: the rules have already decided everything. */
+  function applyToPicture(e) {
+    const m = playback.model;
+    const u = (id) => m.get(id);
+    switch (e.t) {
+      case 'phase': if (e.phase === 'treat') for (const x of m.values()) x.revealed = false; break;
+      case 'treat': if (u(e.target)) u(e.target).status = 'ready'; break;
+      case 'recover': if (u(e.unit)) u(e.unit).status = 'ready'; break;
+      case 'fire': case 'launch': if (e.unit && u(e.unit)) u(e.unit).revealed = true; break;
+      case 'move': if (u(e.unit)) u(e.unit).pos = { ...e.to }; break;
+      case 'hit':
+        if (u(e.unit) && e.result !== 'cover') {
+          u(e.unit).status = e.result;
+          if (e.result === 'down' && viewAs !== 'all' && u(e.unit).owner !== viewAs) m.delete(e.unit);
+        }
+        break;
+      case 'spotted': m.set(e.unit.id, { ...e.unit, pos: { ...e.unit.pos } }); break;
+      case 'lost': m.delete(e.unit); break;
+      case 'score': playback.scores[e.player] += e.value; break;
+      default: break;
+    }
+  }
+
+  function step() {
+    if (!playback || playback.done) return;
+    if (playback.index < playback.events.length) {
+      applyToPicture(playback.events[playback.index]);
+      playback.index++;
+      // The fog a player sees follows their own units as the events move them.
+      if (viewAs !== 'all') playback.visible = fogFromPicture();
+    } else {
+      finishPlayback();
+      return;
+    }
+    draw();
+  }
+  /** During playback of one seat's events, the lit hexes come from the rules applied to the pictured units of that seat. */
+  function fogFromPicture() {
+    const pictured = { ...playback.before, units: [...playback.model.values()], eliminated: playback.before.eliminated };
+    return new Set(viewFor(pictured, viewAs).visible);
+  }
+  function finishPlayback() {
+    stopAuto();
+    // Check the stepped picture against the authority before letting go of it.
+    const want = (viewAs === 'all' ? state.units : viewFor(state, viewAs).units).filter((u) => viewAs === 'all' || u.status !== 'down' || u.owner === viewAs);
+    const got = [...playback.model.values()];
+    const same = want.length === got.length && want.every((w) => { const g = playback.model.get(w.id); return g && key(g.pos) === key(w.pos) && g.status === w.status; });
+    if (!same) showError(`Round ${playback.round}: the picture built from the events does not match the returned ${viewAs === 'all' ? 'state' : 'view'}.`);
+    playback.done = true;
+    draw();
+  }
+  function skip() { while (playback && !playback.done && playback.index < playback.events.length) { applyToPicture(playback.events[playback.index]); playback.index++; } if (playback && !playback.done) finishPlayback(); }
+  function stopAuto() { if (autoTimer) { clearInterval(autoTimer); autoTimer = null; } }
+  function toggleAuto() {
+    if (autoTimer) stopAuto();
+    else autoTimer = setInterval(() => { if (!playback || playback.done) stopAuto(); else step(); }, 280);
+    draw();
+  }
+
+  // ---- replay
+  function replay() {
+    let s = createMatch(map, squads);
+    const recorded = JSON.parse(JSON.stringify(history));        // as it would come back from a log file
+    for (const round of recorded) s = resolve(s, round).state;
+    const same = JSON.stringify(s) === JSON.stringify(state);
+    const out = $('replay-out');
+    out.className = same ? 'ok' : 'bad';
+    out.textContent = same
+      ? `IDENTICAL: ${history.length} recorded round${history.length > 1 ? 's' : ''} replayed from createMatch give the same final state (round ${s.round}, scores ${s.scores.join(' : ')}, ${s.units.filter((u) => u.status !== 'down').length} units standing).`
+      : `DIFFERENT: replaying ${history.length} rounds did not reproduce the state.`;
+  }
+
+  // ---- controls
+  function fillPresets() {
+    const box = $('presets'); box.replaceChildren();
+    const n = Number($('count').value);
+    for (let p = 0; p < n; p++) {
+      const lab = html('label', `${SEAT_NAME[p]} `);
+      const selEl = html('select'); selEl.id = `preset${p}`;
+      for (const pr of PRESETS) { const o = html('option', pr.name); o.value = pr.id; selEl.append(o); }
+      selEl.value = PRESETS[p % PRESETS.length].id;
+      selEl.addEventListener('change', newMatch);
+      lab.append(selEl); box.append(lab);
+    }
+  }
+  function fillViewSelect() {
+    const v = $('view'); v.replaceChildren();
+    const all = html('option', 'Everything (no fog)'); all.value = 'all'; v.append(all);
+    for (let p = 0; p < state.playerCount; p++) { const o = html('option', `As player ${p} (${SEAT_NAME[p]})`); o.value = String(p); v.append(o); }
+    viewAs = 'all'; v.value = 'all';
+  }
+  $('count').addEventListener('change', () => { fillPresets(); newMatch(); });
+  $('new').addEventListener('click', newMatch);
+  $('view').addEventListener('change', () => {
+    viewAs = $('view').value === 'all' ? 'all' : Number($('view').value);
+    selected = null; pendingKind = null;
+    if (playback && !playback.done) { stopAuto(); startPlayback(); return; }
+    if (playback) playback.events = viewAs === 'all' ? playback.result.events : playback.result.playerEvents[viewAs];
+    draw();
+  });
+  $('random').addEventListener('click', randomOrders);
+  $('clear').addEventListener('click', () => { orders = new Map(); selected = null; pendingKind = null; draw(); });
+  $('resolve').addEventListener('click', doResolve);
+  $('step').addEventListener('click', step);
+  $('auto').addEventListener('click', toggleAuto);
+  $('skip').addEventListener('click', skip);
+  $('replay').addEventListener('click', replay);
+
+  drawGround();
+  fillPresets();
+  newMatch();
+</script>
+</body>
+</html>
