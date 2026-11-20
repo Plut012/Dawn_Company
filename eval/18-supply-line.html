@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 18 — Supply Line</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the game in the frames is the real client, the tables come from the real rules */
+  body { padding: var(--s-3); }
+  main { max-width: 1240px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 90ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  pre { background: rgba(30,36,32,0.5); padding: var(--s-2); overflow-x: auto; max-width: 100ch; white-space: pre-wrap; }
+  .bar { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; margin: var(--s-2) 0 var(--s-3); }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; min-height: 1.5em; }
+  .bad { border-left-color: var(--rust, #9A4B32); }
+  .frames { display: flex; gap: var(--s-3); overflow-x: auto; padding-bottom: var(--s-3); align-items: flex-start; }
+  .frame { flex: none; display: flex; flex-direction: column; gap: var(--s-1); }
+  .frame iframe { box-sizing: content-box; border: var(--w-frame) solid var(--ink); background: var(--slate); display: block; }
+  table.t { border-collapse: collapse; margin: 0 0 var(--s-3); font-size: var(--t-1); }
+  table.t caption { text-align: left; padding: var(--s-1) 0; max-width: 100ch; }
+  table.t th, table.t td { border: var(--w-divider) solid rgba(233,223,198,0.35); padding: 2px 8px; text-align: left; vertical-align: top; }
+  table.t thead th { background: rgba(30,36,32,0.6); }
+  .wrap { overflow-x: auto; max-width: 100%; }
+  .ok { color: var(--amber); font-weight: 700; }
+  .no { color: var(--rust, #9A4B32); font-weight: 700; }
+  .steps { list-style: none; margin: 0 0 var(--s-3); padding: 0; max-width: 100ch; }
+  .steps li { display: grid; grid-template-columns: 5ch 1fr; gap: var(--s-2); padding: var(--s-1) 0; border-top: var(--w-divider) solid rgba(233,223,198,0.25); }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 18 — Supply Line</h1>
+<p>Held flags earn <b>supply</b>, which is the score and the one currency. A man who goes down comes back at his HQ
+<span id="rounds">?</span> rounds later, or at the end of the round his player buys him back for
+<span id="buyback">?</span> × his cost. While the HQ's flag is not his side's, nobody comes back. Part 1 needs a game
+server and Vite; the rest needs only Vite.</p>
+
+<p class="observed" id="caveat"><b>What the implementer saw (2026-11-19):</b> the Part 1 walk-through was run in a headless Chromium
+against a resumed match on ports 8098/5198: 10 of 10 steps passed. That browser drew the board too: screenshots show the downed
+man's card with "Back in 3" and the Buy back key before the round, and after it the man standing on A1 (Ann's HQ W) with the log lines below.
+The fade-in at the HQ itself is an animation of about half a second and was not watched frame by frame.</p>
+
+<h2 id="clients">1. Two real clients: lose a man, buy him back</h2>
+<p>A match is set up by the real rules (<code>scripts/supply-log.ts</code>: the seeded script plays two seats on <code>crossroads</code>
+until seat 0 has just lost a man it can afford to buy back) and written as the server's order log. The server resumes it; the two frames
+below take their seats back with the log's tokens. Every run needs a fresh log (the server appends to it). Leave 8080 and 5173 alone:</p>
+<pre>npx tsx scripts/supply-log.ts /tmp/ds18/match.jsonl        # writes the log, says who is down
+npx tsx src/server/main.ts --port 8098 --timer 60 --resume /tmp/ds18/match.jsonl --matches /tmp/ds18
+DS_SERVER_PORT=8098 npx vite --port 5198 --strictPort
+# then open  http://localhost:5198/eval/18-supply-line.html</pre>
+<p>Frame A is Ann (seat 0, the one who lost a man), frame B is Bo. You can play the frames yourself; the <b>Run the walk-through</b>
+button presses the same keys through the frames' own DOM and reads back what each screen shows.</p>
+<div class="bar" id="bar"></div>
+<div class="observed" id="log" role="status">Start the server from a fresh log, then press Take the seats.</div>
+<div class="frames" id="frames"></div>
+<h3>Walk-through, read from the two screens</h3>
+<ul class="steps" id="steps"></ul>
+
+<h2 id="cut">2. A cut line, by the real <code>resolve</code></h2>
+<p>A scripted match on <code>crossroads</code> for two, worked out when this page loaded. Blue's 0-0 lies pinned at D2; Plum's 1-1
+puts him down from G3 while Plum's 1-0 steps into Blue's HQ W (A1, A2). Plum holds W for three rounds. In round 5 Blue's 0-1 walks
+into A2 and, as the move's follow-up, pins Plum's man on A1: Blue is the only side with a ready man in W, retakes it, and in the same
+score phase 0-0 comes back. W is full (A1 Plum's pinned man, A2 Blue's), so he comes back on the first free hex of his start zone.</p>
+<div class="wrap" id="cut-table"></div>
+<ul class="steps" id="cut-steps"></ul>
+
+<h2 id="lessons">3. The four new lessons, in the real manual</h2>
+<p>Each frame is the real field manual (<code>/?manual=&lt;id&gt;</code>), which runs the lesson through the real <code>resolve</code>.
+Press its Step key to watch. The table under the frames is <code>checkLesson</code> run on this page.</p>
+<div class="frames" id="lesson-frames"></div>
+<div class="wrap" id="lesson-table"></div>
+
+<h2 id="figures">4. Seeded figures</h2>
+<p>From real runs on 2026-11-19, after this task, with <code>returns: { rounds: 3, buyBack: 4 }</code>:
+<code>npx tsx scripts/seeded.ts --figures 900</code> (seeds 1001 to 1900: 300 matches for each player count; the script buys back a man it
+can afford three times in ten) and <code>npm run bots -- --matches 300 --seed 1800</code>.</p>
+<table class="t">
+  <caption>Seeded script, per match (mean of 300). <i>Supply</i> is earned by flags; <i>in hand</i> is the final scores added up (earned less spent).</caption>
+  <thead><tr><th>players</th><th>rounds to the end</th><th>supply earned</th><th>spent</th><th>in hand at the end</th><th>supply per seat per round</th><th>times a man went down</th><th>down at the end</th><th>returns</th><th>buy-backs</th><th>HQs lost</th><th>rounds a man waited, line cut</th></tr></thead>
+  <tbody>
+    <tr><td>2</td><td>15</td><td>127.1</td><td>19.6</td><td>107.5</td><td>4.24</td><td>5.50</td><td>1.18</td><td>4.32</td><td>2.05</td><td>0</td><td>0</td></tr>
+    <tr><td>3</td><td>15</td><td>158.1</td><td>39.4</td><td>118.7</td><td>3.51</td><td>12.50</td><td>2.40</td><td>10.10</td><td>4.21</td><td>0</td><td>0</td></tr>
+    <tr><td>4</td><td>15</td><td>183.8</td><td>59.7</td><td>124.1</td><td>3.06</td><td>20.48</td><td>3.65</td><td>16.83</td><td>6.39</td><td>0.01</td><td>0</td></tr>
+  </tbody>
+</table>
+<table class="t">
+  <caption>Bots against the real server (seed 1800, 100 matches per player count, all passed; their checks follow supply, purchases and returns event by event and replay the log).</caption>
+  <thead><tr><th>players</th><th>rounds</th><th>men down</th><th>buy-backs</th><th>supply spent</th><th>men back</th><th>HQs lost</th><th>squads wiped</th><th>ended early</th></tr></thead>
+  <tbody>
+    <tr><td>2</td><td>1500</td><td>469</td><td>190</td><td>1776</td><td>384</td><td>0</td><td>0</td><td>0</td></tr>
+    <tr><td>3</td><td>1500</td><td>960</td><td>367</td><td>3376</td><td>803</td><td>1</td><td>0</td><td>0</td></tr>
+    <tr><td>4</td><td>1500</td><td>1462</td><td>523</td><td>4776</td><td>1208</td><td>1</td><td>0</td><td>0</td></tr>
+  </tbody>
+</table>
+<p><b>The buy-back price.</b> A seat earns about 4.2 supply a round with two players, 3.5 with three and 3.1 with four. With
+<code>buyBack: 2</code> a rifleman (cost 2) came back for 4, about one round's income; at <code>4</code> he costs 8: 1.9, 2.3 and 2.6 rounds of
+a seat's income for two, three and four players. A gunner, sniper or mortar (cost 4) costs 16, four to five rounds. Objective values on
+<code>crossroads</code> were left as they were. Measured at 2, 3, 4 and 5 (seeded, 900 matches each): income per seat hardly moves
+(4.24–4.28, 3.46–3.51, 3.06), buy-backs per match fall from 2.2/5.1/8.6 to 1.9/3.7/5.6.</p>
+
+<h2>What does not work, or was not looked at</h2>
+<ul>
+  <li>The board's part of a return (the man fades in at the HQ in a ring of paper: the kit's existing <code>sight</code> fade and
+  <code>stand</code> pulse) was seen only as its end state (the man on his HQ hex); the animation was not watched.</li>
+  <li><b>HQs are almost never lost in scripted or bot play</b> (0, 0 and 0.01 a match; 2 in 300 bot matches), so a cut line has been
+  exercised by the lessons, Part 2 and unit tests, not by many matches. The scripts do not try to take HQs.</li>
+  <li>The task doc's eval line says the man returns "the round after the HQ is retaken". The rules section of the same doc puts
+  returns after capture in one score phase, so he is back at the end of the round in which the HQ is retaken (Part 2). The rules were
+  followed.</li>
+  <li>A man who is due back this round (or is waiting for room at the HQ) cannot be bought back: <code>buyBackCost</code> is null, and
+  his card says "back at round's end" with no key.</li>
+  <li>Buy-backs in the draft are not kept in the tab's saved draft across a reload; the server's held purchases come back in
+  <code>plan.purchases</code>, so they reappear when the server holds them (it does once a draft has been sent).</li>
+  <li>Phone layout of the Buy back key on a squad card was not tried at phone sizes.</li>
+</ul>
+</main>
+
+<script type="module">
+  import { key } from '/src/client/ui/components.ts';
+  import { MODES, UNITS, mapFor } from '/src/content/index.ts';
+  import { findPath, lineOpen, resolve, validateOrders } from '/src/rules/index.ts';
+  import { label, offsetToAxial } from '/src/shared/hex.ts';
+  import { LESSONS, checkLesson, lessonById, runLesson } from '/src/manual/lessons.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const say = (text, bad = false) => { $('log').textContent = text; $('log').classList.toggle('bad', bad); };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const returns = MODES['supply-line'].returns;
+  $('rounds').textContent = returns.rounds;
+  $('buyback').textContent = returns.buyBack;
+  const mark = (list, ok, text) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="${ok ? 'ok' : 'no'}">${ok ? 'PASS' : 'FAIL'}</span><span>${text}</span>`;
+    list.append(li);
+    return ok;
+  };
+
+  // ---- Part 1: two real clients on a resumed match
+  const slots = { a: ['dev18a', 'eval18-a', 'Ann'], b: ['dev18b', 'eval18-b', 'Bo'] };
+  const frames = {};
+  for (const [id, [slot]] of Object.entries(slots)) {
+    const box = document.createElement('div'); box.className = 'frame';
+    const cap = document.createElement('span');
+    cap.textContent = id === 'a' ? 'A: Ann, seat 0' : 'B: Bo, seat 1';
+    const f = document.createElement('iframe'); f.width = 600; f.height = 820; f.title = `client ${slot}`;
+    box.append(cap, f); $('frames').append(box); frames[id] = f;
+  }
+  const load = (f, url) => new Promise((done) => { f.addEventListener('load', () => done(), { once: true }); f.src = url; });
+  const doc = (id) => frames[id].contentDocument;
+  const until = async (test, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { try { if (test()) return true; } catch { /* not yet */ } await wait(80); } return false; };
+  const readout = (id, name) => [...doc(id).querySelectorAll('.play-readouts .readout')].find((r) => r.querySelector('span')?.textContent === name)?.querySelector('b')?.textContent;
+  const lampSupply = (id, seat) => doc(id).querySelectorAll('.play-lamp')[seat]?.querySelector('b')?.textContent;
+  const card = (id, unit) => doc(id).querySelector(`.play-squad [data-unit="${unit}"]`);
+  const downCard = () => [...doc('a').querySelectorAll('.play-squad .unit')].find((c) => c.querySelector('[data-buy]'));
+  const logLines = async (id) => {
+    const strip = doc(id).querySelector('.play-strip');
+    if (strip.getAttribute('aria-expanded') !== 'true') strip.click();
+    await wait(100);
+    return [...doc(id).querySelectorAll('.play-log .report')].map((r) => r.textContent);
+  };
+
+  async function walk() {
+    const steps = $('steps');
+    steps.replaceChildren();
+    if (!doc('a')?.querySelector('.play-squad') || !doc('b')?.querySelector('.play-squad')) { say('Take the seats first: both frames must show the play screen.', true); return; }
+    say('Walking through…');
+    const c = downCard();
+    if (!mark(steps, !!c, c ? `A's squad row has a man down with a Buy back key: <b>${esc(c.querySelector('b').textContent)}</b>.` : 'No card in A shows a Buy back key.')) return;
+    const unit = c.dataset.unit;
+    const name = c.querySelector('b').textContent;
+    const order = c.querySelector('.play-order').textContent;
+    mark(steps, /back in 3/i.test(order), `His card reads "${esc(order)}".`);
+    const buy = c.querySelector('[data-buy]');
+    const cost = Number(/(\d+) supply/.exec(buy.textContent)?.[1]);
+    mark(steps, Object.values(UNITS).some((d) => d.cost * returns.buyBack === cost),
+      `The key says "${esc(buy.textContent)}" (his cost × ${returns.buyBack}).`);
+    const before = Number(readout('a', 'Supply'));
+    const bSeesBefore = Number(lampSupply('b', 0));
+    mark(steps, before === bSeesBefore, `Ann's Supply readout shows ${before}; on Bo's screen Ann's lamp shows ${bSeesBefore}.`);
+    buy.click();
+    await until(() => Number(readout('a', 'Supply')) === before - cost);
+    mark(steps, Number(readout('a', 'Supply')) === before - cost && card('a', unit).querySelector('[data-buy]').classList.contains('pressed'),
+      `Pressed: the key is down and the readout shows what is left after the draft's purchases: ${esc(readout('a', 'Supply'))}. The card says "${esc(card('a', unit).querySelector('.play-order').textContent)}".`);
+    card('a', unit).querySelector('[data-buy]').click();
+    await until(() => Number(readout('a', 'Supply')) === before);
+    mark(steps, Number(readout('a', 'Supply')) === before, `Pressed again, it is taken back: ${esc(readout('a', 'Supply'))}.`);
+    card('a', unit).querySelector('[data-buy]').click();
+    await until(() => Number(readout('a', 'Supply')) === before - cost);
+    await wait(500);                      // the draft goes to the server at most about three times a second
+    doc('a').querySelector('.play-tray .lever').click();
+    doc('b').querySelector('.play-tray .lever').click();
+    say('Both levers pulled; the round resolves and plays back…');
+    const backOn = await until(() => {
+      const k = card('a', unit);
+      return k && !k.classList.contains('down') && !doc('a').querySelector('.play-tray .lever.locked');
+    }, 30000);
+    const k = card('a', unit);
+    const W = mapFor(2).objectives.find((o) => o.kind === 'hq' && o.zone === 0);
+    mark(steps, backOn && W.hexes.map(label).includes(k.dataset.at), `After the round ${esc(name)} is on his feet at ${esc(k?.dataset.at)} (Ann's HQ ${W.id}: ${W.hexes.map(label).join(', ')}).`);
+    const linesA = await logLines('a');
+    const linesB = await logLines('b');
+    const income = Number(/Supply: you \+(\d+)/.exec(linesA.join(' '))?.[1] ?? 0);
+    const after = Number(readout('a', 'Supply'));
+    mark(steps, linesA.some((l) => l === `You bought back ${name} for ${cost} supply.`) && linesA.some((l) => l === `${name} is back at the HQ ${W.id}.`),
+      `A's log strip says it in words: "${esc(linesA.find((l) => /bought back/.test(l)) ?? '')}" and "${esc(linesA.find((l) => /is back at/.test(l)) ?? '')}".`);
+    mark(steps, linesB.some((l) => l === `Ann bought a man back for ${cost} supply.`), `B's log strip: "${esc(linesB.find((l) => /bought a man back/.test(l)) ?? '(nothing)')}".`);
+    mark(steps, after === before + income - cost && Number(lampSupply('b', 0)) === after,
+      `Supply went from ${before} to ${after}: + ${income} earned this round, − ${cost} paid. Bo's screen shows Ann at ${esc(lampSupply('b', 0))}.`);
+    say(`Walk-through done: ${steps.querySelectorAll('.ok').length} of ${steps.children.length} steps passed.`, steps.querySelector('.no') !== null);
+  }
+
+  $('bar').append(
+    key({ label: 'Take the seats', onPress: async () => {
+      for (const [id, [slot, token, name]] of Object.entries(slots)) {
+        localStorage.setItem(`dawn-squad-token-${slot}`, token);
+        localStorage.setItem(`dawn-squad-name-${slot}`, name);
+        await load(frames[id], `/?slot=${slot}`);
+      }
+      const ok = await until(() => doc('a').querySelector('.play-squad .unit') && doc('b').querySelector('.play-squad .unit'));
+      say(ok ? 'Both seats taken back. Press Run the walk-through, or press the Buy back key in frame A yourself.'
+        : 'The frames did not reach the play screen. Is the server resumed from a fresh log on the port Vite proxies to?', !ok);
+    } }),
+    key({ label: 'Run the walk-through', onPress: () => walk().catch((e) => say(`Walk-through stopped: ${e.message}`, true)) }),
+  );
+
+  // ---- Part 2: a cut line, by the real resolve
+  {
+    const map = mapFor(2);
+    const at = (l) => offsetToAxial(l.charCodeAt(0) - 65, Number(l.slice(1)) - 1);
+    const unit = (id, where, extra = {}) => ({ id, owner: Number(id[0]), type: 'rifleman', name: id, pos: at(where), status: 'ready', pinnedRound: null, revealed: false, posture: 'still', returnRound: null, ...extra });
+    let s = {
+      map, playerCount: 2, round: 1, scores: [0, 0], eliminated: [false, false], mode: 'supply-line', over: false, winners: [],
+      units: [unit('0-0', 'D2', { status: 'pinned', pinnedRound: 0 }), unit('0-1', 'C3'), unit('1-0', 'B1'), unit('1-1', 'G3')],
+      flags: Object.fromEntries(map.objectives.map((o) => [o.id, o.id === 'W' ? 0 : o.id === 'Y' ? 1 : null])),
+    };
+    const rounds = [
+      { say: 'Plum: 1-0 steps into A1; 1-1 fires at D2', orders: [[], [{ unit: '1-0', kind: 'move', path: [at('A1')] }, { unit: '1-1', kind: 'fire', target: at('D2') }]] },
+      { say: 'nobody moves', orders: [[], []] },
+      { say: 'nobody moves', orders: [[], []] },
+      { say: 'nobody moves (0-0 is due at the end of this round)', orders: [[], []] },
+      { say: 'Blue: 0-1 moves to A2, then fires at A1', orders: [[{ unit: '0-1', kind: 'move', path: findPath(map, at('C3'), at('A2'), 2), then: { kind: 'fire', target: at('A1') } }], []] },
+    ];
+    const rows = [];
+    const states = [s];
+    let legal = true;
+    for (const [i, r] of rounds.entries()) {
+      for (const p of [0, 1]) if (validateOrders(s, p, r.orders[p]).length > 0) legal = false;
+      const out = resolve(s, r.orders, [[], []]);
+      s = out.state;
+      states.push(s);
+      const man = s.units.find((u) => u.id === '0-0');
+      const news = out.events.filter((e) => ['hit', 'capture', 'return'].includes(e.t) && (e.t !== 'capture' || e.objective === 'W'))
+        .map((e) => e.t === 'hit' ? `${e.unit} ${e.result}` : e.t === 'capture' ? `W to ${e.player === 0 ? 'Blue' : 'Plum'}` : `${e.unit} back at ${label(e.at)}`);
+      rows.push(`<tr><td>${i + 1}</td><td>${esc(r.say)}</td><td>${esc(news.join('; ') || '–')}</td><td>${s.flags.W === 0 ? 'Blue' : 'Plum'}</td>`
+        + `<td>${lineOpen(s, 0) ? 'open' : '<b>cut</b>'}</td><td>${man.status} at ${label(man.pos)}</td><td>${man.returnRound ?? '–'}</td></tr>`);
+    }
+    $('cut-table').innerHTML = `<table class="t"><thead><tr><th>round</th><th>orders</th><th>what happened (W, 0-0)</th><th>W's flag after</th><th>Blue's line</th><th>0-0 after</th><th>0-0 due back at the end of round</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+    const man = (r) => states[r].units.find((u) => u.id === '0-0');
+    const zone = map.spawns[map.seatSpawns[2][0]];
+    const list = $('cut-steps');
+    mark(list, legal, 'Every order is one <code>validateOrders</code> accepts.');
+    mark(list, man(1).status === 'down' && man(1).returnRound === 1 + returns.rounds && states[1].flags.W === 1, `After round 1: 0-0 is down, due back at the end of round ${man(1).returnRound}; W is Plum's.`);
+    mark(list, man(4).status === 'down' && !lineOpen(states[4], 0), `After round 4, when he was due: still down. The line is cut, so he waits.`);
+    mark(list, !states[4].eliminated[0], 'Blue is not out: 0-1 still stands.');
+    mark(list, states[5].flags.W === 0 && man(5).status === 'ready' && label(man(5).pos) === label(zone[0]),
+      `After round 5: W is Blue's again and 0-0 is back, ready, at ${label(man(5).pos)} (the first hex of Blue's start zone; both W hexes are taken).`);
+  }
+
+  // ---- Part 3: the four new lessons
+  {
+    const ids = ['supply', 'coming-back', 'buy-back', 'cut-off'];
+    for (const id of ids) {
+      const box = document.createElement('div'); box.className = 'frame';
+      const cap = document.createElement('span'); cap.textContent = lessonById(id)?.title ?? id;
+      const f = document.createElement('iframe'); f.width = 560; f.height = 620; f.title = `manual ${id}`; f.src = `/?manual=${id}`;
+      box.append(cap, f); $('lesson-frames').append(box);
+    }
+    const rows = ids.map((id) => {
+      const l = lessonById(id);
+      const failed = checkLesson(l, runLesson(l));
+      return `<tr><td><code>${id}</code></td><td>${esc(l.title)}</td><td>${esc(l.text)}</td><td>${l.rounds.length}</td>`
+        + `<td>${failed.length === 0 ? '<span class="ok">holds</span>' : `<span class="no">${failed.map(esc).join(' ')}</span>`}</td></tr>`;
+    });
+    $('lesson-table').innerHTML = `<table class="t"><caption>${LESSONS.length} lessons in the manual; the Supply group's four, checked live.</caption>
+      <thead><tr><th>id</th><th>title</th><th>text</th><th>rounds</th><th>checkLesson</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  }
+</script>
+</body>
+</html>

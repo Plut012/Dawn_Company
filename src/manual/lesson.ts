@@ -6,16 +6,17 @@
 //
 // Pure: no three.js, DOM, clock or randomness.
 
-import { NAMES, UNITS } from '../content';
+import { DEFAULT_MODE, NAMES, SUN, UNITS } from '../content';
+import { NO_HEX, TERRAIN_CHARS, readAreas } from '../content/mapFormat';
 import { resolve, visibleEnemies } from '../rules';
 import { key, label, offsetToAxial } from '../shared/hex';
 import type {
-  Cell, GameEvent, GameMap, GameState, Hex, Objective, Order, Phase, PlayerId, TerrainId, Unit, UnitId,
+  Cell, GameEvent, GameMap, GameState, Hex, ModeId, ObjectiveKindId, Order, Phase, PlayerId, Purchase, Unit, UnitId,
   UnitStatus, UnitTypeId,
 } from '../shared/types';
 
-export type Group = 'Seeing' | 'Moving' | 'Shooting' | 'Units' | 'Timing' | 'Winning';
-export const GROUPS: readonly Group[] = ['Seeing', 'Moving', 'Shooting', 'Units', 'Timing', 'Winning'];
+export type Group = 'Seeing' | 'Moving' | 'Shooting' | 'Units' | 'Timing' | 'Winning' | 'Supply' | 'Ground' | 'Last Stand';
+export const GROUPS: readonly Group[] = ['Seeing', 'Moving', 'Shooting', 'Units', 'Timing', 'Winning', 'Supply', 'Ground', 'Last Stand'];
 
 export interface Lesson {
   id: string;                    // url-safe, e.g. "cover"
@@ -23,8 +24,13 @@ export interface Lesson {
   title: string;                 // a few words
   text: string;                  // one or two sentences: the rule, plainly
   map: GameMap;                  // tiny, about 5 x 5 hexes, purpose-built
-  units: { owner: PlayerId; type: UnitTypeId; at: string; status?: UnitStatus }[];   // `at` is a hex label
+  units: { owner: PlayerId; type: UnitTypeId; at: string; status?: UnitStatus; dugIn?: boolean }[];   // `at` is a hex label; `dugIn` (24): staged in his foxhole
+  mode?: ModeId;                 // (20) the mode it is played in; left out = the default (Supply Line)
+  flags?: Record<string, PlayerId | null>;   // who holds each flag at the start; left out = nobody
+  supply?: number[];             // each side's supply at the start; left out = none (18)
+  round?: number;                // (19) the match round it starts in; left out = full day (SUN.length), so the light changes nothing
   rounds: Order[][][];           // one entry per round: orders indexed by player
+  purchases?: Purchase[][][];    // (18) as `rounds`: each round's buy-backs, indexed by player; left out = none
   notes?: Partial<Record<Phase, string>>;   // a short line shown as that phase plays
   viewAs: PlayerId | 'umpire';   // default viewpoint; 'umpire' sees everything
   fogMatters: boolean;           // show the viewpoint switch
@@ -34,9 +40,12 @@ export interface Lesson {
 export type Expectation =
   | { unit: string; status: UnitStatus }          // unit named by "owner-index"
   | { unit: string; at: string }
+  | { unit: string; dugIn: boolean }               // (24)
   | { event: GameEvent['t']; count?: number }     // such an event occurred (in the full list; `count` = exactly so many)
   | { score: number[] }
-  | { seenBy: PlayerId; unit: string; seen: boolean };
+  | { winners: PlayerId[] }                       // (20) the match is over, and these won it
+  | { flag: string; owner: PlayerId | null }      // whose flag flies over the objective
+  | { seenBy: PlayerId; unit: string; seen: boolean; after?: number };   // after that many rounds (0 = at the start); left out = the last
 
 // ---- hexes by label
 
@@ -57,24 +66,28 @@ export const dash = (unit: UnitId, ...path: string[]): Order => ({ unit, kind: '
 export const fire = (unit: UnitId, at: string): Order => ({ unit, kind: 'fire', target: hex(at) });
 export const ambush = (unit: UnitId): Order => ({ unit, kind: 'ambush' });
 export const treat = (unit: UnitId, at: string): Order => ({ unit, kind: 'special', target: hex(at) });
+/** (25) An engineer's build: `build('0-0', 'C1', 'sandbags')`. */
+export const build = (unit: UnitId, at: string, work: string): Order => ({ unit, kind: 'special', target: hex(at), work });
 
 // ---- tiny maps
 
 /**
  * A tiny map, drawn the way src/content/mapFormat.ts explains: one character
  * per hex, odd rows indented. `elevation` and `marks` may be left out (flat,
- * no objectives). There are no spawn zones: a lesson sets its units down by
- * label, which is why `readMap` itself cannot be used here.
+ * no objectives). `x` is a hex that is not on the board; a letter in `marks`
+ * is a hex of that objective's area. There are no spawn zones: a lesson sets its units down by
+ * label, which is why `readMap` itself cannot be used here. An `hq` objective is
+ * the HQ of the seat of the same number, in letter order (the first is Blue's,
+ * the second Plum's), so that a lesson can cut a line and bring a man back.
  */
 export interface TinyDrawing {
   id: string;
   terrain: string[];
   elevation?: string[];
   marks?: string[];
-  objectiveValues?: Record<string, number>;
+  objectives?: Record<string, { kind: ObjectiveKindId; value: number }>;   // a letter drawn on several hexes is one area
 }
 
-const TERRAIN_CHARS: Record<string, TerrainId> = { '.': 'open', w: 'woods', b: 'building', c: 'crops', '=': 'wall', '~': 'water' };
 const ELEVATION_CHARS: Record<string, number> = { '.': 0, '0': 0, '1': 1, '2': 2 };
 
 export function tinyMap(d: TinyDrawing): GameMap {
@@ -88,13 +101,14 @@ export function tinyMap(d: TinyDrawing): GameMap {
   const marks = d.marks ? grid('marks', d.marks) : null;
   const cols = terrain[0]?.length ?? 0;
   const cells: Record<string, Cell> = {};
-  const objectives: Objective[] = [];
+  const drawn = new Map<string, Hex[]>();
   terrain.forEach((line, row) => {
     for (const [name, layer] of [['terrain', terrain], ['elevation', elevation], ['marks', marks]] as const) {
       if (layer && layer[row].length !== cols) throw new Error(`Map ${d.id}: ${name} row ${row + 1} has ${layer[row].length} hexes, expected ${cols}.`);
     }
     line.forEach((char, col) => {
       const at = offsetToAxial(col, row);
+      if (char === NO_HEX) return;
       const t = TERRAIN_CHARS[char];
       const e = ELEVATION_CHARS[elevation ? elevation[row][col] : '.'];
       if (t === undefined) throw new Error(`Map ${d.id}: unknown terrain "${char}" at ${label(at)}.`);
@@ -102,15 +116,21 @@ export function tinyMap(d: TinyDrawing): GameMap {
       cells[key(at)] = { terrain: t, elevation: e };
       const m = marks ? marks[row][col] : '.';
       if (m === '.') return;
-      const value = d.objectiveValues?.[m];
-      if (!/^[A-Z]$/.test(m) || value === undefined) throw new Error(`Map ${d.id}: mark "${m}" at ${label(at)} is not an objective with a value.`);
-      objectives.push({ id: m, hex: at, value });
+      if (!/^[A-Z]$/.test(m) || !d.objectives?.[m]) throw new Error(`Map ${d.id}: mark "${m}" at ${label(at)} is not an objective with an entry.`);
+      if (!drawn.has(m)) drawn.set(m, []);
+      drawn.get(m)!.push(at);
     });
   });
-  objectives.sort((a, b) => a.id.localeCompare(b.id));
+  const objectives = readAreas(`manual-${d.id}`, drawn, d.objectives ?? {});
+  // HQs, in letter order, are zones 0, 1, ...: seat n uses zone n. The zones have no spawn hexes.
+  const hqs = objectives.filter((o) => o.kind === 'hq').sort((a, b) => (a.id < b.id ? -1 : 1));
+  hqs.forEach((o, zone) => { o.zone = zone; });
+  const seats = (n: number) => Array.from({ length: n }, (_, i) => i);
   return {
     id: `manual-${d.id}`, name: d.id, cols, rows: terrain.length,
-    cells, objectives, spawns: [], seatSpawns: {}, maxRounds: 12,
+    cells, objectives, spawns: hqs.map(() => []),
+    seatSpawns: hqs.length > 0 ? { 2: seats(2), 3: seats(3), 4: seats(4) } : {},
+    maxRounds: 12,
   };
 }
 
@@ -130,13 +150,14 @@ export function stageLesson(lesson: Lesson): GameState {
     return {
       id: `${u.owner}-${index}`, owner: u.owner, type: u.type,
       name: `${def.rank} ${NAMES[(index * n + u.owner) % NAMES.length]}`,
-      pos, status, pinnedRound: status === 'pinned' ? 0 : null, revealed: false, posture: 'still',
+      pos, status, pinnedRound: status === 'pinned' ? 0 : null, revealed: false, posture: 'still', returnRound: null, dugIn: u.dugIn === true,
     };
   });
   return {
-    map: lesson.map, playerCount: n, units, round: 1,
-    scores: count.map(() => 0), eliminated: count.map(() => false),
-    over: false, winners: [],
+    map: lesson.map, playerCount: n, units, round: lesson.round ?? SUN.length,
+    scores: count.map((_, p) => lesson.supply?.[p] ?? 0), eliminated: count.map(() => false),
+    flags: Object.fromEntries(lesson.map.objectives.map((o) => [o.id, lesson.flags?.[o.id] ?? null])),
+    mode: lesson.mode ?? DEFAULT_MODE, works: {}, over: false, winners: [],
   };
 }
 
@@ -149,8 +170,8 @@ export interface LessonRun {
 export function runLesson(lesson: Lesson): LessonRun {
   const states = [stageLesson(lesson)];
   const results: ReturnType<typeof resolve>[] = [];
-  for (const orders of lesson.rounds) {
-    const result = resolve(states[states.length - 1], orders);
+  for (const [r, orders] of lesson.rounds.entries()) {
+    const result = resolve(states[states.length - 1], orders, lesson.purchases?.[r]);
     results.push(result);
     states.push(result.state);
   }
@@ -174,6 +195,9 @@ export function checkLesson(lesson: Lesson, run: LessonRun = runLesson(lesson)):
     } else if ('at' in e) {
       const u = find(e.unit);
       if (u && label(u.pos) !== e.at) failed.push(`${u.name} (${u.id}) should be at ${e.at}, but is at ${label(u.pos)}.`);
+    } else if ('dugIn' in e) {
+      const u = find(e.unit);
+      if (u && u.dugIn !== e.dugIn) failed.push(`${u.name} (${u.id}) should ${e.dugIn ? 'be dug in' : 'not be dug in'}, but ${u.dugIn ? 'is' : 'is not'}.`);
     } else if ('event' in e) {
       const n = events.filter((x) => x.t === e.event).length;
       if (e.count === undefined ? n === 0 : n !== e.count) {
@@ -181,10 +205,21 @@ export function checkLesson(lesson: Lesson, run: LessonRun = runLesson(lesson)):
       }
     } else if ('score' in e) {
       if (e.score.join(',') !== end.scores.join(',')) failed.push(`The score should be ${e.score.join(' to ')}, but is ${end.scores.join(' to ')}.`);
+    } else if ('winners' in e) {
+      if (!end.over || end.winners.join(',') !== e.winners.join(',')) {
+        failed.push(`The winners should be ${e.winners.join(' and ') || 'nobody'}, but ${end.over ? `are ${end.winners.join(' and ') || 'nobody'}` : 'the match is not over'}.`);
+      }
+    } else if ('flag' in e) {
+      const owner = end.flags[e.flag] ?? null;
+      const say = (p: PlayerId | null) => (p === null ? 'nobody' : `player ${p}`);
+      if (owner !== e.owner) failed.push(`Objective ${e.flag}'s flag should be ${say(e.owner)}'s, but is ${say(owner)}'s.`);
     } else {
       const u = find(e.unit);
-      const seen = visibleEnemies(end, e.seenBy).some((x) => x.id === e.unit);
-      if (u && seen !== e.seen) failed.push(`${u.name} (${u.id}) should ${e.seen ? 'be seen' : 'not be seen'} by player ${e.seenBy}, but ${seen ? 'is' : 'is not'}.`);
+      const when = e.after === undefined ? end : run.states[e.after];
+      if (!when) { failed.push(`There is no state after ${e.after} rounds.`); continue; }
+      const seen = visibleEnemies(when, e.seenBy).some((x) => x.id === e.unit);
+      const at = e.after === undefined ? '' : ` after ${e.after} round${e.after === 1 ? '' : 's'}`;
+      if (u && seen !== e.seen) failed.push(`${u.name} (${u.id}) should ${e.seen ? 'be seen' : 'not be seen'} by player ${e.seenBy}${at}, but ${seen ? 'is' : 'is not'}.`);
     }
   }
   return failed;

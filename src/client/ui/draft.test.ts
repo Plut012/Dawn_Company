@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_MAP, MAPS } from '../../content';
-import { createMatch, validateOrders, viewFor } from '../../rules';
-import { distance, neighbors } from '../../shared/hex';
+import { mapFor, MAPS } from '../../content';
+import { canSee, createMatch, followUpOptions, sightOf, validateOrders, viewFor } from '../../rules';
+import { distance, key, neighbors, parseKey } from '../../shared/hex';
 import type { Hex, Order, PlayerView, Unit } from '../../shared/types';
 import {
-  allowance, clearDraft, draftSignature, followUpOf, friendlyFire, fromOrders, layRoute, loadDraft, moveOrder, orderBrief, orderLabel, ownUnits,
+  allowance, clearDraft, draftSignature, followUpOf, friendlyFire, fromOrders, layRoute, likelyFollowUps, loadDraft, moveOrder, orderBrief, orderLabel, ownUnits,
   ownUnitsUnderFire, plannedEnd, prune, saveDraft, throttled, toOrders, unitName,
 } from './draft';
 import type { Draft, DraftStore } from './draft';
 
-const map = MAPS[DEFAULT_MAP];
+const map = mapFor(2);
 const squad = ['rifleman', 'rifleman', 'gunner', 'mortar', 'medic'];
 const state = createMatch(map, [{ player: 0, units: squad }, { player: 1, units: squad }]);
 const view = viewFor(state, 0);
@@ -67,7 +67,7 @@ describe('layRoute', () => {
     let route: Hex[] = [];
     const taps = [open(from), open(open(from)), from, open(from)];
     for (const t of taps) {
-      const next = layRoute(map, from, route, t, allowance(rifle, 'dash'));
+      const next = layRoute(map, from, route, t, allowance(viewFor(state, 0), rifle, 'dash'));
       if (!next || next.length === 0) { route = []; continue; }
       route = next;
       expect(validateOrders(state, 0, [{ unit: rifle.id, kind: 'dash', path: route }])).toEqual([]);
@@ -77,10 +77,10 @@ describe('layRoute', () => {
 
 describe('allowance', () => {
   it('is the unit\'s move, doubled for a dash', () => {
-    expect(allowance(rifle, 'move')).toBe(2);
-    expect(allowance(rifle, 'dash')).toBe(4);
-    expect(allowance(gunner, 'move')).toBe(1);
-    expect(allowance(rifle, 'fire')).toBe(0);
+    expect(allowance(viewFor(state, 0), rifle, 'move')).toBe(2);
+    expect(allowance(viewFor(state, 0), rifle, 'dash')).toBe(4);
+    expect(allowance(viewFor(state, 0), gunner, 'move')).toBe(1);
+    expect(allowance(viewFor(state, 0), rifle, 'fire')).toBe(0);
   });
 });
 
@@ -226,15 +226,15 @@ describe('stance: how hard a unit is to see, in a word', () => {
   it('reads the ground, the posture and whether the unit gave itself away', async () => {
     const { stance } = await import('./draft');
     const { TERRAIN } = await import('../../content');
-    const cells = Object.entries(MAPS[DEFAULT_MAP].cells);
+    const cells = Object.entries(mapFor(4).cells);
     const at = (terrain: string): Hex => {
       const [k] = cells.find(([, c]) => c.terrain === terrain)!;
       const [q, r] = k.split(',').map(Number);
       return { q, r };
     };
     const man = (pos: Hex, extra: Partial<Unit> = {}): Unit =>
-      ({ id: '0-0', owner: 0, type: 'rifleman', name: 'x', pos, status: 'ready', pinnedRound: null, revealed: false, posture: 'still', ...extra });
-    const map = MAPS[DEFAULT_MAP];
+      ({ id: '0-0', owner: 0, type: 'rifleman', name: 'x', pos, status: 'ready', pinnedRound: null, revealed: false, posture: 'still', returnRound: null, dugIn: false, ...extra });
+    const map = mapFor(4);
     for (const ground of ['woods', 'crops', 'building']) {
       expect(TERRAIN[ground].hide).not.toBeNull();
       expect(stance(map, man(at(ground)))).toBe('hidden');
@@ -357,6 +357,66 @@ describe('throttled', () => {
       expect(n).toBeGreaterThanOrEqual(6);
     } finally {
       vi.useRealTimers();
+    }
+  });
+});
+
+describe('works in the draft (25)', () => {
+  it('names the work in the order, adds up what the draft\'s works cost, and keeps a saved build', async () => {
+    const { workOf, workSpend, workWord } = await import('./draft');
+    const { WORKS } = await import('../../content');
+    const at = { q: 3, r: 2 };
+    const build: Order = { unit: '0-5', kind: 'special', target: at, work: 'nest' };
+    const after: Order = { unit: '0-6', kind: 'move', path: [{ q: 2, r: 2 }], then: { kind: 'special', target: at, work: 'wire' } };
+    expect(orderLabel(build, 'engineer')).toBe('Build MG nest E3');
+    expect(orderLabel(after, 'engineer')).toBe('Move D3 · Build wire E3');
+    expect(orderBrief(after, 'engineer')).toBe('Move · Build');
+    expect([workOf(build), workOf(after), workOf({ unit: '0-0', kind: 'ambush' }), workOf(undefined)]).toEqual(['nest', 'wire', null, null]);
+    const draft: Draft = { [build.unit]: build, [after.unit]: after, '0-0': { unit: '0-0', kind: 'ambush' } };
+    expect(workSpend(draft)).toBe(WORKS.nest.cost + WORKS.wire.cost);
+    expect(workSpend(draft, '0-5')).toBe(WORKS.wire.cost);
+    expect(['sandbags', 'wire', 'nest'].map(workWord)).toEqual(['sandbags', 'wire', 'MG nest']);
+    const store = memoryStore();
+    saveDraft(store, 'w', 'sig', { [build.unit]: build });
+    expect(loadDraft(store, 'w', 'sig')).toEqual({ [build.unit]: build });
+  });
+});
+
+describe('likelyFollowUps', () => {
+  const medic = mine[4];
+  const step = (u: Unit): Hex => neighbors(u.pos).find((n) => layRoute(map, u.pos, [], n, 1) !== null)!;
+
+  it('keeps only targets in sight range with a clear line from the end of the move', () => {
+    const end = step(rifle);
+    const draft: Draft = { [rifle.id]: { unit: rifle.id, kind: 'move', path: [end] } };
+    const legal = followUpOptions(view, rifle.id, end).fire;
+    const likely = likelyFollowUps(view, draft, rifle, 'fire', legal);
+    expect(likely.length).toBeGreaterThan(0);
+    expect(legal).toEqual(expect.arrayContaining(likely));
+    const sight = sightOf(view, rifle);
+    for (const k of legal) {
+      const h = parseKey(k);
+      expect(likely.includes(k)).toBe(distance(end, h) <= sight && canSee(map, end, h));
+    }
+  });
+
+  it('for a treat, offers only hexes where a teammate will be', () => {
+    const end = step(medic);
+    const draft: Draft = { [medic.id]: { unit: medic.id, kind: 'move', path: [end] } };
+    const legal = followUpOptions(view, medic.id, end).special;
+    const likely = likelyFollowUps(view, draft, medic, 'special', legal);
+    const friends = new Set(mine.filter((u) => u.id !== medic.id).map((u) => key(plannedEnd(u, draft))));
+    expect(likely.every((k) => friends.has(k))).toBe(true);
+    expect(likely.length).toBeLessThan(legal.length);
+    // A teammate drafted to walk next to the medic's end hex is counted where he ends up.
+    const beside = neighbors(end).find((n) => legal.includes(key(n)) && !view.units.some((u) => u.pos.q === n.q && u.pos.r === n.r) && map.cells[key(n)]);
+    if (beside) {
+      const other = mine.find((u) => u.id !== medic.id && distance(u.pos, beside) <= 2 && layRoute(map, u.pos, [], beside, 2) !== null);
+      if (other) {
+        const path = layRoute(map, other.pos, [], beside, 2)!;
+        const both: Draft = { ...draft, [other.id]: { unit: other.id, kind: 'move', path } };
+        expect(likelyFollowUps(view, both, medic, 'special', legal)).toContain(key(beside));
+      }
     }
   });
 });

@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 20 — Last Stand</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the game in the frames is the real client, the tables come from the real rules */
+  body { padding: var(--s-3); }
+  main { max-width: 1240px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 90ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  pre { background: rgba(30,36,32,0.5); padding: var(--s-2); overflow-x: auto; max-width: 100ch; white-space: pre-wrap; }
+  .bar { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; margin: var(--s-2) 0 var(--s-3); }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; min-height: 1.5em; }
+  .bad { border-left-color: var(--rust, #9A4B32); }
+  .frames { display: flex; gap: var(--s-3); overflow-x: auto; padding-bottom: var(--s-3); align-items: flex-start; }
+  .frame { flex: none; display: flex; flex-direction: column; gap: var(--s-1); }
+  .frame iframe { box-sizing: content-box; border: var(--w-frame) solid var(--ink); background: var(--slate); display: block; }
+  table.t { border-collapse: collapse; margin: 0 0 var(--s-3); font-size: var(--t-1); }
+  table.t caption { text-align: left; padding: var(--s-1) 0; max-width: 100ch; }
+  table.t th, table.t td { border: var(--w-divider) solid rgba(233,223,198,0.35); padding: 2px 8px; text-align: left; vertical-align: top; }
+  table.t thead th { background: rgba(30,36,32,0.6); }
+  .wrap { overflow-x: auto; max-width: 100%; }
+  .ok { color: var(--amber); font-weight: 700; }
+  .no { color: var(--rust, #9A4B32); font-weight: 700; }
+  .steps { list-style: none; margin: 0 0 var(--s-3); padding: 0; max-width: 100ch; }
+  .steps li { display: grid; grid-template-columns: 5ch 1fr; gap: var(--s-2); padding: var(--s-1) 0; border-top: var(--w-divider) solid rgba(233,223,198,0.25); }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 20 — Last Stand</h1>
+<p>No one comes back, flags earn nothing, and the score is the men still standing. The match ends after the last round, or
+when one squad is left; most men win, then the dearer men, then the win is shared. Part 1 needs a game server and Vite; the
+rest needs only Vite. The mode is <code><span id="mode-json">?</span></code>.</p>
+
+<p class="observed" id="caveat"><b>What the implementer saw (2026-11-19):</b> the Part 1 walk-through was run in a headless Chromium against a resumed match on ports 8095/5195 (a fresh log each run):
+13 of 13 steps passed. The screenshots showed the real board in both frames (round 14 of 15, "Standing 5", three of Ann's men struck through as
+down) and the results screen after round 15 with the reason. Parts 2 and 3 passed on the same load (9 and 2 checks). The levers were pulled with
+no orders, so the two last rounds in the frames are quiet: no shot was fired through the client UI in this match. Orders of a whole Last Stand
+through the real protocol are in the bots' 200 matches below.</p>
+
+<h2 id="clients">1. Two real clients, played to the end</h2>
+<p>A Last Stand match is set up by the real rules (<code>scripts/last-stand-log.ts</code>: the seeded script plays two Scout sections
+on <code>crossroads</code> for thirteen rounds, on a seed whose last rounds, held by both, end level on men with the dearer men deciding) and
+written as the server's order log. The server resumes it; the frames below take their seats back with the log's tokens, and the
+buttons pull each lever through the frames' own DOM for the last two rounds. Every run needs a fresh log (the server appends to it).
+Leave 8080 and 5173 alone:</p>
+<pre>npx tsx scripts/last-stand-log.ts /tmp/ds20/match.jsonl      # writes the log, says who wins and why
+npx tsx src/server/main.ts --port 8095 --timer 60 --resume /tmp/ds20/match.jsonl --matches /tmp/ds20
+DS_SERVER_PORT=8095 npx vite --port 5195 --strictPort
+# then open  http://localhost:5195/eval/20-last-stand.html</pre>
+<p>Frame A is Ann (seat 0), frame B is Bo. The orders of the first thirteen rounds came from the seeded script; the last two rounds are held
+by both (no orders): that is the part the frames play. <b>Run the walk-through</b> reads back what each screen shows.</p>
+<div class="bar" id="bar"></div>
+<div class="observed" id="log" role="status">Start the server from a fresh log, then press Take the seats.</div>
+<div class="frames" id="frames"></div>
+<h3>Walk-through, read from the two screens</h3>
+<ul class="steps" id="steps"></ul>
+
+<h2 id="ends">2. How it ends, by the real <code>resolve</code></h2>
+<p>Worked out when this page loaded, on a strip of twelve open hexes (<code>tinyMap</code>), in Last Stand. Each row is one
+<code>resolve</code>; the last column is what the results screen would say, from the real <code>stoodLine</code> and
+<code>tieBreak</code> (<code>src/client/ui/outcome.ts</code>) on the real <code>viewFor</code>.</p>
+<div class="wrap" id="end-table"></div>
+<ul class="steps" id="end-steps"></ul>
+
+<h2 id="lessons">3. The two new lessons, in the real manual</h2>
+<p>Each frame is the real field manual (<code>/?manual=&lt;id&gt;</code>), which runs the lesson through the real <code>resolve</code> in
+Last Stand. Press its Step key to watch. The table under the frames is <code>checkLesson</code> run on this page.</p>
+<div class="frames" id="lesson-frames"></div>
+<div class="wrap" id="lesson-table"></div>
+
+<h2 id="figures">4. Figures from real runs</h2>
+<p>Run on 2026-11-19, after this task. <code>npx tsx scripts/seeded.ts --figures 900 --mode last-stand</code> (seeds 1001 to 1900: 300 matches for
+each player count; the random squads are drawn from the presets Last Stand allows, i.e. only the Scout section) and
+<code>npm run bots -- --matches 200 --mode last-stand --seed 2000</code> (real server, real sockets; the bots check the score is the men
+standing, nothing is earned, bought or returned, and the winners against the rule, from the final view alone).</p>
+<table class="t">
+  <caption>Seeded script, Last Stand, per match (mean of 300 for each player count; seeds 1001 to 1900).</caption>
+  <thead><tr><th>players</th><th>rounds to the end</th><th>ended before the last round</th><th>men down (all squads)</th><th>men left at the end (all squads)</th><th>level on men at the end</th><th>tie decided by what the men cost</th><th>last squads fell together</th></tr></thead>
+  <tbody>
+    <tr><td>2</td><td>15</td><td>0 of 300</td><td>6.47</td><td>9.53</td><td>17%</td><td>8%</td><td>0</td></tr>
+    <tr><td>3</td><td>15</td><td>0 of 300</td><td>12.93</td><td>11.07</td><td>22%</td><td>10%</td><td>0</td></tr>
+    <tr><td>4</td><td>15</td><td>0 of 300</td><td>19.82</td><td>12.18</td><td>29%</td><td>17%</td><td>0</td></tr>
+    <tr><td>all</td><td>15</td><td>0 of 900</td><td>13.07</td><td>10.93</td><td>23%</td><td>12%</td><td>0</td></tr>
+  </tbody>
+</table>
+<table class="t">
+  <caption>Bots against the real server (seed 2000, 200 matches, 67/67/66 for 2/3/4 players, all passed in 14 s).</caption>
+  <thead><tr><th>players</th><th>rounds</th><th>men down</th><th>men left at the ends</th><th>squads wiped</th><th>ended before the last round</th><th>level on men</th><th>decided by cost</th><th>shared wins</th><th>last squads fell together</th></tr></thead>
+  <tbody>
+    <tr><td>2</td><td>1002</td><td>318</td><td>574 (8.6 a match)</td><td>2</td><td>1</td><td>10</td><td>6</td><td>4</td><td>0</td></tr>
+    <tr><td>3</td><td>1005</td><td>636</td><td>698 (10.4)</td><td>7</td><td>0</td><td>18</td><td>12</td><td>8</td><td>0</td></tr>
+    <tr><td>4</td><td>990</td><td>827</td><td>877 (13.3)</td><td>9</td><td>0</td><td>17</td><td>8</td><td>10</td><td>0</td></tr>
+  </tbody>
+</table>
+<p>Supply Line is untouched: the fifty pinned digests of <code>src/rules/digest.test.ts</code> are the same as before this task (combined
+<code>3fbfda4ab7a264ee</code>); ten Last Stand digests (seeds 2001 to 2010, combined <code>f9d6449ab8066436</code>) are pinned beside them.</p>
+<p><b>Reading the figures.</b> The scripts and bots mostly wander and shoot at what they see; both leave a Last Stand match to its last round almost every time
+(one early end in 200 bot matches, none in 900 scripted), and in 15 rounds about 6 to 20 men go down, so what decides a match is usually the count at the
+bell, and in roughly one match in five the count is level, in one in eight to one in six picked by what the men cost. Real players who hunt will end matches
+early more often; none has played yet. The scripted three-player seats are unfair as ever (seat 1 wins 17% of 300, seat 0 49%; see the plan's open items).</p>
+
+<h2>What does not work, or was not looked at</h2>
+<ul>
+  <li>The frames play only the last two rounds, held by both: no order was given through the client's UI in this part, and the fight itself was
+  played by the seeded script when the log was written. The orders of whole matches are exercised by the bots (real sockets) only.</li>
+  <li>A seat that reconnects to a finished match is sent a <code>plan</code> whose view is <code>viewFor</code> of the final state, which carries <code>worth</code>,
+  so the results screen says the same; that is covered by the unit tests, not by reloading a frame.</li>
+  <li>The scripted and bot players almost never wipe a squad out, so "the last squads fell together" and "ended early" have been seen in the unit tests, the
+  property test and Part 2 here, not in many whole matches (0 in 1100).</li>
+  <li>Last Stand has no HQ line to hold: the HQs are still on the map as flags that earn nothing, and a squad that loses its HQ loses nothing. The play screen
+  still draws them. Nothing in the task asked for them to go.</li>
+  <li>The game log strip says "down at X. For good." for a man going down; the "Standing" tally per round is not told in the strip (there is no event for it), only in the header and the lamps.</li>
+  <li>The phone layout of the results screen's extra sentence was not tried.</li>
+</ul>
+</main>
+
+<script type="module">
+  import { key } from '/src/client/ui/components.ts';
+  import { MODES, UNITS } from '/src/content/index.ts';
+  import { createMatch, resolve, validateOrders, viewFor } from '/src/rules/index.ts';
+  import { label, offsetToAxial } from '/src/shared/hex.ts';
+  import { LESSONS, checkLesson, lessonById, runLesson, tinyMap } from '/src/manual/lessons.ts';
+  import { standings, stoodLine, tieBreak } from '/src/client/ui/outcome.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const say = (text, bad = false) => { $('log').textContent = text; $('log').classList.toggle('bad', bad); };
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  $('mode-json').textContent = JSON.stringify({ ...MODES['last-stand'], blurb: undefined });
+  const mark = (list, ok, text) => {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="${ok ? 'ok' : 'no'}">${ok ? 'PASS' : 'FAIL'}</span><span>${text}</span>`;
+    list.append(li);
+    return ok;
+  };
+
+  // ---- Part 1: two real clients on a resumed match
+  const slots = { a: ['dev20a', 'eval20-a', 'Ann'], b: ['dev20b', 'eval20-b', 'Bo'] };
+  const frames = {};
+  for (const [id, [slot]] of Object.entries(slots)) {
+    const box = document.createElement('div'); box.className = 'frame';
+    const cap = document.createElement('span');
+    cap.textContent = id === 'a' ? 'A: Ann, seat 0' : 'B: Bo, seat 1';
+    const f = document.createElement('iframe'); f.width = 600; f.height = 820; f.title = `client ${slot}`;
+    box.append(cap, f); $('frames').append(box); frames[id] = f;
+  }
+  const load = (f, url) => new Promise((done) => { f.addEventListener('load', () => done(), { once: true }); f.src = url; });
+  const doc = (id) => frames[id].contentDocument;
+  const until = async (test, ms = 8000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { try { if (test()) return true; } catch { /* not yet */ } await wait(80); } return false; };
+  const readout = (id, name) => [...doc(id).querySelectorAll('.play-readouts .readout')].find((r) => r.querySelector('span')?.textContent === name)?.querySelector('b')?.textContent;
+  const labels = (id) => [...doc(id).querySelectorAll('.play-readouts .readout span')].map((s) => s.textContent);
+  const lampScore = (id, seat) => doc(id).querySelectorAll('.play-lamp')[seat]?.querySelector('b')?.textContent;
+  const pull = (id) => doc(id).querySelector('.play-tray .lever').click();
+  const round = (id) => readout(id, 'Round');
+  const planning = (id) => !!doc(id).querySelector('.play-squad .unit') && !doc(id).querySelector('.play-tray .lever.locked');
+
+  async function walk() {
+    const steps = $('steps');
+    steps.replaceChildren();
+    if (!doc('a')?.querySelector('.play-squad') || !doc('b')?.querySelector('.play-squad')) { say('Take the seats first: both frames must show the play screen.', true); return; }
+    say('Walking through…');
+    const last = MODES['last-stand'];
+    // The play screen in Last Stand
+    mark(steps, doc('a').querySelector('.play-mode')?.textContent === last.name, `The header names the mode: "${esc(doc('a').querySelector('.play-mode')?.textContent)}".`);
+    mark(steps, labels('a').includes('Standing') && !labels('a').includes('Supply'), `A's readouts are labelled ${esc(labels('a').join(', '))}: Standing, not Supply.`);
+    const men = (id) => [...doc(id).querySelectorAll('.play-squad .unit')].filter((c) => !c.classList.contains('down')).length;
+    const total = (id) => doc(id).querySelectorAll('.play-squad .unit').length;
+    const standingA = men('a');
+    mark(steps, Number(readout('a', 'Standing')) === standingA && Number(lampScore('b', 0)) === standingA && Number(lampScore('a', 1)) === Number(readout('b', 'Standing')),
+      `A's Standing reads ${esc(readout('a', 'Standing'))} and A has ${standingA} of ${total('a')} men standing in its squad row; B's lamp for Ann shows ${esc(lampScore('b', 0))}; A's lamp for Bo shows ${esc(lampScore('a', 1))} (B's own readout: ${esc(readout('b', 'Standing'))}).`);
+    const downs = [...doc('a').querySelectorAll('.play-squad .unit.down')];
+    const buyKeys = doc('a').querySelectorAll('[data-buy]').length + doc('b').querySelectorAll('[data-buy]').length;
+    mark(steps, downs.length > 0 && buyKeys === 0 && downs.every((c) => /^Down$/.test(c.querySelector('.play-order')?.textContent ?? '')),
+      `${downs.length} of Ann's men are down: their cards say "${esc(downs[0]?.querySelector('.play-order')?.textContent ?? '')}", with no "Back in N" and no Buy back key (${buyKeys} keys on either screen).`);
+    const r1 = round('a');
+    mark(steps, /^14\/15$/.test(r1) && round('b') === r1, `Both frames are at round ${esc(r1)}.`);
+    // Round 14, then 15
+    pull('a'); pull('b');
+    say('Round 14: both levers pulled; it resolves and plays back…');
+    const to15 = await until(() => /^15\/15$/.test(round('a') ?? '') && /^15\/15$/.test(round('b') ?? '') && planning('a') && planning('b'), 40000);
+    mark(steps, to15, `Round 14 resolved: the frames are at round ${esc(round('a'))} and ${esc(round('b'))}, planning again.`);
+    if (!to15) return;
+    mark(steps, Number(readout('a', 'Standing')) === standingA, `Nothing came back: Ann still has ${esc(readout('a', 'Standing'))} standing.`);
+    pull('a'); pull('b');
+    say('Round 15, the last: both levers pulled; the match ends…');
+    const over = await until(() => doc('a').querySelector('.results') && doc('b').querySelector('.results'), 40000);
+    mark(steps, over, 'Both frames are on the results screen.');
+    if (!over) return;
+    await wait(300);
+    const head = (id) => doc(id).querySelector('.results-head')?.textContent;
+    const why = (id) => doc(id).querySelector('.results-why')?.textContent;
+    const rows = (id) => [...doc(id).querySelectorAll('.results-row')].map((r) => ({
+      name: r.querySelector('.results-who b')?.textContent, left: r.querySelector('.results-who small')?.textContent,
+      says: r.querySelector('.results-who p')?.textContent, label: r.querySelector('.readout span')?.textContent,
+      n: Number(r.querySelector('.readout b')?.textContent), winner: r.classList.contains('winner'),
+    }));
+    const ra = rows('a');
+    mark(steps, /Last Stand/.test(doc('a').querySelector('.results > .label')?.textContent ?? ''), `The panel is labelled "After action · Last Stand".`);
+    mark(steps, ra.length === 2 && ra.every((r) => /Standing/.test(r.label)) && ra[0].n === ra[1].n && ra[0].n >= 2,
+      `Each row's score is labelled Standing and they are level: ${ra.map((r) => `${esc(r.name)} ${r.n} (${esc(r.label)})`).join(', ')}. "${esc(ra[0].left)}".`);
+    const m = /^(\w+) stood with (\w+) men? against one other squad\. Both had (\w+) men; (\w+)'s were worth more\.$/.exec(why('a') ?? '');
+    mark(steps, !!m, `The results screen gives the reason: "${esc(why('a'))}"`);
+    const winnerName = ra.find((r) => r.winner)?.name?.replace(/ \(you\)$/, '');
+    mark(steps, !!m && m[1] === m[4] && m[4] === winnerName && ra.filter((r) => r.winner).length === 1,
+      `The winner row (${esc(winnerName)}), the first sentence and the tie-break name the same squad (${esc(m?.[1])}, ${esc(m?.[4])}).`);
+    mark(steps, why('a') === why('b') && /Winner/.test(rows('b').find((r) => r.winner)?.label ?? ''), `Bo's screen says the same: "${esc(why('b'))}"; headlines: A "${esc(head('a'))}", B "${esc(head('b'))}".`);
+    say(`Walk-through done: ${steps.querySelectorAll('.ok').length} of ${steps.children.length} steps passed.`, steps.querySelector('.no') !== null);
+  }
+
+  $('bar').append(
+    key({ label: 'Take the seats', onPress: async () => {
+      for (const [id, [slot, token, name]] of Object.entries(slots)) {
+        localStorage.setItem(`dawn-squad-token-${slot}`, token);
+        localStorage.setItem(`dawn-squad-name-${slot}`, name);
+        await load(frames[id], `/?slot=${slot}`);
+      }
+      const ok = await until(() => doc('a').querySelector('.play-squad .unit') && doc('b').querySelector('.play-squad .unit'));
+      say(ok ? 'Both seats taken back. Press Run the walk-through, or pull the levers yourself.'
+        : 'The frames did not reach the play screen. Is the server resumed from a fresh log on the port Vite proxies to?', !ok);
+    } }),
+    key({ label: 'Run the walk-through', onPress: () => walk().catch((e) => say(`Walk-through stopped: ${e.message}`, true)) }),
+  );
+
+  // ---- Part 2: how it ends, by the real resolve
+  {
+    const strip = tinyMap({ id: 'strip', terrain: ['. . . . . . . . . . . .'] });
+    const at = (q) => offsetToAxial(q, 0);
+    const unit = (id, type, q, extra = {}) => ({ id, owner: Number(id[0]), type, name: id, pos: at(q), status: 'ready', pinnedRound: null, revealed: false, posture: 'still', returnRound: null, ...extra });
+    const names = ['Ann', 'Bo', 'Cy'];
+    const state = (units, extra = {}) => {
+      const n = extra.playerCount ?? 2;
+      return { map: strip, playerCount: n, units, round: 7, scores: Array(n).fill(0), eliminated: Array(n).fill(false), flags: {}, mode: 'last-stand', over: false, winners: [], ...extra };
+    };
+    const volley = [[{ unit: '0-0', kind: 'fire', target: at(8) }, { unit: '0-1', kind: 'fire', target: at(8) }], [{ unit: '1-0', kind: 'fire', target: at(3) }, { unit: '1-1', kind: 'fire', target: at(3) }]];
+    const gunners = () => [unit('0-0', 'gunner', 3), unit('0-1', 'gunner', 4), unit('1-0', 'gunner', 7), unit('1-1', 'gunner', 8)];
+    const scenarios = [
+      { name: 'Two gunners a side burst each other\'s pair', st: state(gunners()), orders: volley },
+      { name: 'Three players, Cy already out: the same volley', st: state([...gunners(), unit('2-0', 'rifleman', 11, { status: 'down' })], { playerCount: 3, eliminated: [false, false, true] }), orders: [...volley, []] },
+      { name: 'Three players, Cy still stands: the same volley', st: state([...gunners(), unit('2-0', 'rifleman', 11)], { playerCount: 3 }), orders: [...volley, []] },
+      { name: 'Last round, level on men: Ann two riflemen, Bo a rifleman and a gunner', round: 12,
+        st: state([unit('0-0', 'rifleman', 0), unit('0-1', 'rifleman', 1), unit('1-0', 'rifleman', 10), unit('1-1', 'gunner', 11)], { round: 12 }), orders: [[], []] },
+      { name: 'Last round, level on men and cost: two riflemen each', st: state([unit('0-0', 'rifleman', 0), unit('0-1', 'rifleman', 1), unit('1-0', 'rifleman', 10), unit('1-1', 'rifleman', 11)], { round: 12 }), orders: [[], []] },
+      { name: 'Two players: Ann\'s last man, pinned, is shot down in round 7 of 12', st: state([unit('0-0', 'rifleman', 0, { status: 'pinned', pinnedRound: 7 }), unit('1-0', 'rifleman', 2), unit('1-1', 'rifleman', 6), unit('1-2', 'rifleman', 7)]), orders: [[], [{ unit: '1-0', kind: 'fire', target: at(0) }]] },
+      { name: 'Three players: the same shot; Cy has a man', st: state([unit('0-0', 'rifleman', 0, { status: 'pinned', pinnedRound: 7 }), unit('1-0', 'rifleman', 2), unit('1-1', 'rifleman', 6), unit('2-0', 'rifleman', 11)], { playerCount: 3 }), orders: [[], [{ unit: '1-0', kind: 'fire', target: at(0) }], []] },
+    ];
+    const rows = [];
+    const results = [];
+    let legal = true;
+    for (const sc of scenarios) {
+      for (const p of Array.from({ length: sc.st.playerCount }, (_, i) => i)) if (validateOrders(sc.st, p, sc.orders[p] ?? []).length > 0) legal = false;
+      const out = resolve(sc.st, sc.orders);
+      const s = out.state;
+      const v = viewFor(s, 0);
+      const said = [stoodLine(v, names), tieBreak(v, names)].filter(Boolean).join(' ');
+      results.push({ sc, s, said, events: out.events });
+      rows.push(`<tr><td>${esc(sc.name)}</td><td>${s.scores.join(' / ')}</td><td>${s.eliminated.map((e) => (e ? 'out' : 'in')).join(' / ')}</td>`
+        + `<td>${s.over ? 'yes' : 'no'}</td><td>${s.winners.map((p) => names[p]).join(' and ') || '–'}</td><td>${esc(v.worth ? v.worth.join(' / ') : '–')}</td><td>${esc(said || '–')}</td></tr>`);
+    }
+    $('end-table').innerHTML = `<table class="t"><thead><tr><th>scenario</th><th>score (men standing)</th><th>squads</th><th>over</th><th>winners</th><th>worth of men standing</th><th>the results screen says</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+    const list = $('end-steps');
+    const [fell, fell3, three, level, same, lastOne, lastOf3] = results;
+    mark(list, legal, 'Every order is one <code>validateOrders</code> accepts.');
+    mark(list, fell.s.over && fell.s.scores.join() === '0,0' && fell.s.winners.join() === '0,1' && fell.s.eliminated.every(Boolean),
+      'Both squads lose their last men in the same round: the match is over and both share the win (nobody was out before).');
+    mark(list, fell3.s.over && fell3.s.winners.join() === '0,1' && fell3.s.eliminated.every(Boolean),
+      'With a third squad out already, the two that fell together share it; the one that fell before does not.');
+    mark(list, three.s.over && three.s.winners.join() === '2' && three.s.scores.join() === '0,0,1', 'With the third still standing, it wins alone.');
+    mark(list, level.s.over && level.s.scores.join() === '2,2' && level.s.winners.join() === '1' && level.s.round === 13,
+      `Level on men after the last round, the gunner (${UNITS.gunner.cost}) outweighs a rifleman (${UNITS.rifleman.cost}): Bo wins, 6 to 4.`);
+    mark(list, same.s.winners.join() === '0,1', 'Level on men and on cost: they share the win.');
+    mark(list, lastOne.s.over && lastOne.s.scores.join() === '0,3' && lastOne.s.winners.join() === '1' && lastOne.s.eliminated.join() === 'true,false',
+      'A squad whose last man goes down is out at once, and with one squad left the match is over before its time (round 7 of 12): the squad left wins.');
+    mark(list, !lastOf3.s.over && lastOf3.s.scores.join() === '0,2,1' && lastOf3.s.eliminated.join() === 'true,false,false',
+      'With three squads, the same shot puts Ann out and the match goes on between the other two.');
+    const noScore = results.every((x) => !x.events.some((e) => e.t === 'score' || e.t === 'purchase' || e.t === 'return'));
+    mark(list, noScore, 'No `score`, `purchase` or `return` event in any of them.');
+  }
+
+  // ---- Part 3: the lessons
+  {
+    const ids = ['last-stand', 'last-stand-tie'];
+    for (const id of ids) {
+      const box = document.createElement('div'); box.className = 'frame';
+      const cap = document.createElement('span'); cap.textContent = lessonById(id)?.title ?? id;
+      const f = document.createElement('iframe'); f.width = 560; f.height = 620; f.title = `manual ${id}`; f.src = `/?manual=${id}`;
+      box.append(cap, f); $('lesson-frames').append(box);
+    }
+    const rows = ids.map((id) => {
+      const l = lessonById(id);
+      const failed = checkLesson(l, runLesson(l));
+      return `<tr><td><code>${id}</code></td><td>${esc(l.title)}</td><td>${esc(l.text)}</td><td>${l.rounds.length}</td>`
+        + `<td>${failed.length === 0 ? '<span class="ok">holds</span>' : `<span class="no">${failed.map(esc).join(' ')}</span>`}</td></tr>`;
+    });
+    $('lesson-table').innerHTML = `<table class="t"><caption>${LESSONS.length} lessons in the manual; the Last Stand group's two, checked live.</caption>
+      <thead><tr><th>id</th><th>title</th><th>text</th><th>rounds</th><th>checkLesson</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  }
+</script>
+</body>
+</html>

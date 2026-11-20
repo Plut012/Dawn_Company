@@ -9,12 +9,14 @@
 // through whatever stands in front, so a tree or a house never hides an order.
 
 import * as THREE from 'three';
-import type { Hex, Objective } from '../../../../shared/types';
-import { within } from '../../../../shared/hex';
+import type { Hex, Objective, PlayerId } from '../../../../shared/types';
+import { hexToPixel, within } from '../../../../shared/hex';
 import type { KitCtx } from '../../kit';
 import type { Mark } from '../../index';
 import { FACE_CAMERA, TOKENS, flat, layFlat, text } from './parts';
 import { hexWash } from './tiles';
+import { PLAYERS, outlineOf } from './units';
+import type { MarkShape } from './units';
 
 const LIFT = 0.05;                   // marks float just above the ground
 const pencil = flat(TOKENS.amber, 1, true);
@@ -215,34 +217,101 @@ export function mark(m: Mark, ctx: KitCtx): THREE.Object3D {
   }
 }
 
-// ---- objective: an amber disc with its letter, on a post, over an amber-washed hex
+// ---- objective: an amber wash over each hex of the area, and a flag
+//
+// The flag stands on the middle hex of the area (in drawing order). Its cloth
+// is the owner's player colour with their mark on it, as on a unit's base; a
+// plain bone cloth for nobody. An HQ's flag is taller. The objective's letter
+// is on an amber tag on the pole.
+//
+// The object's origin is the top of the area's first hex. Each wash and the
+// flag carry `userData.hex`, and the board lifts them to their own hex's height.
 
-const signGeo = new THREE.CircleGeometry(0.33, 24);
-const signEdge = new THREE.CircleGeometry(0.39, 24);
-const postGeo = new THREE.CylinderGeometry(0.025, 0.025, 1, 5).translate(0, 0.5, 0);
+const tagGeo = new THREE.CircleGeometry(0.22, 20);
+const tagEdge = new THREE.CircleGeometry(0.26, 20);
+const postGeo = new THREE.CylinderGeometry(0.03, 0.03, 1, 5).translate(0, 0.5, 0);
+const CLOTH_W = 0.62;
+const CLOTH_H = 0.4;
+const clothGeo = new THREE.PlaneGeometry(CLOTH_W, CLOTH_H).translate(CLOTH_W / 2, -CLOTH_H / 2, 0);
+const clothEdge = new THREE.PlaneGeometry(CLOTH_W + 0.06, CLOTH_H + 0.06).translate(CLOTH_W / 2, -CLOTH_H / 2, 0);
+const faceGeo = new Map<string, THREE.BufferGeometry>();
+function face(shape: MarkShape, grow: number): THREE.BufferGeometry {
+  const id = `${shape}/${grow}`;
+  let g = faceGeo.get(id);
+  if (!g) {
+    g = new THREE.ShapeGeometry(outlineOf(shape, grow), 10).scale(0.62, 0.62, 1);
+    faceGeo.set(id, g);
+  }
+  return g;
+}
 
-export function objective(obj: Objective): THREE.Object3D {
+/** The cloth of a flag in the owner's colour and mark: its top left corner at the origin, facing +z. */
+function cloth(owner: PlayerId | null): THREE.Group {
   const g = new THREE.Group();
-  const wash = hexWash(0.42);
-  wash.position.y = 0.012;
-  g.add(wash);
-  const HEIGHT = 1.42;
+  const player = owner === null ? undefined : PLAYERS[owner];
+  const edge = new THREE.Mesh(clothEdge, flat(TOKENS.ink));
+  edge.position.set(-0.03, 0.03, -0.01);
+  g.add(edge, new THREE.Mesh(clothGeo, flat(player?.color ?? TOKENS.bone)));
+  if (player) {
+    const ink = new THREE.Mesh(face(player.shape, 0.035), flat(TOKENS.ink));
+    ink.position.set(CLOTH_W / 2, -CLOTH_H / 2, 0.005);
+    const fill = new THREE.Mesh(face(player.shape, 0), flat(TOKENS.paper));
+    fill.position.set(CLOTH_W / 2, -CLOTH_H / 2, 0.01);
+    g.add(ink, fill);
+  }
+  g.userData.owner = owner;
+  return g;
+}
+
+export function objective(obj: Objective, owner: PlayerId | null): THREE.Object3D {
+  const g = new THREE.Group();
+  const origin = hexToPixel(obj.hexes[0], 1);
+  const at = (h: Hex) => { const p = hexToPixel(h, 1); return { x: p.x - origin.x, z: p.y - origin.y }; };
+  for (const h of obj.hexes) {
+    const wash = hexWash(0.42);
+    const p = at(h);
+    wash.position.set(p.x, 0.012, p.z);
+    wash.userData.hex = h;
+    g.add(wash);
+  }
+
+  const hq = obj.zone !== null;
+  const HEIGHT = hq ? 2.05 : 1.45;
+  const stand = obj.hexes[Math.floor(obj.hexes.length / 2)];
+  const flag = new THREE.Group();
+  const p = at(stand);
+  flag.position.set(p.x, 0, p.z);
+  flag.userData.hex = stand;
   const post = new THREE.Mesh(postGeo, flat(TOKENS.ink));
-  post.scale.y = HEIGHT - 0.3;
-  post.position.z = -0.5;
+  post.scale.y = HEIGHT;
+  post.position.z = -0.45;
   post.castShadow = true;
-  const sign = new THREE.Group();
-  const edge = new THREE.Mesh(signEdge, flat(TOKENS.ink));
+  // The cloth hangs from the top of the pole, leaning back to face the camera like every sign.
+  const banner = new THREE.Group();
+  banner.position.set(0.03, HEIGHT, -0.45);
+  banner.rotation.x = FACE_CAMERA;
+  let current = cloth(owner);
+  banner.add(current);
+  const tag = new THREE.Group();
+  const edge = new THREE.Mesh(tagEdge, flat(TOKENS.ink));
   edge.position.z = -0.01;
-  sign.add(edge, new THREE.Mesh(signGeo, flat(TOKENS.amber)));
-  const letter = text(obj.id, 0.56, TOKENS.ink);
+  tag.add(edge, new THREE.Mesh(tagGeo, flat(TOKENS.amber)));
+  const letter = text(obj.id, 0.36, TOKENS.ink);
   if (letter) {
     letter.position.z = 0.01;
-    sign.add(letter);
+    tag.add(letter);
   }
-  sign.position.set(0, HEIGHT, -0.5);
-  sign.rotation.x = FACE_CAMERA;
-  g.add(post, sign);
-  g.userData.sign = sign;   // the part that pulses when the objective scores (effects.ts)
+  tag.position.set(0, 0.62, -0.42);
+  tag.rotation.x = FACE_CAMERA;
+  flag.add(post, banner, tag);
+  g.add(flag);
+
+  g.userData.sign = banner;   // the part that pulses when the flag earns or changes hands (effects.ts)
+  g.userData.flag = flag;     // where the flag stands
+  g.userData.setOwner = (next: PlayerId | null) => {
+    banner.remove(current);
+    current = cloth(next);
+    banner.add(current);
+  };
   return g;
 }

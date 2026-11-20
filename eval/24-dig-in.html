@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 24 — Dig in</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the board, the kit, the manual and the rules on this page are the real ones */
+  body { padding: var(--s-3); }
+  main { max-width: 1240px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 90ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  pre { background: rgba(30,36,32,0.5); padding: var(--s-2); overflow-x: auto; max-width: 100ch; white-space: pre-wrap; }
+  .bar { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; margin: var(--s-2) 0; }
+  .bar button { font: inherit; padding: var(--s-2) var(--s-3); background: var(--khaki); color: var(--ink); border: var(--w-outline) solid var(--ink); cursor: pointer; }
+  .bar button:disabled { opacity: 0.5; cursor: default; }
+  .bar button.on { background: var(--amber); }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; min-height: 1.5em; }
+  .bad { border-left-color: var(--rust); }
+  #stage { position: relative; width: min(100%, 880px); height: 460px; border: var(--w-frame) solid var(--ink); background: var(--slate); }
+  #stage canvas { display: block; width: 100%; height: 100%; }
+  .frames { display: flex; gap: var(--s-3); overflow-x: auto; padding-bottom: var(--s-3); align-items: flex-start; }
+  .frame { flex: none; display: flex; flex-direction: column; gap: var(--s-1); }
+  .frame iframe { box-sizing: content-box; border: var(--w-frame) solid var(--ink); background: var(--slate); display: block; }
+  table.t { border-collapse: collapse; margin: 0 0 var(--s-3); font-size: var(--t-1); }
+  table.t caption { text-align: left; padding: var(--s-1) 0; max-width: 100ch; }
+  table.t th, table.t td { border: var(--w-divider) solid rgba(233,223,198,0.35); padding: 2px 8px; text-align: left; vertical-align: top; }
+  table.t thead th { background: rgba(30,36,32,0.6); }
+  .wrap { overflow-x: auto; max-width: 100%; }
+  .ok { color: var(--amber); font-weight: 700; }
+  .no { color: var(--rust, #9A4B32); font-weight: 700; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 24 — Dig in</h1>
+<p>A unit that holds still for a whole round digs in: at the end of the round, in the score phase, after the returns, it is
+<b>dug in</b> and ignores one more hit a round than its ground gives it, until its first step. There is no order for it.
+Everything on this page runs on Vite alone (<code>npx vite --port 5199 --strictPort</code> from the repo root, then open
+<code>/eval/24-dig-in.html</code>); the board, the kit, the manual and every number below are the real ones, run when the page loaded.
+The type <code>dig</code>'s event is in <code>src/shared/types.ts</code>, the rule in <code>src/rules/resolve.ts</code> (score phase)
+and <code>world.shelter</code> (the hit rule).</p>
+
+<h2 id="board">1. The real board: a man digs in, then steps out</h2>
+<p>Two rounds of the real <code>resolve</code> on a small field (seven by five open hexes): in round 1 Blue's two riflemen
+(<b>B2</b>, <b>B4</b>) hold still and Plum's two walk up two hexes; in round 2 Plum's riflemen fire at them, and Blue's B2 steps one hex out
+(<b>C2</b>) while B4 holds. Press <b>Play round 1</b>, then <b>Play round 2</b>: the sandbags come up round the two blue men at the end
+of round 1; in round 2 both shots find them in their holes (<i>cover</i>), then the man at B2 steps out and the ring stays behind and goes. The board
+is shown to the umpire (every unit).</p>
+<div class="bar" id="bar"></div>
+<div id="stage"></div>
+<div class="observed" id="log" role="status">Loading the board.</div>
+<div class="wrap" id="state-table"></div>
+
+<h2 id="rule">2. The hit rule, from the real <code>resolve</code></h2>
+<p>One man of Plum on the ground named, shot at by 1 to 4 of Blue's riflemen (or by a sniper first), his foxhole as shown. Each cell is what the shots
+did, in order: <i>cover</i> = turned aside, <i>pinned</i>, <i>down</i>. The ground gives 0 or 1, the foxhole 1 more; a sniper's hit ignores both and uses
+neither up.</p>
+<div class="wrap" id="hit-table"></div>
+
+<h2 id="giving-up">3. Giving it up, and not getting it</h2>
+<p>Also from the real <code>resolve</code>: one man of Plum dug in on C2, given the order named, with one to three shots from Blue's men at him. <i>dug in after</i> is his state at
+the round's end; <i>digs</i> is how many <code>dig</code> events the round told, whoever they were about.</p>
+<div class="wrap" id="give-table"></div>
+
+<h2 id="lesson">4. The lesson, in the real manual</h2>
+<p>The frame is the real field manual (<code>/?manual=dig-in</code>), which runs the lesson through the real <code>resolve</code>: the same two shots at a man in the open and
+a man dug in. Press its Step key to watch; the table under it is <code>checkLesson</code> run on this page, and the number of lessons that hold.</p>
+<div class="frames" id="lesson-frames"></div>
+<div class="wrap" id="lesson-table"></div>
+
+<h2 id="figures">5. Figures from real runs</h2>
+<p>Run 2026-11-19, after this task. <code>npx tsx scripts/seeded.ts --figures 900</code> (seeds 1001 to 1900: 300 matches each for two, three and four players, random squads, Supply Line)
+for the <i>after</i> column. The <i>before</i> column is the same command with the digging switched off (the end-of-round step skipped, nothing else changed: the same script,
+the same seeds); the scripted players do not know about foxholes, they just move or hold as they did, so the matches
+diverge after the first round and the columns are not the same fights. A <code>--mode last-stand --figures 300</code> run is in the last row. Per match, means.</p>
+<table class="t">
+  <caption>Men put down (went down at least once: a man can go down more than once in Supply Line) and men standing, a match.</caption>
+  <thead><tr><th>mode, players</th><th>went down, before</th><th>went down, after</th><th>change</th><th>down at the end, before</th><th>down at the end, after</th></tr></thead>
+  <tbody>
+    <tr><td>Supply Line, all</td><td>13.92</td><td>12.57</td><td>−10%</td><td>2.57</td><td>2.38</td></tr>
+    <tr><td>Supply Line, 2</td><td>7.30</td><td>6.75</td><td>−8%</td><td>1.40</td><td>1.29</td></tr>
+    <tr><td>Supply Line, 3</td><td>13.94</td><td>12.59</td><td>−10%</td><td>2.60</td><td>2.37</td></tr>
+    <tr><td>Supply Line, 4</td><td>20.53</td><td>18.38</td><td>−10%</td><td>3.70</td><td>3.47</td></tr>
+    <tr><td>Last Stand, all (after only)</td><td>—</td><td>12.39</td><td>—</td><td>—</td><td>12.39</td></tr>
+  </tbody>
+</table>
+<table class="t">
+  <caption>Digging in itself, after (a match, all player counts together; 15 rounds a match).</caption>
+  <thead><tr><th>mode, players</th><th><code>dig</code> events a match</th><th>men dug in at a round's start</th><th>share of the men standing</th><th>hits turned aside (cover or foxhole)</th><th>...of them on a man dug in at the round's start</th></tr></thead>
+  <tbody>
+    <tr><td>Supply Line, all</td><td>73.7</td><td>8.7 a round</td><td>45%</td><td>17.5</td><td>13.3</td></tr>
+    <tr><td>Supply Line, 2</td><td>49.9</td><td>5.7</td><td>44%</td><td>5.3</td><td>5.1</td></tr>
+    <tr><td>Supply Line, 3</td><td>73.5</td><td>8.6</td><td>45%</td><td>13.7</td><td>11.2</td></tr>
+    <tr><td>Supply Line, 4</td><td>97.7</td><td>11.8</td><td>46%</td><td>33.3</td><td>23.6</td></tr>
+    <tr><td>Last Stand, all</td><td>70.4</td><td>8.7</td><td>46%</td><td>17.6</td><td>14.1</td></tr>
+  </tbody>
+</table>
+<p><b>Reading the figures.</b> About 45 men in 100 are dug in at the start of a round, because the scripted players hold still about as often as they walk, and three in four of
+the hits that were turned aside (cover or foxhole) fell on a man who was dug in at the round's start. Fewer men go down (about one in ten), and the matches are not otherwise changed:
+income per seat round, win shares and the seat gaps stay within their noise (two players: seat 0 now +0.5 ± 2.6 against the other, win share 0.51 / 0.49; four: win shares 0.21 / 0.24 / 0.27 / 0.28). The scripts do not move out of a foxhole
+for being shot at, which a person would; a human squad that holds a line should be harder to shift than these figures say, and one that rushes should lose nothing.
+Not tuned: whether one extra hit is too much or too little is for people to say.</p>
+<p>The seeded digests are new (<code>src/rules/digest.test.ts</code>, combined <code>29aa3da7c80cd1b4</code> and, for Last Stand, <code>f54edefd5efd695e</code>), and were proved first: with the
+digging switched off and <code>dugIn</code> left out of the digest, all sixty came out as task 23's (<code>b712e4916b5b1407</code> and <code>d4e099948cd03368</code>).
+</p>
+
+<h2>What does not work, or was not looked at</h2>
+<ul>
+  <li>The sandbags were looked at in headless Chromium (WebGL, software rendering) on the small field of Part 1 at one camera framing, and in the manual frame: standing riflemen only.
+  A pinned or down man inside the ring, the other four unit types, a ring on a slope or beside a wall or building, and a phone screen were not looked at (the unit tests check
+  that the ring has eleven bags, stays inside the hex and is low).</li>
+  <li>Leaving the foxhole is instant on the board: the ring is taken off before the first step, with no animation of its own (digging in has one).</li>
+  <li>The play screen was run only through the unit tests of its helpers (<code>ground.test.ts</code>, <code>lines.test.ts</code>) and the bots (the real protocol); the card line (&ldquo;Dug in&rdquo;), the
+  hex description, the chits' tooltip for Move and Dash and the order line were not looked at in a real browser session with a server. Nothing on the phone layout was changed or tried.</li>
+  <li>A dug-in man whom the sniper shoots, or who is shot by a mortar, behaves as the rule says (the sniper ignores the foxhole; the mortar's round is an ordinary hit); the manual has no lesson for either.</li>
+  <li>The report line &ldquo;Dug in: A, B, C.&rdquo; lists every man who dug in that round that the viewer sees, which with a full squad is a long line each round; it is one line, but it is noise. Not changed.</li>
+  <li>The AI players do nothing to use it: no bot holds still on purpose.</li>
+</ul>
+</main>
+
+<script type="module">
+  import { createBoard } from '/src/client/render/index.ts';
+  import { lowpolyKit, loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
+  import { LESSONS, checkLesson, fire, lessonById, move, dash, runLesson, tinyMap } from '/src/manual/lessons.ts';
+  import { eventsOf, viewOf } from '/src/manual/show.ts';
+  import { teller } from '/src/client/ui/lines.ts';
+  import { label } from '/src/shared/hex.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const say = (text, bad = false) => { $('log').innerHTML = text; $('log').classList.toggle('bad', bad); };
+  window.addEventListener('error', (e) => say('Error: ' + esc(e.message), true));
+  window.addEventListener('unhandledrejection', (e) => say('Error: ' + esc(String(e.reason)), true));
+  const open5x7 = (id) => tinyMap({ id, terrain: ['. . . . . . .', ' . . . . . . .', '. . . . . . .', ' . . . . . . .', '. . . . . . .'] });
+  const rifle = (owner, at, extra = {}) => ({ owner, type: 'rifleman', at, ...extra });
+
+  // ---- 1. the board
+  const scene = {
+    id: 'eval-24', group: 'Shooting', title: 'eval', text: 'eval',
+    map: open5x7('eval-24'),
+    units: [rifle(0, 'B2'), rifle(0, 'B4'), rifle(1, 'G2'), rifle(1, 'G4')],
+    rounds: [
+      [[], [move('1-0', 'F2', 'E2'), move('1-1', 'F4', 'E4')]],
+      [[move('0-0', 'C2')], [fire('1-0', 'B2'), fire('1-1', 'B4')]],
+    ],
+    viewAs: 'umpire', fogMatters: false, expect: [],
+  };
+  const run = runLesson(scene);
+  const stagedAt = (i) => viewOf(run.states[i], 'umpire');
+  let board = null, step = 0, playing = false;
+
+  function table() {
+    const rows = run.states.map((s, i) => {
+      const cells = s.units.map((u) => `<td>${label(u.pos)}, ${u.status}, <b class="${u.dugIn ? 'ok' : ''}">${u.dugIn ? 'dug in' : 'not dug in'}</b></td>`).join('');
+      return `<tr><th>${i === 0 ? 'start' : `after round ${i}`}</th>${cells}</tr>`;
+    });
+    $('state-table').innerHTML = `<table class="t"><caption>The real states, read from <code>resolve</code>'s output.</caption><thead><tr><th></th>${run.states[0].units.map((u) => `<th>${u.id} (${u.owner === 0 ? 'Blue' : 'Plum'})</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  }
+  function bar() {
+    const b = $('bar'); b.replaceChildren();
+    const add = (text, id, fn, off = false) => {
+      const x = document.createElement('button'); x.textContent = text; x.id = id; x.disabled = off || playing; x.addEventListener('click', fn); b.append(x);
+    };
+    add('Play round 1', 'r1', () => play(1), step !== 0);
+    add('Play round 2', 'r2', () => play(2), step !== 1);
+    add('Reset', 'reset', () => { step = 0; board.setView(stagedAt(0)); bar(); say('Back at the start: nobody is dug in.'); });
+  }
+  async function play(n) {
+    if (playing || step !== n - 1) return;
+    playing = true; bar();
+    const events = eventsOf(run.results[n - 1], 'umpire');
+    const t = teller(stagedAt(n - 1), ['Blue', 'Plum']);
+    say(`Round ${n}: playing ${events.length} events...`);
+    const t0 = performance.now();
+    await board.play(events);
+    board.setView(stagedAt(n));
+    step = n; playing = false; bar();
+    const lines = t.tell(events).map((l) => esc(l.text)).join('<br>');
+    say(`<b>Round ${n}</b> played in ${((performance.now() - t0) / 1000).toFixed(1)} s, and the board then took the next view: ${events.filter((e) => e.t === 'dig').length} <code>dig</code> event(s), `
+      + `${run.states[n].units.filter((u) => u.dugIn).length} man/men dug in.<br><small>${lines}</small>`);
+  }
+  async function start() {
+    await loadKitFonts();
+    const canvas = document.createElement('canvas');
+    $('stage').replaceChildren(canvas);
+    board = createBoard(canvas, lowpolyKit());
+    board.resize();
+    board.setView(stagedAt(0));
+    board.focus({ q: 2, r: 2 });
+    // The board's own wheel handler: right out to the whole field first, then in by a factor (as eval 07 does).
+    const wheel = (factor) => canvas.dispatchEvent(new WheelEvent('wheel', {
+      clientX: canvas.clientWidth / 2, clientY: canvas.clientHeight / 2, deltaY: -Math.log(factor) / 0.0015, bubbles: true, cancelable: true,
+    }));
+    wheel(0.01);
+    board.focus({ q: 2, r: 2 });
+    wheel(Number(new URLSearchParams(location.search).get('zoom')) || 1.2);
+    window.dawn = { board, play, run, stagedAt };
+    table(); bar();
+    say('Ready. Nobody is dug in yet. Press Play round 1.');
+  }
+  start().catch((e) => say('Error starting the board: ' + esc(e.stack ?? e), true));
+
+  // ---- 2. the hit rule
+  {
+    const groundOf = { open: '.', building: 'b', wall: '=', woods: 'w' };
+    const shots = (ground, dug, snipers, riflemen) => {
+      // Five rows; the man stands on C2, the third hex of the second row, on the ground named; the shooters are within range of it.
+      const map = tinyMap({ id: `hit-${ground}`, terrain: ['. . . . . . .', ` . . ${groundOf[ground]} . . . .`, '. . . . . . .', ' . . . . . . .', '. . . . . . .'] });
+      const units = [{ owner: 1, type: 'rifleman', at: 'C2', dugIn: dug }];
+      const orders = [];
+      const spots = ['A1', 'A3', 'B1', 'B3', 'A2', 'B2'];
+      let i = 0;
+      for (let k = 0; k < snipers; k++) { units.push({ owner: 0, type: 'sniper', at: spots[i++] }); orders.push(fire(`0-${units.length - 2}`, 'C2')); }
+      for (let k = 0; k < riflemen; k++) { units.push({ owner: 0, type: 'rifleman', at: spots[i++] }); orders.push(fire(`0-${units.length - 2}`, 'C2')); }
+      const lesson = { id: 'x', group: 'Shooting', title: 'x', text: 'x', map, units, rounds: [[orders, []]], viewAs: 'umpire', fogMatters: false, expect: [] };
+      const out = runLesson(lesson).results[0].events.filter((e) => e.t === 'hit').map((e) => e.result);
+      return out.join(', ') || '—';
+    };
+    const rows = [];
+    for (const [ground, dug] of [['open', false], ['open', true], ['building', false], ['building', true], ['wall', true], ['woods', true]]) {
+      rows.push(`<tr><td>${ground}</td><td>${dug ? 'dug in' : 'not'}</td>` + [1, 2, 3, 4].map((n) => `<td>${shots(ground, dug, 0, n)}</td>`).join('') + `<td>${shots(ground, dug, 1, 2)}</td></tr>`);
+    }
+    $('hit-table').innerHTML = `<table class="t"><caption>The same man, the same shots.</caption><thead><tr><th>ground</th><th>foxhole</th><th>1 rifle</th><th>2 rifles</th><th>3 rifles</th><th>4 rifles</th><th>a sniper, then 2 rifles</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  }
+
+  // ---- 3. giving it up
+  {
+    // The man of Plum stands dug in on C2; Blue's riflemen are on A1, A3 and B3, all within range.
+    const cases = [
+      ['holds still, one shot', 1, [], {}],
+      ['takes one step, one shot', 1, [move('1-0', 'D2')], {}],
+      ['dashes two hexes, one shot', 1, [dash('1-0', 'D2', 'E2')], {}],
+      ['is pinned and is ordered to move, one shot', 1, [move('1-0', 'D2')], { status: 'pinned' }],
+      ['holds still, three shots', 3, [], {}],
+    ];
+    const rows = cases.map(([name, shotsAt, orders, extra]) => {
+      const units = [rifle(1, 'C2', { dugIn: true, ...extra }), rifle(0, 'A1'), rifle(0, 'A3'), rifle(0, 'B3')];
+      const blue = ['0-0', '0-1', '0-2'].slice(0, shotsAt).map((id) => fire(id, 'C2'));
+      const lesson = { id: 'x', group: 'Shooting', title: 'x', text: 'x', map: open5x7('give'), units, rounds: [[blue, orders]], viewAs: 'umpire', fogMatters: false, expect: [] };
+      const r = runLesson(lesson);
+      const man = r.states[1].units.find((u) => u.id === '1-0');
+      const hits = r.results[0].events.filter((e) => e.t === 'hit').map((e) => e.result).join(', ') || 'no hits';
+      return `<tr><td>The man dug in at C2 ${name}</td><td>${esc(hits)}</td><td>${label(man.pos)}, ${man.status}</td><td><b class="${man.dugIn ? 'ok' : ''}">${man.dugIn ? 'yes' : 'no'}</b></td><td>${r.results[0].events.filter((e) => e.t === 'dig').length}</td></tr>`;
+    });
+    $('give-table').innerHTML = `<table class="t"><thead><tr><th>case</th><th>shots at him</th><th>he ends</th><th>dug in after</th><th>digs</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+  }
+
+  // ---- 4. the lesson
+  {
+    const box = document.createElement('div'); box.className = 'frame';
+    const cap = document.createElement('span'); cap.textContent = lessonById('dig-in')?.title ?? 'dig-in';
+    const f = document.createElement('iframe'); f.width = 760; f.height = 620; f.title = 'manual dig-in'; f.src = '/?manual=dig-in';
+    box.append(cap, f); $('lesson-frames').append(box);
+    const l = lessonById('dig-in');
+    const failed = checkLesson(l, runLesson(l));
+    const all = LESSONS.map((x) => [x.id, checkLesson(x, runLesson(x))]).filter(([, bad]) => bad.length > 0);
+    $('lesson-table').innerHTML = `<table class="t"><caption>${LESSONS.length} lessons in the manual; ${LESSONS.length - all.length} hold${all.length ? `, failing: ${all.map(([id]) => id).join(', ')}` : ' (all of them)'}.</caption>
+      <thead><tr><th>id</th><th>title</th><th>text</th><th>rounds</th><th>checkLesson</th></tr></thead>
+      <tbody><tr><td><code>dig-in</code></td><td>${esc(l.title)}</td><td>${esc(l.text)}</td><td>${l.rounds.length}</td>
+      <td>${failed.length === 0 ? '<span class="ok">holds</span>' : `<span class="no">${failed.map(esc).join(' ')}</span>`}</td></tr></tbody></table>`;
+  }
+</script>
+</body>
+</html>

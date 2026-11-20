@@ -97,6 +97,21 @@ export function within(h: Hex, radius: number): Hex[] {
   return out;
 }
 
+/**
+ * h turned about `centre` by `sixths` sixths of a full turn (60° each),
+ * clockwise on the screen (r grows downwards): E goes to SE. Negative turns
+ * the other way. A true rotation of the grid: it keeps every distance. A
+ * third of a turn (2) is (q, r) -> (-q - r, q) about the centre; a half
+ * turn (3) is (q, r) -> (-q, -r).
+ */
+export function rotate(h: Hex, centre: Hex, sixths: number): Hex {
+  let q = h.q - centre.q;
+  let r = h.r - centre.r;
+  for (let i = 0; i < (((sixths % 6) + 6) % 6); i++) [q, r] = [-r, q + r];
+  // "+ 0" turns -0 into 0, as in `round`.
+  return { q: q + centre.q + 0, r: r + centre.r + 0 };
+}
+
 /** Odd-r offset (odd rows shifted right by half a hex) to axial. */
 export function offsetToAxial(col: number, row: number): Hex {
   return { q: col - (row - (row & 1)) / 2, r: row };

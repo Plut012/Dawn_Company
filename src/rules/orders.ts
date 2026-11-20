@@ -7,9 +7,11 @@
 import { ACTIONS, TERRAIN, UNITS } from '../content';
 import { distance, key, neighbors, within } from '../shared/hex';
 import type {
-  ActionDef, FollowUp, GameMap, GameState, Hex, HexKey, Order, OrderError, OrderKind, PlayerId, PlayerView, Unit, UnitId, UnitTypeId,
+  ActionDef, FollowUp, GameMap, GameState, Hex, HexKey, Order, OrderError, OrderKind, PlayerId, PlayerView, Unit, UnitId, UnitTypeId, WorkId,
 } from '../shared/types';
-import { canSee, visibleHexes } from './sight';
+import { builds, isWork, workProblem } from './works';
+import { moveOf } from './kinds';
+import { canSee, sightOf, visibleHexes } from './sight';
 
 const KINDS: readonly string[] = ['move', 'dash', 'fire', 'ambush', 'special'];
 
@@ -62,13 +64,17 @@ function reachProblem(map: GameMap, from: Hex, action: ActionDef, target: Hex): 
  * What stops this unit using this action on this hex from where it stands, or
  * null if nothing does: `range`, then the action's `sight` rule, then what it
  * `needs` on the target hex. `units` are the units the asker knows of;
- * `visible` is the unit's player's visible hexes.
+ * `visible` is the unit's player's visible hexes; `sight` is how far the unit
+ * sees this round (`sightOf`). The `own` rule is the unit's own eyes: the
+ * target within its sight and a clear line to it. The action's range is not
+ * changed by the light: it only decides how far the unit may reach.
  */
 export function useProblem(
-  map: GameMap, units: Unit[], unit: Unit, action: ActionDef, target: Hex, visible: () => { has(k: HexKey): boolean },
+  map: GameMap, units: Unit[], unit: Unit, action: ActionDef, target: Hex, visible: () => { has(k: HexKey): boolean }, sight: number,
 ): { why: 'range' | 'sight' | 'needs'; reason: string } | null {
   const reach = reachProblem(map, unit.pos, action, target);
   if (reach) return { why: 'range', reason: reach };
+  if (action.sight === 'own' && distance(unit.pos, target) > sight) return { why: 'sight', reason: `the target is beyond his sight (${sight})` };
   if (action.sight === 'own' && !canSee(map, unit.pos, target)) return { why: 'sight', reason: 'no line of sight to the target' };
   if (action.sight === 'squad' && !visible().has(key(target))) return { why: 'sight', reason: 'no friendly unit can see the target' };
   if (action.needs !== 'any') {
@@ -86,23 +92,36 @@ export function useProblem(
  * order, its action is `mobile`, and the target is in range of `end`, the
  * last hex of the path. Sight and `needs` are judged when the move is over.
  */
-function followUpProblem(map: GameMap, unit: Unit, end: Hex, then: FollowUp): string | null {
+function followUpProblem(map: GameMap, unit: Unit, end: Hex, then: FollowUp, works: Record<HexKey, WorkId>): string | null {
   if (typeof then !== 'object' || then === null || (then.kind !== 'fire' && then.kind !== 'special')) return 'the follow-up is not a fire or special order';
   if (!isHex(then.target)) return 'follow-up target is not a hex';
   const action = canTake(unit.type, then.kind) ? actionOf(unit.type, then.kind) : null;
   if (!action) return `this unit cannot be ordered to ${then.kind}`;
   if (!action.mobile) return `this unit cannot ${then.kind} after a move`;
   const reach = reachProblem(map, end, action, then.target);
-  if (!reach) return null;
-  return map.cells[key(then.target)] ? 'follow-up target is out of range from the end of the path' : 'follow-up target is off the map';
+  if (reach) return map.cells[key(then.target)] ? 'follow-up target is out of range from the end of the path' : 'follow-up target is off the map';
+  return buildProblem(map, works, action, then.target, (then as { work?: unknown }).work);
+}
+
+/**
+ * (25) What is wrong with a build as ordered: it must name a work, and the hex must be able to take one. Who will
+ * be standing there and whether the supply is there are judged when it lands. Null for an action that builds nothing.
+ */
+function buildProblem(map: GameMap, works: Record<HexKey, WorkId>, action: ActionDef, target: Hex, work: unknown): string | null {
+  if (!builds(action)) return null;
+  if (work === undefined) return 'a build must name a work';
+  if (!isWork(work)) return 'no such work';
+  return workProblem(map, works, target, work);
 }
 
 /**
  * What is wrong with one order, or null if it is legal. Takes anything: the
- * order may come straight off the network.
+ * order may come straight off the network. `sight` gives a unit's `sightOf`
+ * and `move` its `moveOf` in the round the order is for.
  */
 export function orderProblem(
-  map: GameMap, units: Unit[], player: PlayerId, order: Order, visible: () => { has(k: HexKey): boolean },
+  map: GameMap, units: Unit[], player: PlayerId, order: Order, visible: () => { has(k: HexKey): boolean }, sight: (u: Unit) => number,
+  move: (u: Unit) => number, works: Record<HexKey, WorkId> = {},
 ): string | null {
   if (typeof order !== 'object' || order === null) return 'not an order';
   const unit = units.find((u) => u.id === order.unit);
@@ -114,7 +133,7 @@ export function orderProblem(
   switch (order.kind) {
     case 'move':
     case 'dash': {
-      const allowance = order.kind === 'dash' ? def.move * 2 : def.move;
+      const allowance = order.kind === 'dash' ? move(unit) * 2 : move(unit);
       const path: unknown = order.path;
       if (!Array.isArray(path) || path.length < 1) return 'path is empty';
       if (path.length > allowance) return `path is longer than ${allowance}`;
@@ -129,13 +148,15 @@ export function orderProblem(
       const then: unknown = (order as { then?: unknown }).then;
       if (then === undefined) return null;
       if (order.kind === 'dash') return 'a dash takes no follow-up';
-      return followUpProblem(map, unit, prev, then as FollowUp);
+      return followUpProblem(map, unit, prev, then as FollowUp, works);
     }
     case 'fire':
     case 'special': {
       if (!isHex(order.target)) return 'target is not a hex';
       const action = actionOf(unit.type, order.kind);
-      return action ? useProblem(map, units, unit, action, order.target, visible)?.reason ?? null : `this unit cannot be ordered to ${order.kind}`;
+      if (!action) return `this unit cannot be ordered to ${order.kind}`;
+      return useProblem(map, units, unit, action, order.target, visible, sight(unit))?.reason
+        ?? buildProblem(map, works, action, order.target, (order as { work?: unknown }).work);
     }
     case 'ambush':
       return null;
@@ -151,7 +172,7 @@ export function validateOrders(state: GameState, player: PlayerId, orders: Order
   const ordered = new Set<UnitId>();
   for (const order of orders) {
     const id = typeof order === 'object' && order !== null && typeof order.unit === 'string' ? order.unit : null;
-    let reason = state.over ? 'the match is over' : orderProblem(state.map, state.units, player, order, visible);
+    let reason = state.over ? 'the match is over' : orderProblem(state.map, state.units, player, order, visible, (u) => sightOf(state, u), (u) => moveOf(state, u), state.works);
     if (!reason && id !== null && ordered.has(id)) reason = 'more than one order for this unit';
     if (id !== null) ordered.add(id);
     if (reason) errors.push({ unit: id, reason });
@@ -234,12 +255,14 @@ export function orderOptions(view: PlayerView, unit: UnitId): {
   const targets = (k: 'fire' | 'special'): HexKey[] => {
     const action = can(k) ? actionOf(u.type, k) : null;
     if (!action) return [];
-    return within(u.pos, action.range).filter((h) => useProblem(view.map, view.units, u, action, h, () => visible) === null).map(key);
+    const sight = sightOf(view, u);
+    return within(u.pos, action.range).filter((h) => useProblem(view.map, view.units, u, action, h, () => visible, sight) === null
+      && buildable(view, action, h)).map(key);
   };
   return {
     kinds: def.orders.filter(can),
-    move: can('move') ? reachable(view.map, u.pos, def.move) : [],
-    dash: can('dash') ? reachable(view.map, u.pos, def.move * 2) : [],
+    move: can('move') ? reachable(view.map, u.pos, moveOf(view, u)) : [],
+    dash: can('dash') ? reachable(view.map, u.pos, moveOf(view, u) * 2) : [],
     fire: targets('fire'),
     special: targets('special'),
   };
@@ -257,7 +280,12 @@ export function followUpOptions(view: PlayerView, unit: UnitId, end: Hex): { fir
   const targets = (k: 'fire' | 'special'): HexKey[] => {
     const action = canTake(u.type, k) ? actionOf(u.type, k) : null;
     if (!action || !action.mobile) return [];
-    return within(end, action.range).filter((h) => reachProblem(view.map, end, action, h) === null).map(key);
+    return within(end, action.range).filter((h) => reachProblem(view.map, end, action, h) === null && buildable(view, action, h)).map(key);
   };
   return { fire: targets('fire'), special: targets('special') };
+}
+
+/** (25) For a build, may some work go on this hex as far as ordering can tell? True for an action that builds nothing. */
+function buildable(view: PlayerView, action: ActionDef, h: Hex): boolean {
+  return !builds(action) || workProblem(view.map, view.works ?? {}, h, 'sandbags') === null;
 }

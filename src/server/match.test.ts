@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PRESETS } from '../content';
+import { PRESETS, mapFor } from '../content';
 import { createMatch, findPath, orderOptions, resolve, viewFor } from '../rules';
 import type { ServerMsg } from '../shared/protocol';
 import type { Order, PlayerView } from '../shared/types';
@@ -62,7 +62,7 @@ describe('joining', () => {
     const { room } = setup();
     const a = join(room, 1, 'Ann');
     const b = join(room, 2, 'Bob');
-    expect(got(a, 1, 'welcome')[0]).toMatchObject({ seat: 0, host: true, token: 'tok0', mapId: 'crossroads' });
+    expect(got(a, 1, 'welcome')[0]).toMatchObject({ seat: 0, host: true, token: 'tok0', mapId: 'ford' });
     expect(got(b, 2, 'welcome')[0]).toMatchObject({ seat: 1, host: false, token: 'tok1' });
     expect(got(b, 2, 'lobby')[0].seats.map((s) => s.name)).toEqual(['Ann', 'Bob']);
     expect(got(b, 1, 'lobby')).toHaveLength(1);              // Ann is told about Bob
@@ -166,7 +166,7 @@ describe('squads, ready and start', () => {
   it('start writes a log whose first line has the map, names, tokens and squads', () => {
     const { logs } = started(2);
     expect(logs).toHaveLength(1);
-    expect(logs[0][0]).toMatchObject({ t: 'start', map: 'crossroads' });
+    expect(logs[0][0]).toMatchObject({ t: 'start', map: 'ford' });
     const first = logs[0][0] as Extract<LogLine, { t: 'start' }>;
     expect(first.seats.map((s) => [s.name, s.token])).toEqual([['P1', 'tok0'], ['P2', 'tok1']]);
     expect(first.seats[0].squad).toEqual(PRESETS[0].units);
@@ -575,5 +575,188 @@ describe('resume', () => {
     expect(r.state).toEqual(s.room.state);
     expect(() => Room.resume([], opts, () => {})).toThrow();
     expect(() => Room.resume([s.logs[0][0], s.logs[0][2]], opts, () => {})).toThrow();
+  });
+});
+
+describe('modes', () => {
+  const noMortar = PRESETS.find((p) => !p.units.includes('mortar'))!.units;
+  const withMortar = PRESETS.find((p) => p.units.includes('mortar'))!.units;
+
+  it('the lobby starts in supply-line, and every lobby message carries the mode', () => {
+    const { room } = setup();
+    const a = join(room, 1, 'Ann');
+    expect(got(a, 1, 'lobby')[0].mode).toBe('supply-line');
+    const b = join(room, 2, 'Bob');
+    expect(got(b, 2, 'lobby')[0].mode).toBe('supply-line');
+    expect(got(b, 1, 'lobby')[0].mode).toBe('supply-line');
+  });
+
+  it('only the host sets the mode; it reaches every seat and clears every ready', () => {
+    const { room } = setup();
+    join(room, 1); join(room, 2);
+    room.handle(1, { t: 'ready', ready: true });
+    room.handle(2, { t: 'ready', ready: true });
+    const refused = room.handle(2, { t: 'mode', mode: 'last-stand' });
+    expect(got(refused, 2, 'error')[0].message).toMatch(/host/i);
+    expect(got(refused, 1, 'lobby')).toHaveLength(0);
+    const outs = room.handle(1, { t: 'mode', mode: 'last-stand' });
+    for (const c of [1, 2]) {
+      const l = got(outs, c, 'lobby')[0];
+      expect(l.mode).toBe('last-stand');
+      expect(l.seats.map((s) => s.ready)).toEqual([false, false]);
+    }
+    expect(got(join(room, 3, 'Cy'), 3, 'lobby')[0].mode).toBe('last-stand');       // a newcomer is told
+    expect(got(room.handle(1, { t: 'mode', mode: 'nonsense' }), 1, 'error')).toHaveLength(1);
+    expect(parseClientMsg({ t: 'mode', mode: 5 })).toEqual('A mode is a name.');
+    expect(got(room.handle(1, { t: 'mode', mode: 'nonsense' }), 1, 'lobby')).toHaveLength(0);
+  });
+
+  it('a squad the mode does not allow is kept, cannot ready, and cannot be set; a legal one can', () => {
+    const { room } = setup();
+    join(room, 1); join(room, 2);
+    expect(PRESETS[0].units).toContain('mortar');                // the default squad has a mortar
+    room.handle(1, { t: 'mode', mode: 'last-stand' });
+    const refused = room.handle(1, { t: 'ready', ready: true });
+    expect(got(refused, 1, 'error')[0].message).toMatch(/Last Stand has no mortar/);
+    expect(got(room.handle(1, { t: 'squad', units: withMortar }), 1, 'error')[0].message).toMatch(/no mortar/);
+    expect(got(room.handle(1, { t: 'squad', units: noMortar }), 1, 'lobby')[0].seats[0].ready).toBe(false);
+    expect(got(room.handle(1, { t: 'ready', ready: true }), 1, 'lobby')[0].seats[0].ready).toBe(true);
+    // back to supply-line: the mortar squad is fine again
+    room.handle(1, { t: 'mode', mode: 'supply-line' });
+    expect(got(room.handle(2, { t: 'ready', ready: true }), 2, 'lobby')[0].seats[1].ready).toBe(true);
+  });
+
+  it('start plays the chosen mode on the map for the seats, and logs the mode', () => {
+    const s = setup();
+    for (const c of [1, 2, 3]) join(s.room, c);
+    s.room.handle(1, { t: 'mode', mode: 'last-stand' });
+    for (const c of [1, 2, 3]) { s.room.handle(c, { t: 'squad', units: noMortar }); s.room.handle(c, { t: 'ready', ready: true }); }
+    const outs = s.room.handle(1, { t: 'start' });
+    expect(got(outs, 1, 'plan')[0].view.mode).toBe('last-stand');
+    expect(s.room.state!.mode).toBe('last-stand');
+    expect(s.room.state!.map.id).toBe(mapFor(3).id);
+    expect(s.logs[0][0]).toMatchObject({ t: 'start', mode: 'last-stand', map: 'tripoint' });
+    expect(got(join(s.room, 9, 'x', 'tok1'), 9, 'welcome')[0].mapId).toBe('tripoint');
+  });
+
+  it('changing the mode blocks start until every seat is ready again (and ready needs a squad the mode allows)', () => {
+    const { room } = setup();
+    join(room, 1); join(room, 2);
+    for (const c of [1, 2]) room.handle(c, { t: 'ready', ready: true });    // both ready with mortars, in supply-line
+    // The mode message clears the readies, so the mortar squads cannot be carried into Last Stand: start is refused.
+    room.handle(1, { t: 'mode', mode: 'last-stand' });
+    expect(got(room.handle(1, { t: 'start' }), 1, 'error')[0].message).toMatch(/ready/i);
+    expect(room.currentStage).toBe('lobby');
+  });
+
+  it('the mode is kept across a rematch', () => {
+    const s = setup();
+    for (const c of [1, 2]) join(s.room, c);
+    s.room.handle(1, { t: 'mode', mode: 'last-stand' });
+    for (const c of [1, 2]) { s.room.handle(c, { t: 'squad', units: noMortar }); s.room.handle(c, { t: 'ready', ready: true }); }
+    s.room.handle(1, { t: 'start' });
+    for (let i = 0; i < 40 && s.room.currentStage === 'playing'; i++) for (const c of [1, 2]) s.room.handle(c, { t: 'orders', orders: [] });
+    expect(s.room.currentStage).toBe('over');
+    expect(got(s.room.handle(1, { t: 'rematch' }), 2, 'lobby')[0].mode).toBe('last-stand');
+    expect(got(s.room.handle(1, { t: 'mode', mode: 'supply-line' }), 1, 'error')).toHaveLength(0);
+  });
+
+  it('the mode only changes in the lobby', () => {
+    const { room } = started(2);
+    expect(got(room.handle(1, { t: 'mode', mode: 'last-stand' }), 1, 'error')).toHaveLength(1);
+    expect(room.state!.mode).toBe('supply-line');
+  });
+
+  it('resume: a log with a mode replays in it; a log without one is a supply-line match', () => {
+    const s = setup();
+    for (const c of [1, 2]) join(s.room, c);
+    s.room.handle(1, { t: 'mode', mode: 'last-stand' });
+    for (const c of [1, 2]) { s.room.handle(c, { t: 'squad', units: noMortar }); s.room.handle(c, { t: 'ready', ready: true }); }
+    s.room.handle(1, { t: 'start' });
+    for (const c of [1, 2]) s.room.handle(c, { t: 'orders', orders: [] });
+    const opts = { timerSec: 0, now: () => 0, makeToken: () => 'x' };
+    const resumed = Room.resume(s.logs[0], opts, () => {});
+    expect(resumed.state!.mode).toBe('last-stand');
+    expect(resumed.state).toEqual(s.room.state);
+
+    const old = started(2);
+    for (const c of [1, 2]) old.room.handle(c, { t: 'orders', orders: [] });
+    const [start, ...rest] = old.logs[0];
+    const { mode: _drop, ...bare } = start as Extract<LogLine, { t: 'start' }>;
+    expect('mode' in bare).toBe(false);
+    const legacy = Room.resume([bare, ...rest], opts, () => {});
+    expect(legacy.state!.mode).toBe('supply-line');
+    expect(legacy.state).toEqual(old.room.state);
+    // and a resumed room is back in the lobby with that mode after a rematch
+    for (let i = 0; i < 40 && legacy.currentStage === 'playing'; i++) for (const c of [1, 2]) { legacy.handle(c, { t: 'join', name: 'x', token: `tok${c - 1}` }); legacy.handle(c, { t: 'orders', orders: [] }); }
+    expect(legacy.currentStage).toBe('over');
+    expect(got(legacy.handle(1, { t: 'rematch' }), 1, 'lobby')[0].mode).toBe('supply-line');
+  });
+});
+
+describe('purchases (18)', () => {
+  /** A started two-seat match in which seat 0's first man is down and due back in three rounds, with supply to spend. */
+  function withADownedMan(supply = 20, timerSec = 0) {
+    const s = started(2, timerSec);
+    const g = s.room.state!;
+    // The room's state is plain data; laying a man down by hand stands in for the rounds of fire it would take.
+    Object.assign(g.units.find((u) => u.id === '0-0')!, { status: 'down', returnRound: 4 });
+    g.scores[0] = supply;
+    return s;
+  }
+  const buy = [{ kind: 'return' as const, unit: '0-0' }];
+
+  it('orders and drafts may carry purchases; parseClientMsg keeps them, or a short empty list', () => {
+    expect(parseClientMsg({ t: 'orders', orders: [], purchases: buy })).toEqual({ t: 'orders', orders: [], purchases: buy });
+    expect(parseClientMsg({ t: 'draft', orders: [] })).toEqual({ t: 'draft', orders: [], purchases: [] });
+    expect(typeof parseClientMsg({ t: 'draft', orders: [], purchases: 'x' })).toBe('string');
+    expect(typeof parseClientMsg({ t: 'orders', orders: [], purchases: Array(99).fill(buy[0]) })).toBe('string');
+  });
+
+  it('a held buy-back runs at the bell: paid, told to both seats, and he is back at the HQ', () => {
+    const { room, advance, logs } = withADownedMan(20, 30);
+    expect(room.handle(1, { t: 'draft', orders: [], purchases: buy })).toEqual([]);
+    advance(30_000);
+    const fired = room.tick();
+    const cost = 2 * 6;     // a rifleman at six times his cost (22)
+    for (const c of [1, 2]) expect(got(fired, c, 'resolve')[0].events.filter((e) => e.t === 'purchase')).toEqual([{ t: 'purchase', player: 0, unit: '0-0', cost }]);
+    expect(got(fired, 1, 'resolve')[0].events.some((e) => e.t === 'return' && e.unit === '0-0')).toBe(true);
+    const view = got(fired, 1, 'resolve')[0].view;
+    expect(view.units.find((u) => u.id === '0-0')).toMatchObject({ status: 'ready', returnRound: null });
+    expect(got(fired, 2, 'resolve')[0].view.scores[0]).toBe(20 + 1 - cost);      // the HQ earned 1
+    expect(logs[0][1]).toMatchObject({ t: 'round', round: 1, purchases: [buy, []] });
+  });
+
+  it('a bad purchase rejects the orders it came with; a bad draft is dropped whole, orders and purchases together', () => {
+    const { room, outs } = withADownedMan(3);       // 8 needed
+    const orders = someMove(got(outs, 1, 'plan')[0].view);
+    const rej = room.handle(1, { t: 'orders', orders, purchases: buy });
+    expect(got(rej, 1, 'rejected')[0].errors).toEqual([{ unit: '0-0', reason: 'not enough supply' }]);
+    room.handle(1, { t: 'draft', orders, purchases: [] });
+    room.handle(1, { t: 'draft', orders: [], purchases: buy });       // unaffordable: the whole draft is dropped
+    room.disconnect(1);
+    const back = got(join(room, 8, 'x', 'tok0'), 8, 'plan')[0];
+    expect(back.orders).toEqual(orders);
+    expect(back.purchases).toEqual([]);
+  });
+
+  it('reconnect returns the held purchases with the orders; a new round starts with none', () => {
+    const { room, outs } = withADownedMan();
+    expect(got(outs, 1, 'plan')[0].purchases).toBeNull();
+    room.handle(1, { t: 'draft', orders: [], purchases: buy });
+    room.disconnect(1);
+    expect(got(join(room, 8, 'x', 'tok0'), 8, 'plan')[0].purchases).toEqual(buy);
+    room.handle(8, { t: 'orders', orders: [], purchases: buy });
+    room.handle(2, { t: 'orders', orders: [] });
+    room.disconnect(8);
+    expect(got(join(room, 9, 'x', 'tok0'), 9, 'plan')[0]).toMatchObject({ orders: null, purchases: null });
+  });
+
+  it('resume replays the purchases in the log; a round line without them buys nothing', () => {
+    const s = started(2);
+    const start = s.logs[0][0];
+    const room = Room.resume([start, { t: 'round', round: 1, orders: [[], []] }, { t: 'round', round: 2, orders: [[], []], purchases: [[], []] }],
+      { timerSec: 0, now: () => 0, makeToken: () => 't' }, () => undefined);
+    expect(room.state!.round).toBe(3);
   });
 });

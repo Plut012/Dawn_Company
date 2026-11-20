@@ -1,10 +1,10 @@
 // Squad-builder arithmetic: pure, so it can be tested without a DOM.
 
-import { RULES, UNITS, validateSquad } from '../../content';
+import { DEFAULT_MODE, MODES, RULES, UNITS, validateSquad } from '../../content';
 import { actionOf } from '../../rules';
-import type { UnitTypeId } from '../../shared/types';
+import type { ModeId, UnitTypeId } from '../../shared/types';
 
-export type RowState = 'idle' | 'at-limit' | 'unaffordable';
+export type RowState = 'idle' | 'at-limit' | 'unaffordable' | 'barred';
 
 export interface RosterRow {
   count: number;
@@ -19,7 +19,13 @@ export function spent(squad: UnitTypeId[]): number {
   return validateSquad(squad).cost;
 }
 
-export function rosterRow(squad: UnitTypeId[], id: UnitTypeId): RosterRow {
+/** Why the mode keeps this unit out ("Last Stand has no mortar."), or null when it is allowed. */
+export function barredReason(id: UnitTypeId, mode: ModeId = DEFAULT_MODE): string | null {
+  const m = MODES[mode];
+  return m?.units && !m.units.includes(id) ? `${m.name} has no ${id}.` : null;
+}
+
+export function rosterRow(squad: UnitTypeId[], id: UnitTypeId, mode: ModeId = DEFAULT_MODE): RosterRow {
   const def = UNITS[id];
   const count = squad.filter((u) => u === id).length;
   const left = RULES.budget - spent(squad);
@@ -29,7 +35,11 @@ export function rosterRow(squad: UnitTypeId[], id: UnitTypeId): RosterRow {
   const base = `${def.cost} PTS EA`;
   let state: RowState = 'idle';
   let caption = base;
-  if (atMax || full || left <= 0) {
+  if (barredReason(id, mode)) {
+    // Not a limit of the squad but of the mode: the unit cannot be added at all. Those already in the squad can still be taken out.
+    state = 'barred';
+    caption = `${base} · BARRED`;
+  } else if (atMax || full || left <= 0) {
     // A spent budget is a limit, not a warning: Rust is for a unit that is nearly, but not quite, affordable.
     state = 'at-limit';
     caption = atMax ? `${base} · MAX ${def.max}` : full ? `${base} · FULL` : `${base} · 0 LEFT`;

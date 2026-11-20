@@ -5,7 +5,7 @@
 // must come with new ones, on purpose. `npx tsx scripts/seeded.ts` prints them.
 
 import { describe, expect, it } from 'vitest';
-import { ADDED_FIELDS, SEEDS, digestAll, playSeeded } from '../../scripts/seeded';
+import { ADDED_FIELDS, LAST_STAND_SEEDS, SEEDS, digestAll, playSeeded } from '../../scripts/seeded';
 
 // History. Task 12, stage A (actions as data) was proved against the digests of the engine before it:
 // all fifty were identical, combined digest 4c64e70ddfead1ba, with only the new `action` field of events
@@ -20,19 +20,61 @@ import { ADDED_FIELDS, SEEDS, digestAll, playSeeded } from '../../scripts/seeded
 // Task 15 (the 17 x 13 crossroads, nine objectives, a budget of 20, new presets, 15 rounds) changed the map and the
 // squads the script deals, so the digests were recorded afresh on 2026-11-18 (previous combined digest 3c1e3225e5894ac1).
 // No rule was touched: the same fifty seeds, the same script and the same rules on a different board.
+// Task 16 (objectives are areas with flags, captured at the round's end and kept; an HQ per start zone) changed the
+// score rule, the map's objectives and the script's aim (towards an area) on purpose; digests recorded afresh on
+// 2026-11-19 (previous combined digest faf0a799ba01b3ec).
+// Task 17 (modes) added `mode` to the match state and nothing else: with that one field left out of the digest all
+// fifty came out as they were (combined 5df7156c98b24077); with it in, as below, they are new for that reason alone.
+// Task 18 (Supply Line: the downed come back at their HQ, buy-backs, a cut line) changed the rules and the script (it
+// now buys men back) on purpose; digests recorded afresh on 2026-11-19. Proved first: with Supply Line's `returns`
+// set to null and the new `returnRound` field left out, all fifty came out as task 17's (combined 4a2239d8f44bb99e).
+// Task 19 (the rising sun: sight is the type's plus `SUN` of the round, at least 1; an action's `own` sight rule is now
+// the unit's own sight, not only its line; the round's last sync runs in the next round's light) changed the rules on
+// purpose; digests recorded afresh on 2026-11-19 (previous combined digest 690a10fd3df52124). Proved first: with
+// `SUN = [0]` all fifty came out as task 18's.
+// Task 20 (Last Stand: no supply, down is final, the last squad standing wins) changed nothing in Supply Line: the
+// fifty digests below are task 19's, unmoved (combined 3fbfda4ab7a264ee), and the new ten are Last Stand's own, seeds
+// 2001 to 2010, recorded on 2026-11-19.
+// Task 21 (objective kinds: a held hill adds sight, a crossroads move, a village and a depot supply, a depot rallies)
+// changed the rules and the script (its moves use `moveOf`) on purpose; both sets recorded afresh on 2026-11-19.
+// Proved first: with every kind's numbers set back to 0 and `rally` false, both came out as before (combined
+// 3fbfda4ab7a264ee and f9d6449ab8066436).
+// Task 22 (`ford` for two; `crossroads` redrawn with walled hamlets, a stream and two crossroads; a buy-back of 6 times
+// the cost; the script heads for an objective by walking steps, ties at random) changed the maps, a number and the
+// script on purpose; both sets recorded afresh on 2026-11-19 (previous combined digests cbd529f927b92b68 and
+// 5e40c93ec65eea3e). No rule was touched.
+// Task 23 (`tripoint`, the triangle, is the map for three; `crossroads` keeps only its layout for four) changed the map
+// of the three-player seeds and nothing else: every two- and four-player digest below is task 22's, unmoved, and every
+// three-player one is new; recorded 2026-11-19 (previous combined digests df00bbae7b6b4eed and c5ee0201fe8d473e).
+// Task 24 (dig in: a man who held still a whole round is dug in until his first step, and ignores one more hit a
+// round) changed the rules and the state on purpose (`dugIn`, a `dig` event); both sets recorded afresh on 2026-11-19
+// (previous combined digests b712e4916b5b1407 and d4e099948cd03368). Proved first: with the digging switched off and
+// `dugIn` left out of the digest, all sixty came out as task 23's.
+// Task 25 (the engineer and works: a `build` special, paid from supply in the score phase, a work is terrain on the
+// match's own copy of the map) added `works` to the match state, an engineer to the roster and a fourth preset, the
+// Pioneer section, which the script deals (it builds now and then); both sets recorded afresh on 2026-11-19 (previous
+// combined digests 29aa3da7c80cd1b4 and f54edefd5efd695e). Proved first: with only `works` added and left out of the
+// digest, all sixty came out as task 24's; and with the engineer and the preset in, the ten Last Stand matches still
+// did (Last Stand deals no preset with an engineer), so they are new for the `works: {}` in their final state alone.
 const PINNED = [
-  '1001:b57c8d9f8fb6d066', '1002:55cc64679983b0d7', '1003:834ef735fe34f63b', '1004:1d5d762e97876bd8', '1005:ed15ad6a0786e32e',
-  '1006:e0fbc303ad070238', '1007:75d8bac24942bb7e', '1008:7c017f1e63fe7b77', '1009:1b7df96db9374c24', '1010:93e8f67d6d2c16e9',
-  '1011:93aca5e5a7304e8e', '1012:b3660d2b856e6198', '1013:8aefde32d2a9567d', '1014:e40757ce136a3e25', '1015:18874be6b0cb5b7f',
-  '1016:0d8438fa51b103bb', '1017:f8f3504d1222abfd', '1018:116d2774b1e32300', '1019:76539ed9f9b4ba79', '1020:e2dd7c75b09dcee4',
-  '1021:44a4109c83abe319', '1022:9a8e7eed6dd2d332', '1023:8756f1d45f62c1c5', '1024:791f0804334e301a', '1025:2a446ea530366ed1',
-  '1026:10538da04751f314', '1027:9661d14a8d010af0', '1028:60aad6a8864a32a5', '1029:eb1fbbb1bc7eebec', '1030:b97d89584f256192',
-  '1031:ba7b90c3e3b90923', '1032:d1bf87e19353dc9c', '1033:6d3de5222adce22c', '1034:998f1548e159c05c', '1035:03687100303d34b4',
-  '1036:0790d040a99f06b7', '1037:cf74c147cf1e8e14', '1038:81bba788c5ff9a2e', '1039:63c8152307f028f1', '1040:b92fc906b5d282c0',
-  '1041:7371ba0cf97aa736', '1042:ecc95b6f0a252f26', '1043:a8457033ebe836db', '1044:e38d4a9daa877d01', '1045:f850fa7704d99745',
-  '1046:0584291698330886', '1047:315ee558c7c2b96e', '1048:0c12c80fe9f63bcc', '1049:3d4df01e2f9df548', '1050:5746179ea43b4437',
+  '1001:71b410a9eb90fcc5', '1002:942065a76b6fb24a', '1003:e2d5bb00a6d76558', '1004:e60528e121f1825e', '1005:fa32f75e03dee4c0',
+  '1006:55a9e50d48c8c06a', '1007:ef41f0d2e43d1eff', '1008:715df4249e715a31', '1009:e661863ddc18d00c', '1010:cf9f90ae76d8cf91',
+  '1011:499d8e47a03be546', '1012:3b8b5ad44f2a058e', '1013:848638fdc71bddc8', '1014:fbca6a51a0b502cb', '1015:a1b23ae1e2703269',
+  '1016:569af9007f986026', '1017:95c4ec9fc55f8175', '1018:2916e79a51141002', '1019:b8311a08bb727a70', '1020:ae5d8836ef0d0394',
+  '1021:2b91f427819acf16', '1022:aa291d7380c3afb0', '1023:f93b9ecb99e8e896', '1024:1ab0b0638378b93e', '1025:e38eceadc5afaa1e',
+  '1026:7189e9287d921290', '1027:b66da15d16cbfac0', '1028:8cb995d6ab76317a', '1029:d27bb5f4734b685b', '1030:e801fc1e994a3283',
+  '1031:b91e4190fa626760', '1032:5c48320db15252ef', '1033:7cf5020e4fb1bdb8', '1034:5ada7a76e77cd279', '1035:15836eff783261ef',
+  '1036:bb1ed12e6e7a97e2', '1037:18147624041a37a7', '1038:7b147108a8ad8b49', '1039:714487358b42093e', '1040:5e541497672ea1e0',
+  '1041:a0995541aa5838ad', '1042:2c7847374fe9a540', '1043:e6d27117e50fdcf6', '1044:a1b44be90076ef5c', '1045:281cb7cbf0a028ab',
+  '1046:f6b8cc1711ab5ac0', '1047:61bd0d6b1d22a538', '1048:5d97376629ce32e1', '1049:e3a88f42ab9b5978', '1050:27fb9a9043698914',
 ];
-const PINNED_ALL = 'faf0a799ba01b3ec';
+const PINNED_ALL = '014a6d42f746739d';
+
+const PINNED_LAST_STAND = [
+  '2001:752b2e31280e62d7', '2002:e297b5977bbdb676', '2003:ed9f96deb1dbee61', '2004:47b025e18fe56ff2', '2005:f9ae2d2cd4026109',
+  '2006:f708cc75e5ee7944', '2007:3e772f44ecafbaf7', '2008:ec924a2fa912106e', '2009:996b4e4b32ccf704', '2010:3d830597fbd4d420',
+];
+const PINNED_LAST_STAND_ALL = '30a863272d745333';
 
 describe('seeded matches', () => {
   it('fifty seeded matches give the digests on record', () => {
@@ -41,10 +83,20 @@ describe('seeded matches', () => {
     expect(digestAll(played)).toBe(PINNED_ALL);
     // The set must be worth pinning: fights, ambushes, treatment.
     const sum = (f: (m: (typeof played)[number]) => number) => played.reduce((a, m) => a + f(m), 0);
-    expect(sum((m) => m.down)).toBeGreaterThan(100);
+    expect(sum((m) => m.down)).toBeGreaterThan(90);     // 109 since task 22 (100 after task 21, more before it)
     expect(sum((m) => m.ambushes)).toBeGreaterThan(20);
     expect(sum((m) => m.treats)).toBeGreaterThan(5);
   }, 120_000);
+
+  it('ten seeded Last Stand matches give the digests on record', () => {
+    const played = LAST_STAND_SEEDS.map((seed) => playSeeded(seed, true, undefined, 'last-stand'));
+    expect(played.map((m) => `${m.seed}:${m.digest}`)).toEqual(PINNED_LAST_STAND);
+    expect(digestAll(played)).toBe(PINNED_LAST_STAND_ALL);
+    // Worth pinning: men go down for good, and nothing is earned or bought.
+    expect(played.reduce((a, m) => a + m.down, 0)).toBeGreaterThan(50);
+    expect(played.every((m) => m.earned === 0 && m.buyBacks === 0 && m.returns === 0)).toBe(true);
+    expect(played.every((m) => m.winners.length > 0)).toBe(true);
+  }, 60_000);
 
   it('the digest leaves nothing out', () => {
     expect([...ADDED_FIELDS]).toEqual([]);

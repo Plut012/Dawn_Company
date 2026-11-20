@@ -4,13 +4,14 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { lowpolyKit } from './index';
-import { MAPS, DEFAULT_MAP, TERRAIN, UNITS } from '../../../../content';
+import { MAPS, mapFor, TERRAIN, UNITS } from '../../../../content';
 import { hexToPixel, key, parseKey } from '../../../../shared/hex';
 import type { GameEvent, Hex, Unit, UnitStatus } from '../../../../shared/types';
 import type { KitCtx } from '../../kit';
 import type { Mark } from '../../index';
+import { TOKENS } from './parts';
 
-const map = MAPS[DEFAULT_MAP];
+const map = mapFor(4);
 const ctx: KitCtx = {
   scene: new THREE.Scene(),
   hexToWorld(hex: Hex) {
@@ -97,7 +98,7 @@ describe('lowpoly kit', () => {
     const scene = new THREE.Scene();
     kit.environment(scene);
     expect(scene.children.some((c) => (c as THREE.DirectionalLight).isDirectionalLight)).toBe(true);
-    expect(meshes(kit.objective(map.objectives[0]))).toBeGreaterThan(0);
+    expect(meshes(kit.objective(map.objectives[0], null))).toBeGreaterThan(0);
     const fog = kit.fog();
     expect(fog.transparent).toBe(true);
     expect(fog.opacity).toBeCloseTo(0.78);
@@ -110,12 +111,13 @@ describe('lowpoly kit', () => {
     const man = kit.unit('rifleman', 0);
     const peg = kit.unit('tank', 1);
     man.object.position.copy(ctx.hexToWorld(from));
-    scene.add(man.object, peg.object, kit.objective(map.objectives[0]));
+    const marker = kit.objective(map.objectives[0], null);
+    scene.add(man.object, peg.object, marker);
     const stage: KitCtx = { ...ctx, scene, unitObject: (id) => (id === '0-0' ? man.object : id === '1-0' ? peg.object : null) };
     const before = scene.children.length;
     const materials = new Map<THREE.Mesh, unknown>();
     man.object.traverse((o) => { if ((o as THREE.Mesh).isMesh) materials.set(o as THREE.Mesh, (o as THREE.Mesh).material); });
-    const spotted: Unit = { id: '0-0', owner: 0, type: 'rifleman', name: 'x', pos: from, status: 'ready', pinnedRound: null, revealed: false, posture: 'still' };
+    const spotted: Unit = { id: '0-0', owner: 0, type: 'rifleman', name: 'x', pos: from, status: 'ready', pinnedRound: null, revealed: false, posture: 'still', returnRound: null, dugIn: false };
     const events: GameEvent[] = [
       { t: 'phase', phase: 'fire' },
       { t: 'fire', unit: '0-0', from, target: { q: 5, r: 3 }, blast: 0, ambush: false, action: 'rifle' },
@@ -131,6 +133,9 @@ describe('lowpoly kit', () => {
       { t: 'spotted', unit: spotted },
       { t: 'treat', unit: '1-0', target: '0-0', action: 'aid' },
       { t: 'recover', unit: 'nobody' },
+      { t: 'dig', unit: '0-0' },
+      { t: 'dig', unit: 'nobody' },
+      { t: 'dig', unit: '1-0' },      // a unit of unknown type
       // an action this kit has no look for, and one it has never heard of: drawn plain
       { t: 'fire', unit: '0-0', from, target: { q: 5, r: 3 }, blast: 0, ambush: false, action: 'no such action' },
       { t: 'launch', unit: '0-0', from, action: 'no such action' },
@@ -138,11 +143,14 @@ describe('lowpoly kit', () => {
       { t: 'treat', unit: '1-0', target: '0-0', action: 'no such action' },
       { t: 'reveal', unit: '0-0', action: 'no such action' },
       { t: 'reveal', unit: 'nobody', action: 'aid' },
+      { t: 'capture', objective: map.objectives[0].id, player: 1, from: null },
+      { t: 'capture', objective: 'no such objective', player: 0, from: 1 },
       { t: 'score', objective: map.objectives[0].id, player: 0, value: 2 },
       { t: 'score', objective: 'no such objective', player: 0, value: 1 },
       { t: 'eliminated', player: 1 },
       { t: 'over', scores: [1, 0], winners: [0] },
     ];
+    expect(man.setDugIn).toBeTypeOf('function');
     await Promise.all(events.map((e) => kit.effect!(e, stage)));
     expect(scene.children.length).toBe(before);
     for (const [mesh, material] of materials) expect(mesh.material).toBe(material);
@@ -172,6 +180,90 @@ describe('lowpoly kit', () => {
     await kit.effect!({ t: 'lost', unit: '0-0' }, stage);
     expect(man.object.visible).toBe(false);
     expect(scene.children.length).toBe(before);
+  });
+});
+
+describe('the foxhole (24)', () => {
+  // The sandbags are the one child of a unit's object that is a group of eleven meshes and begins hidden.
+  const bagsOf = (object: THREE.Object3D) => object.children.find((c) => c.children.length === 11)!;
+  const kit = lowpolyKit();
+
+  it('shows a ring of eleven sandbags when dug in, none when not', () => {
+    for (const type of ['rifleman', 'gunner', 'sniper', 'mortar', 'medic', 'no such type']) {
+      const man = kit.unit(type, 1);
+      const bags = bagsOf(man.object);
+      expect(bags.visible).toBe(false);
+      man.setDugIn!(true);
+      expect(bags.visible).toBe(true);
+      expect(bags.scale.y).toBe(1);
+      man.setDugIn!(false);
+      expect(bags.visible).toBe(false);
+    }
+  });
+
+  it('keeps the ring inside the hex and low enough to see over', () => {
+    const man = kit.unit('rifleman', 0);
+    man.setDugIn!(true);
+    const box = new THREE.Box3().setFromObject(bagsOf(man.object));
+    expect(Math.max(box.max.x, box.max.z, -box.min.x, -box.min.z)).toBeLessThan(0.866);
+    expect(box.max.y).toBeLessThan(0.3);
+  });
+
+  it('a `dig` effect ends with the ring as `setDugIn(true)` leaves it, and a down man shows none', async () => {
+    const man = kit.unit('rifleman', 0);
+    const scene = new THREE.Scene();
+    scene.add(man.object);
+    const stage: KitCtx = { ...ctx, scene, unitObject: () => man.object };
+    await kit.effect!({ t: 'dig', unit: '0-0' }, stage);
+    const bags = bagsOf(man.object);
+    expect([bags.visible, bags.scale.y]).toEqual([true, 1]);
+    expect(scene.children.length).toBe(1);
+  });
+});
+
+describe('objectives', () => {
+  /** The colours of every flat-coloured mesh in the flag's cloth. */
+  const clothColours = (o: THREE.Object3D) => {
+    const out: string[] = [];
+    (o.userData.sign as THREE.Object3D).traverse((m) => {
+      const mat = (m as THREE.Mesh).material as THREE.MeshBasicMaterial | undefined;
+      if ((m as THREE.Mesh).isMesh && mat?.color) out.push(`#${mat.color.getHexString()}`);
+    });
+    return out;
+  };
+
+  it('washes every hex of the area, each tagged with its hex, and stands a flag on the middle one', () => {
+    const kit = lowpolyKit();
+    const hill = map.objectives.find((o) => o.kind === 'hill')!;
+    const object = kit.objective(hill, null);
+    const tagged = object.children.filter((c) => c.userData.hex);
+    expect(tagged.map((c) => c.userData.hex)).toEqual([...hill.hexes, hill.hexes[1]]);
+    expect(object.userData.flag.userData.hex).toEqual(hill.hexes[1]);
+  });
+
+  it('flies the owner\'s colour with their mark, plain bone for nobody, and an HQ\'s flag taller', () => {
+    const kit = lowpolyKit();
+    const village = map.objectives.find((o) => o.kind === 'village')!;
+    const hq = map.objectives.find((o) => o.kind === 'hq')!;
+    expect(clothColours(kit.objective(village, null))).toEqual([TOKENS.ink, TOKENS.bone].map((c) => c.toLowerCase()));
+    const blue = clothColours(kit.objective(village, 0));
+    expect(blue).toContain(TOKENS.blue.toLowerCase());
+    expect(blue).toContain(TOKENS.paper.toLowerCase());    // the player mark
+    expect(clothColours(kit.objective(village, 1))).toContain(TOKENS.plum.toLowerCase());
+    const height = (o: THREE.Object3D) => (o.userData.sign as THREE.Object3D).position.y;
+    expect(height(kit.objective(hq, 0))).toBeGreaterThan(height(kit.objective(village, 0)));
+  });
+
+  it('turns the cloth over to the new owner on a capture', async () => {
+    const kit = lowpolyKit();
+    const village = map.objectives.find((o) => o.kind === 'village')!;
+    const object = kit.objective(village, 0);
+    const scene = new THREE.Scene();
+    scene.add(object);
+    await kit.effect!({ t: 'capture', objective: village.id, player: 1, from: 0 }, { ...ctx, scene });
+    expect(clothColours(object)).toContain(TOKENS.plum.toLowerCase());
+    expect(clothColours(object)).not.toContain(TOKENS.blue.toLowerCase());
+    expect(scene.children).toEqual([object]);
   });
 });
 

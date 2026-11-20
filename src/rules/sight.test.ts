@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_MAP, MAPS, TERRAIN, UNITS } from '../content';
-import { key } from '../shared/hex';
+import { mapFor, MAPS, SUN, TERRAIN, UNITS } from '../content';
+import { distance, key, parseKey, rotate } from '../shared/hex';
 import type { GameMap, GameState, Hex, PlayerId, Posture, Unit, UnitStatus, UnitTypeId } from '../shared/types';
-import { blockingHex, canSee, hideRange, spots, viewFor, visibleEnemies, visibleHexes } from './index';
+import { blockingHex, canSee, dawnOf, hideRange, sightOf, spots, sunOf, viewFor, visibleEnemies, visibleHexes } from './index';
 
 // ---- hand-built maps: one long row of hexes (q, 0), so lines run straight.
 type Spec = Record<number, string>;   // q -> 'w2' woods at level 2, 'b', '1' open at level 1, ...
@@ -22,12 +22,14 @@ const at = (q: number): Hex => ({ q, r: 0 });
 let nextId = 0;
 function unit(owner: PlayerId, type: UnitTypeId, pos: Hex, extra: Partial<Unit> = {}): Unit {
   const status: UnitStatus = extra.status ?? 'ready';
-  return { id: `${owner}-${nextId++}`, owner, type, name: 'Test', pos, status, pinnedRound: null, revealed: false, posture: 'still', ...extra };
+  return { id: `${owner}-${nextId++}`, owner, type, name: 'Test', pos, status, pinnedRound: null, revealed: false, posture: 'still', returnRound: null, dugIn: false, ...extra };
 }
+// The v1 sight rules are tested in full day (the sun's last entry, 19); the rising sun has its own tests below.
+const FULL_DAY = SUN.length;
 function game(map: GameMap, units: Unit[], extra: Partial<GameState> = {}): GameState {
   return {
-    map, playerCount: 2, units, round: 3, scores: [4, 7], eliminated: [false, false],
-    over: false, winners: [], ...extra,
+    map, playerCount: 2, units, round: FULL_DAY, scores: [4, 7], eliminated: [false, false],
+    flags: {}, mode: 'supply-line', works: {}, over: false, winners: [], ...extra,
   };
 }
 
@@ -88,7 +90,7 @@ describe('canSee: the line rule', () => {
 });
 
 describe('canSee on the real map', () => {
-  const map = MAPS[DEFAULT_MAP];
+  const map = mapFor(4);
   const hexes = Object.keys(map.cells).map((k) => {
     const [q, r] = k.split(',').map(Number);
     return { q, r };
@@ -265,11 +267,11 @@ describe('visibleEnemies', () => {
       }
     });
 
-    it('a unit standing on an objective is hidden by the same rule as anywhere else', () => {
-      const m = { ...strip(16, { 4: 'w' }), objectives: [{ id: 'A', hex: at(4), value: 3 }] };
+    it('a unit standing in an objective\'s area is hidden by the same rule as anywhere else', () => {
+      const m = { ...strip(16, { 4: 'w' }), objectives: [{ id: 'A', kind: 'village', hexes: [at(3), at(4)], value: 3, zone: null }] };
       const s = game(m, [unit(0, 'rifleman', at(0)), unit(1, 'rifleman', at(4))]);
       expect(visibleEnemies(s, 0)).toEqual([]);
-      expect(visibleHexes(s, 0).has(key(at(4)))).toBe(true);     // the objective hex itself is in plain sight
+      expect(visibleHexes(s, 0).has(key(at(4)))).toBe(true);     // the area's hex itself is in plain sight
     });
 
     it('a spotter\'s `spotting` is added to the distance, for that spotter only', () => {
@@ -308,9 +310,10 @@ describe('visibleEnemies', () => {
       expect(hideRange(m, { ...man, posture: 'dashed' })).toBeNull();
       expect(hideRange(m, { ...man, revealed: true })).toBeNull();
       expect(hideRange(m, { ...man, pos: at(6) })).toBeNull();
-      expect(spots(m, near, man)).toBe(true);
-      expect(spots(m, far, man)).toBe(false);
-      expect(spots(m, far, { ...man, posture: 'dashed' })).toBe(true);
+      const s = game(m, []);
+      expect(spots(s, near, man)).toBe(true);
+      expect(spots(s, far, man)).toBe(false);
+      expect(spots(s, far, { ...man, posture: 'dashed' })).toBe(true);
     });
   });
 
@@ -344,7 +347,7 @@ describe('visibleEnemies', () => {
 });
 
 describe('viewFor', () => {
-  const map = MAPS[DEFAULT_MAP];
+  const map = mapFor(4);
 
   it('carries the public facts across and the player’s own units in every status', () => {
     const own = [
@@ -391,7 +394,7 @@ describe('viewFor', () => {
       }
       const state: GameState = {
         map, playerCount: 4, units, round: 2, scores: [1, 2, 3, 4],
-        eliminated: [false, false, false, false], over: false, winners: [],
+        eliminated: [false, false, false, false], flags: {}, mode: 'supply-line', works: {}, over: false, winners: [],
       };
       for (let p = 0; p < 4; p++) {
         const v = viewFor(state, p);
@@ -443,7 +446,7 @@ describe('viewFor', () => {
 });
 
 describe('the real map at the start', () => {
-  const map = MAPS[DEFAULT_MAP];
+  const map = mapFor(4);
 
   it('no spawn hex has a clear line to a spawn hex of another zone', () => {
     for (let a = 0; a < 4; a++) for (let b = a + 1; b < 4; b++) {
@@ -457,13 +460,118 @@ describe('the real map at the start', () => {
     const units: Unit[] = [];
     map.spawns.forEach((zone, z) => zone.forEach((h) => units.push(unit(z, 'sniper', h))));
     const s: GameState = {
-      map, playerCount: 4, units, round: 1, scores: [0, 0, 0, 0],
-      eliminated: [false, false, false, false], over: false, winners: [],
+      map, playerCount: 4, units, round: FULL_DAY, scores: [0, 0, 0, 0],
+      eliminated: [false, false, false, false], flags: {}, mode: 'supply-line', works: {}, over: false, winners: [],
     };
     for (let p = 0; p < 4; p++) {
       expect(visibleEnemies(s, p)).toEqual([]);
       const vis = visibleHexes(s, p);
       for (const h of map.spawns[p]) expect(vis.has(key(h))).toBe(true);
     }
+  });
+});
+
+describe('the rising sun (19)', () => {
+  it('SUN is the curve on record', () => {
+    expect(SUN).toEqual([-3, -3, -2, -2, -1, -1, 0]);
+  });
+
+  it('sightOf: the type\'s sight plus the sun of the round, every round, the last entry from then on', () => {
+    const want: Record<string, number[]> = {     // rounds 1..10
+      rifleman: [3, 3, 4, 4, 5, 5, 6, 6, 6, 6],
+      sniper: [5, 5, 6, 6, 7, 7, 8, 8, 8, 8],
+      mortar: [2, 2, 3, 3, 4, 4, 5, 5, 5, 5],
+    };
+    for (const [type, sights] of Object.entries(want)) {
+      const u = unit(0, type, at(0));
+      expect(sights.map((_, i) => sightOf(game(strip(3), [u], { round: i + 1 }), u)), type).toEqual(sights);
+      for (let r = 1; r <= 10; r++) {
+        expect(sightOf(game(strip(3), [u], { round: r }), u)).toBe(Math.max(1, UNITS[type].sight + SUN[Math.min(r, SUN.length) - 1]));
+      }
+    }
+    expect([1, 2, 3, 7, 8, 15].map(sunOf)).toEqual([-3, -3, -2, 0, 0, 0]);
+  });
+
+  it('sightOf never falls below 1, and an unknown type sees nothing', () => {
+    UNITS.owl = { ...UNITS.rifleman, id: 'owl', sight: 2 };
+    try {
+      const u = unit(0, 'owl', at(0));
+      expect([1, 3, 5, 7].map((round) => sightOf(game(strip(3), [u], { round }), u))).toEqual([1, 1, 1, 2]);
+      const v = visibleHexes(game(strip(6), [u], { round: 1 }), 0);
+      expect([...v].sort()).toEqual(['0,0', '1,0']);
+    } finally {
+      delete UNITS.owl;
+    }
+    expect(sightOf(game(strip(3), [], { round: 1 }), unit(0, 'nobody', at(0)))).toBe(0);
+  });
+
+  it('a rifleman sees hexes to the edge of his reduced sight and no further, round by round', () => {
+    const m = strip(12);
+    for (let round = 1; round <= 8; round++) {
+      const s = game(m, [unit(0, 'rifleman', at(0))], { round });
+      const reach = UNITS.rifleman.sight + SUN[Math.min(round, SUN.length) - 1];
+      const v = visibleHexes(s, 0);
+      expect(v.has(key(at(reach))), `round ${round}`).toBe(true);
+      expect(v.has(key(at(reach + 1))), `round ${round}`).toBe(false);
+    }
+  });
+
+  it('an enemy at the edge of reduced sight is seen; one hex beyond is not', () => {
+    const watcher = unit(0, 'rifleman', at(0));
+    const seen = (round: number, q: number) => visibleEnemies(game(strip(12), [watcher, unit(1, 'rifleman', at(q))], { round }), 0).length === 1;
+    expect([seen(1, 3), seen(1, 4)]).toEqual([true, false]);
+    expect([seen(3, 4), seen(3, 5)]).toEqual([true, false]);
+    expect([seen(7, 6), seen(7, 7)]).toEqual([true, false]);
+    // `spots` agrees: the watcher's own eyes
+    const s = game(strip(12), [], { round: 1 });
+    expect(spots(s, watcher, unit(1, 'rifleman', at(3)))).toBe(true);
+    expect(spots(s, watcher, unit(1, 'rifleman', at(4)))).toBe(false);
+  });
+
+  it('an eliminated player still sees every hex, whatever the light', () => {
+    const s = game(strip(10), [unit(1, 'rifleman', at(9))], { round: 1, eliminated: [true, false] });
+    expect(visibleHexes(s, 0).size).toBe(10);
+    expect(visibleEnemies(s, 0)).toHaveLength(1);
+  });
+
+  it('the view carries the sun and the dawn of the round being planned', () => {
+    const got = [1, 2, 3, 4, 5, 6, 7, 8, 12].map((round) => {
+      const v = viewFor(game(strip(4), [unit(0, 'rifleman', at(0))], { round }), 0);
+      return [v.sun, Math.round(v.dawn * 1000) / 1000];
+    });
+    expect(got).toEqual([[-3, 0], [-3, 0.167], [-2, 0.333], [-2, 0.5], [-1, 0.667], [-1, 0.833], [0, 1], [0, 1], [0, 1]]);
+    expect(dawnOf(1)).toBe(0);
+    expect(dawnOf(SUN.length)).toBe(1);
+  });
+});
+
+describe('tripoint (23): sight under a third of a turn', () => {
+  const map = MAPS.tripoint;
+  const centre = { q: 3, r: 10 };
+  const hexes = Object.keys(map.cells).map(parseKey);
+
+  it('is not exactly the same after the turn, because `line` breaks ties with a fixed nudge: 172 of 9180 hex pairs differ', () => {
+    // Measured, not wanted: a line that runs along hex edges falls on the side the nudge picks, and the turned line on
+    // another. Every such pair is an even distance apart. Pinned so that a change to `line` or to the map shows here.
+    let pairs = 0, differ = 0;
+    for (const a of hexes) for (const b of hexes) {
+      if (key(a) >= key(b)) continue;
+      pairs++;
+      if (canSee(map, a, b) !== canSee(map, rotate(a, centre, 2), rotate(b, centre, 2))) {
+        differ++;
+        expect(distance(a, b) % 2, `${key(a)} ${key(b)}`).toBe(0);
+      }
+    }
+    expect([pairs, differ]).toEqual([9180, 172]);
+  });
+
+  it('with every spawn hex occupied by a sniper at full day, nobody sees an enemy', () => {
+    const units: Unit[] = [];
+    map.spawns.forEach((zone, z) => zone.forEach((h) => units.push(unit(z, 'sniper', h))));
+    const s: GameState = {
+      map, playerCount: 3, units, round: FULL_DAY, scores: [0, 0, 0],
+      eliminated: [false, false, false], flags: {}, mode: 'supply-line', works: {}, over: false, winners: [],
+    };
+    for (let p = 0; p < 3; p++) expect(visibleEnemies(s, p)).toEqual([]);
   });
 });

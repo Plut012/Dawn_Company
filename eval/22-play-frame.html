@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Eval 22 — a map on the play screen</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<link rel="stylesheet" href="/src/client/ui/app.css" />
+</head>
+<body>
+<!-- The same shell as index.html, so the play screen's layout applies unchanged. -->
+<div class="shell">
+  <header class="masthead">
+    <h1>Dawn Squad</h1>
+    <div id="link"></div>
+  </header>
+  <div id="strip"></div>
+  <main id="screen" data-screen="play"></main>
+</div>
+<script type="module">
+  // The real play screen (src/client/ui/screens/play.ts), unchanged, on the first plan of a real match:
+  // `createMatch` on the map named in the URL, with the seats that map is made for. No socket: orders sent
+  // go through the real `validateOrders` and `resolve` (the other seats hold).
+  //
+  //   ?map=ford|crossroads|tripoint   the map (default ford)
+  //   ?seat=N                whose view (default 0)
+  //   ?umpire=1              every hex in sight and every unit shown, so the whole drawing can be seen
+  import { playScreen } from '/src/client/ui/screens/play.ts';
+  import { lamp } from '/src/client/ui/components.ts';
+  import { MAPS, PRESETS } from '/src/content/index.ts';
+  import { createMatch, resolve, validateOrders, viewFor } from '/src/rules/index.ts';
+
+  const params = new URLSearchParams(location.search);
+  const map = MAPS[params.get('map') ?? 'ford'] ?? MAPS.ford;
+  const seat = Number(params.get('seat') ?? 0);
+  const umpire = params.get('umpire') === '1';
+  const players = map.spawns.length;
+  const start = () => createMatch(map, Array.from({ length: players }, (_, player) => ({ player, units: PRESETS[player % PRESETS.length].units })));
+  let state = start();
+  const view = () => {
+    const v = viewFor(state, seat);
+    return umpire ? { ...v, units: state.units.filter((u) => u.status !== 'down'), visible: Object.keys(state.map.cells) } : v;
+  };
+  const seats = (ready) => Array.from({ length: players }, (_, i) => ({ seat: i, name: i === seat ? 'You' : `Seat ${i}`, connected: true, ready: i === seat ? ready : true, out: state.eliminated[i] }));
+
+  const listeners = new Map();
+  const emit = (msg) => setTimeout(() => { for (const cb of listeners.get(msg.t) ?? []) cb(msg); }, 0);
+  const net = {
+    send(msg) {
+      if (msg.t === 'recall') { emit({ t: 'seats', seats: seats(false) }); return; }
+      if (msg.t !== 'orders') return;
+      const errors = validateOrders(state, seat, msg.orders);
+      if (errors.length > 0) { emit({ t: 'rejected', errors }); return; }
+      const r = resolve(state, Array.from({ length: players }, (_, i) => (i === seat ? msg.orders : [])));
+      state = r.state;
+      emit({ t: 'resolve', events: r.playerEvents[seat], view: view(), seats: seats(false), timer: null });
+    },
+    on(t, cb) {
+      if (!listeners.has(t)) listeners.set(t, new Set());
+      listeners.get(t).add(cb);
+      return () => listeners.get(t).delete(cb);
+    },
+    onStatus(cb) { cb(true); },
+  };
+
+  document.getElementById('link').append(lamp(`${map.name}${umpire ? ' · umpire view' : ''}`, 'planning'));
+  const stage = document.getElementById('screen');
+  let unmount = null;
+  const app = {
+    net, seat, host: seat === 0,
+    go() {
+      unmount?.();
+      state = start();
+      app.data = { t: 'plan', view: view(), seats: seats(false), timer: null };
+      unmount = playScreen.mount(stage, app);
+    },
+  };
+  app.data = { t: 'plan', view: view(), seats: seats(false), timer: null };
+  unmount = playScreen.mount(stage, app);
+</script>
+</body>
+</html>

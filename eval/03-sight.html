@@ -113,7 +113,7 @@ with a red cross. Every sight figure on the page comes from the rules functions.
 </div>
 
 <script type="module">
-  import { UNITS, TERRAIN, MAPS, DEFAULT_MAP, RULES } from '/src/content/index.ts';
+  import { UNITS, TERRAIN, MAPS, mapFor, RULES } from '/src/content/index.ts';
   import { key, parseKey, eq, distance, offsetToAxial, label, hexToPixel, pixelToHex, line } from '/src/shared/hex.ts';
   import { canSee, blockingHex, visibleHexes, visibleEnemies, viewFor } from '/src/rules/index.ts';
 
@@ -136,7 +136,7 @@ with a red cross. Every sight figure on the page comes from the rules functions.
     return n;
   };
 
-  const map = MAPS[DEFAULT_MAP];
+  const map = mapFor(4);
   const INK = '#1E2420';
   const FILL = {
     open: ['#B7A77A', '#C6B88E', '#D5C9A4'],

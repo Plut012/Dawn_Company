@@ -45,4 +45,12 @@ export const UNITS: Record<UnitTypeId, UnitDef> = {
     orders: ['move', 'dash', 'special'],
     fire: null, special: 'aid',
   },
+  engineer: {
+    id: 'engineer', name: 'Engineer', rank: 'Spr.',
+    blurb: 'Carries no rifle. Digs, wires and sandbags a hex for supply; whoever holds it after gets the use of it.',
+    cost: 3, max: 2,
+    move: 2, sight: 6, spotting: 0,
+    orders: ['move', 'dash', 'special'],
+    fire: null, special: 'build',
+  },
 };

@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 21 — Objective kinds</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the board, the rules and the manual are the real modules */
+  body { padding: var(--s-3); }
+  main { max-width: 1240px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 90ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  .bar { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; margin: var(--s-2) 0 var(--s-3); }
+  .bar label { display: flex; gap: var(--s-2); align-items: center; }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; min-height: 1.5em; }
+  .bad { border-left-color: var(--rust, #9A4B32); }
+  .stage { position: relative; width: 100%; max-width: 1100px; height: 600px; border: var(--w-frame) solid var(--ink); background: var(--slate); }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  .frames { display: flex; flex-wrap: wrap; gap: var(--s-3); }
+  .frames figure { margin: 0; }
+  .frames iframe { box-sizing: content-box; border: var(--w-frame) solid var(--ink); background: var(--slate); display: block; max-width: 100%; }
+  table.t { border-collapse: collapse; margin: 0 0 var(--s-3); font-size: var(--t-1); }
+  table.t caption { text-align: left; padding: var(--s-1) 0; max-width: 100ch; }
+  table.t th, table.t td { border: var(--w-divider) solid rgba(233,223,198,0.35); padding: 2px 8px; text-align: left; vertical-align: top; }
+  table.t thead th { background: rgba(30,36,32,0.6); }
+  .wrap { overflow-x: auto; max-width: 100%; }
+  .ok { color: var(--amber); font-weight: 700; }
+  .shots { display: flex; flex-wrap: wrap; gap: var(--s-3); }
+  .shots figure { margin: 0; max-width: 360px; }
+  .shots img { width: 100%; border: var(--w-frame) solid var(--ink); display: block; }
+  .shots figcaption { font-size: var(--t-1); }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 21 — Objective kinds</h1>
+<p>Ground gives what it gave in real war. A unit <b>benefits</b> from an objective when it stands on a hex of its area and its owner
+holds the flag: a hill adds its <code>sight</code> to <code>sightOf</code>, a crossroads its <code>move</code> to <code>moveOf</code>
+(from where the unit stands when the round begins; a dash is twice that), a village and a depot add their <code>supply</code> to what
+the flag earns, and a depot <code>rally</code>s a pinned man at the end of the score phase even if he was pinned that round. The
+numbers are <code>OBJECTIVE_KINDS</code> (table below, read live). Only Vite is needed: <code>npx vite --port 5196 --strictPort</code>,
+then <code>http://localhost:5196/eval/21-objective-kinds.html</code>. <code>?obj=D&amp;owner=0&amp;order=move&amp;type=rifleman</code>
+sets the controls.</p>
+<div class="wrap" id="kinds"></div>
+
+<p class="observed" id="caveat"><b>What the implementer saw (2026-11-19):</b> this page opened in headless Chromium (Playwright's
+build, SwiftShader WebGL, driven over the DevTools protocol) on a Vite at 5196: the board drew; the screenshots below were taken from it.
+<code>/?manual=hill</code>, <code>crossroads</code> and <code>depot</code> were opened the same way and stepped through with the Step
+key to the end, with no console error; the closing lines read "Pvt. Hale: at C2. Pvt. Archer: seen by Blue.", "Pvt. Hale: at D1.
+Pvt. Barlow: at C3." and "Pvt. Hale: ready. Pvt. Barlow: pinned. Supply: Blue 3, Plum 0.". On this page a rifleman on the hill's
+edge hex (H7) sees 40 hexes with Blue's flag and 38 without: the woods round the hill stop most of the extra reach there.</p>
+
+<h2>1. The real board on <code>crossroads</code>, a man on each kind</h2>
+<p>A copy of <code>mapFor(4)</code> with one Blue unit standing on the first free hex of the chosen objective's area and one Plum
+rifleman far off. The amber rings outline the chosen area; the board's fog is what that one man sees (<code>viewFor</code>); the dots are
+<code>orderOptions</code> for the chosen order (his reach). Flip the flag between Blue's and nobody's (or Plum's) and watch both change.
+<b>The map has no objective of kind <code>crossroads</code></b> (task 22 puts fords on one); the last entries of the list are the
+map's villages re-kinded as a crossroads in a copy of the map, which is the only way to see that kind on this board. Everything else
+is the real map.</p>
+<div class="bar">
+  <label>Objective <select id="obj"></select></label>
+  <label>Flag <select id="owner"><option value="0">Blue's</option><option value="null">nobody's</option><option value="1">Plum's</option></select></label>
+  <label>Unit <select id="type"></select></label>
+  <label>Reach <select id="order"><option value="move">move</option><option value="dash">dash</option></select></label>
+  <label>Round <input type="number" id="round" min="1" max="15" value="7" style="width:4em" /></label>
+</div>
+<div class="observed" id="readout" role="status">Loading…</div>
+<div class="stage" id="stage"></div>
+<div class="wrap" id="table"></div>
+
+<h2>2. The new lessons in the real manual</h2>
+<p>Group <i>Ground</i>: <a href="/?manual=hill" target="_blank" rel="noopener"><code>hill</code></a> (at first light a rifleman sees 3;
+from his own hill 5, and the man four hexes off is seen),
+<a href="/?manual=crossroads" target="_blank" rel="noopener"><code>crossroads</code></a> (the man who starts on Blue's crossroads goes
+3, the man beside it 2), <a href="/?manual=depot" target="_blank" rel="noopener"><code>depot</code></a> (both men pinned in the fire
+phase; the one on Blue's depot is up at the round's end). The village's gift is quoted in the <i>Supply</i> lesson
+(<a href="/?manual=supply" target="_blank" rel="noopener"><code>supply</code></a>: A earns 2 + 1). Press Play (or Step).</p>
+<div class="frames">
+  <figure><iframe title="Field manual, hill" width="900" height="560" src="/?manual=hill"></iframe></figure>
+  <figure><iframe title="Field manual, crossroads" width="900" height="560" src="/?manual=crossroads"></iframe></figure>
+  <figure><iframe title="Field manual, depot" width="900" height="560" src="/?manual=depot"></iframe></figure>
+</div>
+<div class="wrap" id="lessons"></div>
+
+<h2>3. From seeded matches, 2026-11-19</h2>
+<p>Real runs, <code>npx tsx scripts/seeded.ts --figures 900</code> (seeds 1001 to 1900: 300 matches for each player count, Supply Line,
+the scripted players of <code>scripts/seeded.ts</code>, who walk to objectives and shoot at what they see; they do not seek a kind's
+gift). <i>Held</i> is the share of flag-rounds (after each round's captures) in which somebody held the flag. At the end: the share of
+that kind's flags held by nobody, by the seat whose HQ is nearest the area, by another seat, and by a seat that won the match. The hill
+is the same distance from every HQ, so it has no nearest seat. No objective on <code>crossroads</code> is of kind
+<code>crossroads</code>, so that kind has no row.</p>
+<div class="wrap"><table class="t">
+  <caption>By kind, all 900 matches (two / three / four players in brackets where they differ much)</caption>
+  <thead><tr><th>Kind</th><th>flags a match</th><th>held</th><th>end: nobody</th><th>end: nearest seat</th><th>end: another seat</th><th>end: a winner</th><th>unit-rounds benefiting, a match</th><th>rallies a match</th></tr></thead>
+  <tbody>
+    <tr><td>hq</td><td>4</td><td>0.75 (0.51 / 0.75 / 1.00)</td><td>0.24 (0.48 / 0.24 / 0)</td><td>0.76</td><td>0</td><td>0.26</td><td>—</td><td>—</td></tr>
+    <tr><td>village</td><td>4</td><td>0.51 (0.45 / 0.51 / 0.57)</td><td>0.21</td><td>0.66</td><td>0.13</td><td>0.37</td><td>— (gives supply only)</td><td>—</td></tr>
+    <tr><td>hill</td><td>1</td><td>0.43</td><td>0.23</td><td>— (none nearest)</td><td>0.77</td><td>0.47 (0.54 / 0.44 / 0.44)</td><td>2.19</td><td>—</td></tr>
+    <tr><td>depot</td><td>4</td><td>0.50 (0.40 / 0.52 / 0.59)</td><td>0.24 (0.37 / 0.21 / 0.15)</td><td>0.66</td><td>0.10</td><td>0.34</td><td>11.42</td><td>1.01 (0.57 / 0.98 / 1.48)</td></tr>
+  </tbody>
+</table></div>
+<p>An empty HQ (no seat on its zone) counts as held by nobody, which is all of the 0.48 with two players and the 0.24 with three.
+Every HQ of a seated player was still its owner's at the end: no HQ was lost in the 900 matches (as before this task).</p>
+<div class="wrap"><table class="t">
+  <caption>Before (every kind's numbers set to 0) and after, the same 900 seeds</caption>
+  <thead><tr><th>players</th><th>mean score, each seat (before)</th><th>(after)</th><th>seat against the others (before)</th><th>(after)</th><th>win share (before)</th><th>(after)</th><th>supply a seat a round (after)</th></tr></thead>
+  <tbody>
+    <tr><td>2</td><td>51.0, 55.0</td><td>84.2, 97.5</td><td>−4.0, +4.0 (± 2.2)</td><td>−13.3, +13.3 (± 3.4)</td><td>0.43, 0.57</td><td>0.39, 0.61</td><td>6.74</td></tr>
+    <tr><td>3</td><td>41.6, 30.9, 44.5</td><td>69.3, 55.1, 79.6</td><td>+3.9, −12.2, +8.3 (± 1.5)</td><td>+1.9, −19.4, +17.4 (± 2.5)</td><td>0.38, 0.19, 0.44</td><td>0.35, 0.17, 0.48</td><td>5.56</td></tr>
+    <tr><td>4</td><td>26.5, 33.5, 33.3, 30.2</td><td>45.9, 57.4, 60.1, 54.0</td><td>−5.8, +3.5, +3.3, −0.9 (± 1.3)</td><td>−11.3, +4.1, +7.7, −0.5 (± 2.1)</td><td>0.19, 0.30, 0.30, 0.22</td><td>0.17, 0.26, 0.35, 0.23</td><td>4.81</td></tr>
+  </tbody>
+</table></div>
+<p><b>Reading.</b> Scores go up by about three quarters (villages and depots earn 3 more each a round between them), so a seat's edge in
+points grows with them; as a share of the mean it grew with two players (about 8% to 15%) and stayed about where it was with three
+and four. Supply a seat a round was 4.2 / 3.5 / 3.1 (task 18's tuning); it is now 6.7 / 5.6 / 4.8, so a rifleman's buy-back (8) is
+about 1.2 to 1.7 rounds of income instead of 2 to 2.5. The numbers in the table are the task's, verbatim; nothing was retuned.</p>
+<p>Checks run 2026-11-19: <code>npm test</code> 733 passed; <code>npm run typecheck</code> clean; <code>npm run build</code> built;
+<code>npm run bots -- --matches 200</code> (seed <span id="botseed">136270192</span>, and again as seed 136880991 after the last change) 200 of 200 passed, and 60 Last Stand matches
+passed. The two digest sets were re-pinned; with every kind zeroed first, both came out as before (combined 3fbfda4ab7a264ee and
+f9d6449ab8066436).</p>
+
+<h2>4. Screenshots, from this page and the manual</h2>
+<div class="shots">
+  <figure><img src="assets/21/hill-held.png" alt="A rifleman on the hill, Blue's flag" /><figcaption>The hill E (rings), Blue's flag: sight 8, 40 hexes seen.</figcaption></figure>
+  <figure><img src="assets/21/hill-nobody.png" alt="The same man, nobody's flag" /><figcaption>The same man, nobody's flag: sight 6, 38 hexes seen.</figcaption></figure>
+  <figure><img src="assets/21/crossroads-dash.png" alt="Dash reach from a held crossroads" /><figcaption>Village C re-kinded as a crossroads, Blue's flag: dash reach 6 hexes deep (103 hexes) instead of 4 (58).</figcaption></figure>
+  <figure><img src="assets/21/manual-hill.png" alt="The hill lesson in the manual" /><figcaption><code>/?manual=hill</code> before Play.</figcaption></figure>
+  <figure><img src="assets/21/manual-depot.png" alt="The depot lesson in the manual" /><figcaption><code>/?manual=depot</code> before Play.</figcaption></figure>
+  <figure><img src="assets/21/manual-depot-end.png" alt="The depot lesson at its end" /><figcaption><code>/?manual=depot</code> at the end: the man on the depot up, the man beside it pinned.</figcaption></figure>
+  <figure><img src="assets/21/manual-hill-end.png" alt="The hill lesson at its end" /><figcaption><code>/?manual=hill</code> at the end: from his own hill he sees G2.</figcaption></figure>
+  <figure><img src="assets/21/manual-crossroads-end.png" alt="The crossroads lesson at its end" /><figcaption><code>/?manual=crossroads</code> at the end: D1 and C3.</figcaption></figure>
+</div>
+
+<h2>What does not work, or was not looked at</h2>
+<ul>
+  <li><b>No <code>crossroads</code>-kind objective on any real map yet.</b> The rule is tested, in the lesson and on this page's re-kinded
+  copy, but no match on <code>crossroads</code> can use it until task 22.</li>
+  <li>The board animates a move's steps beyond the type's <code>move</code> as running (the lowpoly kit's <code>dashes(step)</code> reads
+  <code>UNITS[type].move</code>; it does not know the state). So the third step of a rifleman's move off a crossroads is drawn as a run.
+  It is only the look; the kit interface would have to carry the allowance to fix it.</li>
+  <li>The play screen's hex description ("hill D, 3 a round, gives its holder sight +2, your flag") and unit card line ("Hill: sight +2")
+  were tested as text (<code>src/client/ui/ground.test.ts</code>) and typechecked in <code>play.ts</code>; the play screen itself was not
+  opened in a browser for this task.</li>
+  <li>The seat gap with two players grew with the higher scores (see the table); the scripted players do not seek gifts, so these figures
+  say how the board pays, not how people will play it.</li>
+  <li>The manual's closing line said a "seen by" once for every <code>seenBy</code> expectation, the ones about an earlier round too
+  ("seen by Blue, seen by Blue"); it now speaks only of the end (<code>src/manual/show.ts</code>). The <i>Dawn</i> lesson's line changed
+  with it. Found while checking the hill lesson.</li>
+  <li>Test helpers: <code>resolve.test.ts</code>'s default objective is now an <code>hq</code> with no zone (a kind that gives nothing),
+  and three lessons (<code>phases</code>, <code>score</code>, <code>flags</code>) use <code>crossroads</code> objectives so that their
+  numbers stay about the rule they show. The digest test's floor for men down in the fifty matches went from more than 100 to more
+  than 90: the new set has exactly 100.</li>
+</ul>
+</main>
+
+<script type="module">
+  import { createBoard } from '/src/client/render/index.ts';
+  import { lowpolyKit, loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
+  import { OBJECTIVE_KINDS, TERRAIN, UNITS, mapFor } from '/src/content/index.ts';
+  import { benefitOf, moveOf, orderOptions, sightOf, viewFor } from '/src/rules/index.ts';
+  import { benefitWords, kindWords } from '/src/client/ui/ground.ts';
+  import { sightWords } from '/src/client/ui/light.ts';
+  import { lessonById, runLesson, checkLesson } from '/src/manual/lessons.ts';
+  import * as H from '/src/shared/hex.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const table = (caption, head, rows) => `<table class="t"><caption>${caption}</caption><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead>`
+    + `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+
+  $('kinds').innerHTML = table('<code>OBJECTIVE_KINDS</code>, read from the content', ['Kind', 'Name', 'sight', 'move', 'supply', 'rally', 'Blurb', 'The play screen says'],
+    Object.values(OBJECTIVE_KINDS).map((k) => [k.id, esc(k.name), k.sight, k.move, k.supply, String(k.rally), esc(k.blurb), esc(kindWords(k.id) ?? '(nothing)')]));
+
+  await loadKitFonts();
+  const real = mapFor(4);
+  // The choices: every objective on the map, then each village re-kinded as a crossroads on a copy.
+  const choices = [
+    ...real.objectives.map((o) => ({ id: o.id, label: `${OBJECTIVE_KINDS[o.kind].name} ${o.id} (${o.value})`, map: real })),
+    ...real.objectives.filter((o) => o.kind === 'village').map((o) => ({
+      id: o.id, label: `Crossroads ${o.id}* (village ${o.id} re-kinded, a copy)`,
+      map: { ...real, objectives: real.objectives.map((x) => (x.id === o.id ? { ...x, kind: 'crossroads' } : x)) },
+    })),
+  ];
+  choices.forEach((c, i) => $('obj').insertAdjacentHTML('beforeend', `<option value="${i}">${esc(c.label)}</option>`));
+  for (const t of Object.keys(UNITS)) $('type').insertAdjacentHTML('beforeend', `<option value="${t}">${esc(UNITS[t].name)}</option>`);
+  const params = new URLSearchParams(location.search);
+  const pick = choices.findIndex((c) => c.id === params.get('obj') && (params.has('cross') === (c.label.includes('*'))));
+  $('obj').value = String(pick >= 0 ? pick : real.objectives.findIndex((o) => o.kind === 'hill'));
+  for (const k of ['owner', 'type', 'order', 'round']) if (params.get(k)) $(k).value = params.get(k);
+
+  const passable = (map, h) => TERRAIN[map.cells[H.key(h)]?.terrain ?? '']?.passable;
+  /** A state with one Blue unit on the area's first passable hex and a Plum rifleman far off; the objective's flag set. */
+  function stateFor(choice, type, owner, round) {
+    const obj = choice.map.objectives.find((o) => o.id === choice.id);
+    const at = obj.hexes.find((h) => passable(choice.map, h));
+    const far = Object.keys(choice.map.cells).map(H.parseKey).filter((h) => passable(choice.map, h))
+      .sort((a, b) => H.distance(b, at) - H.distance(a, at))[0];
+    const unit = (id, owner, type, pos) => ({ id, owner, type, name: id === '0-0' ? 'Pvt. Test' : 'Pvt. Far', pos, status: 'ready', pinnedRound: null, revealed: false, posture: 'still', returnRound: null });
+    return {
+      obj, state: {
+        map: choice.map, playerCount: 2, units: [unit('0-0', 0, type, at), unit('1-0', 1, 'rifleman', far)], round,
+        scores: [0, 0], eliminated: [false, false], flags: Object.fromEntries(choice.map.objectives.map((o) => [o.id, o.id === obj.id ? owner : null])),
+        mode: 'supply-line', over: false, winners: [],
+      },
+    };
+  }
+
+  let board = null;
+  {
+    const canvas = document.createElement('canvas');
+    $('stage').append(canvas);
+    try {
+      board = createBoard(canvas, lowpolyKit());
+      addEventListener('resize', () => board.resize());
+      board.resize();
+    } catch (err) {
+      $('stage').insertAdjacentHTML('beforeend', `<p class="observed bad">The board could not start here: ${esc(err.message ?? err)}</p>`);
+    }
+  }
+
+  let focused = null;
+  function show() {
+    const choice = choices[Number($('obj').value)];
+    const owner = $('owner').value === 'null' ? null : Number($('owner').value);
+    const { obj, state } = stateFor(choice, $('type').value, owner, Number($('round').value) || 7);
+    const view = viewFor(state, 0);
+    const u = state.units[0];
+    const opts = orderOptions(view, u.id);
+    const reach = opts[$('order').value] ?? [];
+    const b = benefitOf(view, u);
+    $('readout').innerHTML = `${esc(OBJECTIVE_KINDS[obj.kind].name)} ${obj.id}, area ${obj.hexes.map(H.label).join(' ')}; flag ${owner === null ? 'nobody\'s' : owner === 0 ? 'Blue\'s' : 'Plum\'s'}. `
+      + `Gives its holder: <b>${esc(kindWords(obj.kind) ?? 'nothing')}</b>. ${esc(u.name)} (${esc(UNITS[u.type].name.toLowerCase())}) on ${H.label(u.pos)}: `
+      + `benefits ${b ? `from <b>${b.objective.id}</b>` : '<b>from nothing</b>'}; card line <b>${esc(benefitWords(view, u) ?? '—')}</b>; ${esc(sightWords(view, u))}; `
+      + `<code>moveOf</code> ${moveOf(view, u)}; ${$('order').value} reach ${reach.length} hexes; sees ${view.visible.length} hexes.`;
+    if (board) {
+      board.setView(view);
+      board.setMarks([...obj.hexes.map((hex) => ({ kind: 'select', hex })), { kind: 'options', hexes: reach.map(H.parseKey) }]);
+      if (focused !== obj.id) { board.focus(u.pos); focused = obj.id; }
+    }
+    document.body.dataset.sight = String(sightOf(view, u));
+    document.body.dataset.move = String(moveOf(view, u));
+  }
+  for (const k of ['obj', 'owner', 'type', 'order', 'round']) $(k).addEventListener('input', show);
+  show();
+
+  // Every choice, a rifleman, full day: held by Blue against held by nobody, side by side.
+  $('table').innerHTML = table('A rifleman on each objective, round 7 (full day), the real rules: Blue\'s flag → nobody\'s',
+    ['Objective', 'Gives', 'sightOf', 'moveOf', 'move reach', 'dash reach', 'hexes seen', 'card line (Blue\'s)'],
+    choices.map((c) => {
+      const row = [0, null].map((owner) => {
+        const { state } = stateFor(c, 'rifleman', owner, 7);
+        const view = viewFor(state, 0);
+        const u = state.units[0];
+        const o = orderOptions(view, u.id);
+        return { sight: sightOf(view, u), move: moveOf(view, u), m: o.move.length, d: o.dash.length, seen: view.visible.length, card: benefitWords(view, u) };
+      });
+      const pair = (k) => (row[0][k] === row[1][k] ? `${row[0][k]}` : `<span class="ok">${row[0][k]}</span> → ${row[1][k]}`);
+      const kind = c.label.includes('*') ? 'crossroads' : c.map.objectives.find((o) => o.id === c.id).kind;
+      return [esc(c.label), esc(kindWords(kind) ?? '—'), pair('sight'), pair('move'), pair('m'), pair('d'), pair('seen'), esc(row[0].card ?? '—')];
+    }));
+
+  // The Ground lessons (and Supply, which quotes the village), run here through runLesson.
+  $('lessons').innerHTML = table('The lessons run here through <code>runLesson</code> and <code>checkLesson</code> (the same run the manual does)',
+    ['Lesson', 'Text', 'checkLesson', 'Round 1 events (full list)'],
+    ['hill', 'crossroads', 'depot', 'supply'].map((id) => {
+      const l = lessonById(id);
+      const run = runLesson(l);
+      const failed = checkLesson(l, run);
+      const ev = run.results[0].events.filter((e) => !['phase'].includes(e.t)).map((e) => e.t + (e.unit ? ` ${e.unit}` : '') + (e.t === 'score' ? ` ${e.objective} ${e.value}` : ''));
+      return [id, esc(l.text), failed.length ? `<span>${esc(failed.join(' '))}</span>` : '<span class="ok">every expectation holds</span>', esc(ev.join(', '))];
+    }));
+  document.body.dataset.ready = 'yes';
+</script>
+</body>
+</html>

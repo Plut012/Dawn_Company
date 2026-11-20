@@ -1,10 +1,11 @@
 // The results screen: final scores, who won, what is left of each squad.
 // The host can call a rematch; a `lobby` message takes everyone back.
 
+import { MODES } from '../../../content';
 import type { SeatStatus, ServerMsg } from '../../../shared/protocol';
 import { clearDraft } from '../draft';
 import { el, key, panel, playerMark, readout, report } from '../components';
-import { standings } from '../outcome';
+import { scoreWord, standings, stoodLine, tieBreak } from '../outcome';
 import type { App, Screen } from '../screen';
 
 type WithView = Extract<ServerMsg, { t: 'plan' | 'resolve' }>;
@@ -33,9 +34,13 @@ export const resultsScreen: Screen = {
       : winners.length > 1 ? (iWon ? 'A shared win' : `${winners.map((w) => w.name).join(' and ')} share it`)
       : iWon ? 'You held the field' : `${winners[0].name} holds the field`);
     const played = Math.max(0, view.round - 1);
+    const unit = scoreWord(view.mode);   // Supply Line: the score is supply (18); Last Stand: the men standing (20)
     const sub = el('p', 'results-sub', played < view.maxRounds
-      ? `Over early, after ${played} of ${view.maxRounds} rounds. Final scores.`
-      : `Final scores after ${played} rounds.`);
+      ? `Over early, after ${played} of ${view.maxRounds} rounds. Final ${unit.toLowerCase()}.`
+      : `Final ${unit.toLowerCase()} after ${played} rounds.`);
+    // Last Stand: who stood and with how many men, and why someone won on a tie-break
+    const why = [stoodLine(view, names), tieBreak(view, names)].filter((x): x is string => x !== null).join(' ');
+    const reason = why ? el('p', 'results-why', why) : null;
 
     const table = el('div', 'results-table');
     for (const r of rows) {
@@ -46,7 +51,7 @@ export const resultsScreen: Screen = {
         : r.exact ? `${r.standing} standing`
         : 'Still in the field';
       who.append(name, el('small', '', left), el('p', '', r.summary));
-      const score = readout(r.winner ? 'Winner' : 'Points', r.score);
+      const score = readout(r.winner ? `Winner · ${unit}` : unit, r.score);
       row.append(playerMark(r.seat), who, score);
       table.append(row);
     }
@@ -63,7 +68,7 @@ export const resultsScreen: Screen = {
     const notice = report('', true);
     notice.hidden = true;
 
-    const plate = panel('After action', {}, headline, sub, table, foot);
+    const plate = panel(`After action · ${MODES[view.mode]?.name ?? view.mode}`, {}, headline, sub, ...(reason ? [reason] : []), table, foot);
     plate.classList.add('results');
     root.replaceChildren(notice, plate);
 

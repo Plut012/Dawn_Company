@@ -9,21 +9,25 @@
 // `spotted` and `lost` events, so the events a player receives always add up
 // to exactly what `viewFor` shows at the end.
 
-import { TERRAIN } from '../content';
+import { OBJECTIVE_KINDS, TERRAIN, WORKS } from '../content';
 import { distance, key } from '../shared/hex';
-import type { ActionDef, GameEvent, GameState, Hex, HexKey, Order, Phase, PlayerId, Unit, UnitId } from '../shared/types';
-import { applyEffect } from './effects';
+import type { ActionDef, FollowUp, GameEvent, GameState, Hex, HexKey, Order, Phase, PlayerId, Purchase, Unit, UnitId } from '../shared/types';
+import { applyEffect, applyHexEffect, onHex } from './effects';
 import type { Use, World } from './effects';
 import { actionOf, byId, orderProblem, useProblem } from './orders';
-import { spots, visibleEnemies, visibleHexes } from './sight';
+import { benefitOf, moveOf } from './kinds';
+import { sightOf, spots, visibleEnemies, visibleHexes } from './sight';
+import { buyBackCost, hqOf, lineOpen, modeOf, returnsOf, validatePurchases } from './supply';
+import { standingCount, survivalWinners } from './survival';
 
 interface Mover { unit: Unit; path: Hex[]; next: number }
 
-export function resolve(state: GameState, orders: Order[][]): {
+export function resolve(state: GameState, orders: Order[][], purchases?: Purchase[][]): {
   state: GameState;
   events: GameEvent[];
   playerEvents: GameEvent[][];
 } {
+  // The map as the round began. A work built this round (25) replaces `next.map` with a copy; `state.map` is never changed.
   const map = state.map;
   const round = state.round;
   const players: PlayerId[] = Array.from({ length: state.playerCount }, (_, i) => i);
@@ -34,6 +38,9 @@ export function resolve(state: GameState, orders: Order[][]): {
     round,
     scores: [...state.scores],
     eliminated: [...state.eliminated],
+    flags: { ...state.flags },
+    mode: state.mode,
+    works: { ...(state.works ?? {}) },
     over: state.over,
     winners: [...state.winners],
   };
@@ -55,10 +62,23 @@ export function resolve(state: GameState, orders: Order[][]): {
     let spotted: Set<HexKey> | null = null;
     const visible = () => (spotted ??= visibleHexes(state, p));
     for (const o of list) {
-      if (orderProblem(map, state.units, p, o, visible) === null && !orderOf.has(o.unit)) orderOf.set(o.unit, o);
+      if (orderProblem(map, state.units, p, o, visible, (u) => sightOf(state, u), (u) => moveOf(state, u), next.works) === null
+        && !orderOf.has(o.unit)) orderOf.set(o.unit, o);
     }
   }
   const kindOf = (u: Unit) => orderOf.get(u.id)?.kind;
+
+  // ---- the purchases that count: each one that is valid after the ones kept before it (18)
+  const returns = returnsOf(state);
+  const mode = modeOf(state);
+  const survival = mode?.win === 'survival';
+  const bought: Purchase[][] = players.map((p) => {
+    const list = returns && Array.isArray(purchases?.[p]) ? purchases[p] : [];
+    const kept: Purchase[] = [];
+    for (const x of list) if (validatePurchases(state, p, [...kept, x]).length === 0) kept.push(x);
+    return kept;
+  });
+  const downBefore = new Set(state.units.filter((u) => u.status === 'down').map((u) => u.id));
 
   // ---- who is told what
   let seen = players.map((p) => new Set(visibleEnemies(next, p).map((u) => u.id)));
@@ -96,18 +116,33 @@ export function resolve(state: GameState, orders: Order[][]): {
   };
 
   // ---- actions and their effects
-  const coverUsed = new Set<UnitId>();
+  const coverUsed = new Map<UnitId, number>();
   const world: World = {
     round,
+    // Cover takes as many hits a round as the ground gives (0 or 1) plus one for a foxhole (24); a runner has neither.
     shelter: (u) => {
-      if (!inCover(u) || u.posture === 'dashed' || coverUsed.has(u.id)) return false;
-      coverUsed.add(u.id);
+      const room = (inCover(u) ? 1 : 0) + (u.dugIn ? 1 : 0);
+      const used = coverUsed.get(u.id) ?? 0;
+      if (u.posture === 'dashed' || used >= room) return false;
+      coverUsed.set(u.id, used + 1);
       return true;
     },
     exposed: (u) => u.posture === 'dashed',
     sees,
     record,
     refresh: sync,
+    seesHex: (p, h) => seesHex(p, h),
+    map: () => next.map,
+    works: () => next.works,
+    units: () => units,
+    supply: (p) => (mode?.supply === false ? null : next.scores[p]),
+    // A work is terrain (25): the hex's cell in the match's own copy of the map becomes the work's terrain.
+    raise: (p, at, work) => {
+      const k = key(at);
+      next.scores[p] -= WORKS[work].cost;
+      next.works[k] = work;
+      next.map = { ...next.map, cells: { ...next.map.cells, [k]: { ...next.map.cells[k], terrain: WORKS[work].terrain } } };
+    },
   };
   /** The units of this round ordered to use an action whose effects land in one of these phases, in id order. */
   const usesIn = (...phases: ActionDef['phase'][]): Use[] => {
@@ -120,10 +155,12 @@ export function resolve(state: GameState, orders: Order[][]): {
     }
     return out;
   };
-  /** One use landing: each effect in turn, on every living unit in the area it applies to, in id order. Never the user. */
+  /** One use landing: each effect in turn, on every living unit in the area it applies to, in id order. Never the user.
+   *  An effect on the hex itself (a build, 25) acts once. */
   const land = (use: Use) => {
     const { user, action, target } = use;
     for (const effect of action.effects) {
+      if (onHex(effect)) { applyHexEffect(world, effect, use); continue; }
       for (const u of units) {
         if (u.id === user.id || !alive(u) || distance(u.pos, target) > action.blast) continue;
         if (action.affects === 'friends' && u.owner !== user.owner) continue;
@@ -165,6 +202,7 @@ export function resolve(state: GameState, orders: Order[][]): {
   for (const u of units) {
     if (kindOf(u) !== 'dash' || !ready(u)) continue;
     u.posture = 'dashed';
+    u.dugIn = false;    // a runner leaves the foxhole (24)
     sync();
     emit({ t: 'dash', unit: u.id }, about(u.id));
   }
@@ -303,6 +341,7 @@ export function resolve(state: GameState, orders: Order[][]): {
       const to = m.path[m.next++];
       m.unit.pos = { q: to.q, r: to.r };
       if (m.unit.posture === 'still') m.unit.posture = 'moved';
+      m.unit.dugIn = false;    // the first step leaves the foxhole (24)
       trail.set(m.unit.id, [...(trail.get(m.unit.id) ?? []), from]);
       since.set(m.unit.id, moment);
       moves.push({ t: 'move', step: moment, unit: m.unit.id, from, to: hexOf(m.unit) });
@@ -321,7 +360,7 @@ export function resolve(state: GameState, orders: Order[][]): {
       for (const e of moved) {           // in id order, so the first nearest is the lowest id
         const d = distance(a.pos, e.pos);
         if (e.owner === a.owner || d < action.minRange || d > action.range) continue;
-        if (!spots(map, a, e)) continue;   // the ambusher must see its target itself
+        if (!spots(next, a, e)) continue;   // the ambusher must see its target itself
         if (!best || d < distance(a.pos, best.pos)) best = e;
       }
       if (best) sprung.push({ user: a, action, target: hexOf(best) });
@@ -348,12 +387,15 @@ export function resolve(state: GameState, orders: Order[][]): {
     if (!action) continue;
     const target = { q: order.then.target.q, r: order.then.target.r };
     const reason = !alive(u) ? 'down' : !ready(u) ? 'pinned'
-      : useProblem(map, next.units, u, action, target, () => visibleHexes(next, u.owner))?.why ?? null;
+      : useProblem(map, next.units, u, action, target, () => visibleHexes(next, u.owner), sightOf(next, u))?.why ?? null;
     if (reason) emit({ t: 'unable', unit: u.id, action: action.id, reason }, about(u.id));
     else acts.push({ user: u, action, target });
   }
+  const buildLater = new Set<UnitId>();   // (25) follow-ups that build: judged now, built in the score phase
   for (const s of acts) {
-    if (s.action.phase === 'mortar') {
+    if (s.action.phase === 'build') {
+      buildLater.add(s.user.id);
+    } else if (s.action.phase === 'mortar') {
       giveAway(s);
       emit({ t: 'launch', unit: s.user.id, from: hexOf(s.user), action: s.action.id }, about(s.user.id));
       late.push(s);
@@ -364,7 +406,7 @@ export function resolve(state: GameState, orders: Order[][]): {
       emit({ t: 'reveal', unit: s.user.id, action: s.action.id }, about(s.user.id));
     }
   }
-  for (const s of acts) if (s.action.phase !== 'mortar') land(s);
+  for (const s of acts) if (s.action.phase !== 'mortar' && s.action.phase !== 'build') land(s);
   sync();
 
   // ---- phase 4: what was launched lands
@@ -376,36 +418,125 @@ export function resolve(state: GameState, orders: Order[][]): {
     sync();
   }
 
+  /** Where a returning unit of this player comes back: the first free hex of its HQ's area, else of its start zone. */
+  const returnHex = (p: PlayerId): Hex | null => {
+    const hq = hqOf(next, p);
+    const zone = next.map.seatSpawns[next.playerCount]?.[p];
+    const spots = [...(hq?.hexes ?? []), ...(zone === undefined ? [] : map.spawns[zone] ?? [])];
+    const taken = new Set(units.filter(alive).map((u) => key(u.pos)));
+    const free = spots.find((h) => !taken.has(key(h)) && (TERRAIN[next.map.cells[key(h)]?.terrain ?? '']?.passable ?? false));
+    return free ? { q: free.q, r: free.r } : null;
+  };
+
   // ---- phase 5: score and recover
   phase('score');
-  for (const obj of map.objectives) {
-    const holder = units.find((u) => alive(u) && key(u.pos) === key(obj.hex));
-    if (!holder) continue;
-    next.scores[holder.owner] += obj.value;
-    // Scores are public; where the points came from is not. Only a player who sees the holder is told the objective.
-    const full: GameEvent = { t: 'score', objective: obj.id, player: holder.owner, value: obj.value };
-    record(full, (p) => (sees(p, holder.id) ? full : { ...full, objective: null }));
+  // A unit that went down this round is due back `returns.rounds` rounds on (18).
+  if (returns) {
+    for (const u of units) if (u.status === 'down' && !downBefore.has(u.id)) u.returnRound = round + returns.rounds;
   }
+  // Build (25): first, in id order, every work ordered this round, by a `special` or a move's follow-up that the assault
+  // let through. The engineer must still be on his feet and in range; the hex must still take the work and his owner
+  // must have the supply now, before this round's income (the build effect judges those two).
   for (const u of units) {
-    if (u.status === 'pinned' && (u.pinnedRound ?? -Infinity) < round) {
+    const order = orderOf.get(u.id);
+    const asked: Extract<Order | FollowUp, { kind: 'special' }> | null = order?.kind === 'special' ? order
+      : order?.kind === 'move' && order.then?.kind === 'special' && buildLater.has(u.id) ? order.then : null;
+    const action = asked ? actionOf(u.type, 'special') : null;
+    if (!asked || !action || action.phase !== 'build') continue;
+    const target = { q: asked.target.q, r: asked.target.r };
+    const reason = !alive(u) ? 'down' : !ready(u) ? 'pinned'
+      : useProblem(next.map, next.units, u, action, target, () => visibleHexes(next, u.owner), sightOf(next, u))?.why ?? null;
+    if (reason) emit({ t: 'unable', unit: u.id, action: action.id, reason }, about(u.id));
+    else land({ user: u, action, target, ...(asked.work === undefined ? {} : { work: asked.work }) });
+  }
+  if (Object.keys(next.works).length !== Object.keys(state.works ?? {}).length) sync();
+  // Capture: the only side with a ready unit in an area raises its flag there; the flag stays until someone else does.
+  for (const obj of map.objectives) {
+    const area = new Set(obj.hexes.map(key));
+    const inside = new Set(units.filter((u) => ready(u) && area.has(key(u.pos))).map((u) => u.owner));
+    if (inside.size !== 1) continue;
+    const [player] = inside;
+    const from = next.flags[obj.id] ?? null;
+    if (from === player) continue;
+    next.flags[obj.id] = player;
+    emit({ t: 'capture', objective: obj.id, player, from }, everyone);
+  }
+  // Supply: every flag earns its objective's value, plus its kind's `supply` (21), for its owner. Flags are public,
+  // and so is this. (20) A mode without supply still has its flags raised, but nothing earns.
+  for (const obj of mode?.supply === false ? [] : map.objectives) {
+    const owner = next.flags[obj.id] ?? null;
+    if (owner === null) continue;
+    const value = obj.value + (Object.hasOwn(OBJECTIVE_KINDS, obj.kind) ? OBJECTIVE_KINDS[obj.kind].supply : 0);
+    next.scores[owner] += value;
+    emit({ t: 'score', objective: obj.id, player: owner, value }, everyone);
+  }
+  // Survival (20): the score is a live tally of men standing, set after the captures. No event: the score says it.
+  if (survival) for (const p of players) next.scores[p] = standingCount(units, p);
+  // Purchases (18): each player's in the order given, each checked again against what is left now.
+  for (const p of players) {
+    for (const x of bought[p]) {
+      const cost = buyBackCost(next, x.unit);
+      if (cost === null || cost > next.scores[p]) continue;
+      next.scores[p] -= cost;
+      unitById.get(x.unit)!.returnRound = round;
+      emit({ t: 'purchase', player: p, unit: x.unit, cost }, everyone);
+    }
+  }
+  // Returns (18): the downed who are due come back at their HQ while its flag is their owner's; no room, they wait.
+  if (returns) {
+    for (const u of units) {
+      if (u.status !== 'down' || u.returnRound === null || u.returnRound > round) continue;
+      if (next.eliminated[u.owner] || !lineOpen(next, u.owner)) continue;
+      const at = returnHex(u.owner);
+      if (!at) continue;
+      u.pos = at;
+      u.status = 'ready';
+      u.posture = 'still';
+      u.revealed = false;
+      u.pinnedRound = null;
+      u.returnRound = null;
+      const e: GameEvent = { t: 'return', unit: u.id, at: hexOf(u) };
+      emit(e, (p) => p === u.owner || seesHex(p, at));
+      sync();
+    }
+  }
+  // Dig in (24): whoever held still the whole round, and is on his feet or pinned, is dug in from now until his first
+  // step. Not the down, and not a man who came back this round.
+  const returned = new Set<UnitId>();
+  for (const u of units) if (downBefore.has(u.id) && alive(u)) returned.add(u.id);
+  for (const u of units) {
+    if (!alive(u)) { u.dugIn = false; continue; }
+    if (u.posture !== 'still' || u.dugIn || returned.has(u.id)) continue;
+    u.dugIn = true;
+    emit({ t: 'dig', unit: u.id }, about(u.id));
+  }
+  // Recover: pinned in an earlier round, or (21) rallied by a depot whose flag is the unit's owner's, whenever pinned.
+  for (const u of units) {
+    if (u.status === 'pinned' && ((u.pinnedRound ?? -Infinity) < round || benefitOf(next, u)?.kind.rally)) {
       emit({ t: 'recover', unit: u.id }, about(u.id));
       u.status = 'ready';
       u.pinnedRound = null;
     }
   }
   const standing = (p: PlayerId) => units.some((u) => u.owner === p && alive(u));
+  // A squad is out when nobody of it stands and nobody can come back: its line is cut, or nobody is due back.
+  const waiting = (p: PlayerId) => lineOpen(next, p) && units.some((u) => u.owner === p && u.status === 'down' && u.returnRound !== null);
   for (const p of players) {
-    if (!next.eliminated[p] && !standing(p)) {
+    if (!next.eliminated[p] && !standing(p) && !waiting(p)) {
       next.eliminated[p] = true;
+      for (const id of Object.keys(next.flags)) if (next.flags[id] === p) next.flags[id] = null;   // no event: the elimination says it
       emit({ t: 'eliminated', player: p }, everyone);
     }
   }
-  sync();   // an eliminated player now sees the whole board
   next.round = round + 1;
-  if (next.round > map.maxRounds || players.filter(standing).length < 2) {
+  // Brought up to date in the light of the next round (19): an eliminated player now sees the whole board, and
+  // the rising sun shows what came into its reach. So the events still add up to what `viewFor` shows.
+  sync();
+  if (next.round > map.maxRounds || players.filter((p) => !next.eliminated[p]).length < 2) {
     const top = Math.max(...next.scores);
     next.over = true;
-    next.winners = players.filter((p) => next.scores[p] === top);
+    next.winners = survival ? survivalWinners(units, players, state.eliminated)
+      : players.filter((p) => next.scores[p] === top);
     emit({ t: 'over', scores: [...next.scores], winners: [...next.winners] }, everyone);
   }
   return { state: next, events, playerEvents };

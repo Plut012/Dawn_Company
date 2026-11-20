@@ -78,7 +78,7 @@
   import { createBoard } from '/src/client/render/index.ts';
   import { lowpolyKit, loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
   import { moments } from '/src/client/render/playback.ts';
-  import { MAPS, DEFAULT_MAP, PRESETS, UNITS } from '/src/content/index.ts';
+  import { MAPS, mapFor, PRESETS, UNITS } from '/src/content/index.ts';
   import { key, parseKey, label, within, distance } from '/src/shared/hex.ts';
   import { createMatch, resolve, viewFor, validateOrders, orderOptions, findPath } from '/src/rules/index.ts';
 
@@ -97,7 +97,7 @@
     };
   }
 
-  const map = MAPS[DEFAULT_MAP];
+  const map = mapFor(4);
   const H = {};                                    // hexes by label: H.F4
   for (const k of Object.keys(map.cells)) H[label(parseKey(k))] = parseKey(k);
 

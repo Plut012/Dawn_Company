@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 19 — The rising sun</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the board, the rules and the manual are the real modules */
+  body { padding: var(--s-3); }
+  main { max-width: 1240px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 90ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  pre { background: rgba(30,36,32,0.5); padding: var(--s-2); overflow-x: auto; max-width: 100ch; white-space: pre-wrap; }
+  .bar { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; margin: var(--s-2) 0 var(--s-3); }
+  .bar label { display: flex; gap: var(--s-2); align-items: center; }
+  .bar input[type=range] { width: min(420px, 70vw); }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; min-height: 1.5em; }
+  .bad { border-left-color: var(--rust, #9A4B32); }
+  .stage { position: relative; width: 100%; max-width: 1100px; height: 600px; border: var(--w-frame) solid var(--ink); background: var(--slate); }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  .frame iframe { box-sizing: content-box; border: var(--w-frame) solid var(--ink); background: var(--slate); display: block; max-width: 100%; }
+  table.t { border-collapse: collapse; margin: 0 0 var(--s-3); font-size: var(--t-1); }
+  table.t caption { text-align: left; padding: var(--s-1) 0; max-width: 100ch; }
+  table.t th, table.t td { border: var(--w-divider) solid rgba(233,223,198,0.35); padding: 2px 8px; text-align: left; vertical-align: top; }
+  table.t thead th { background: rgba(30,36,32,0.6); }
+  .wrap { overflow-x: auto; max-width: 100%; }
+  .ok { color: var(--amber); font-weight: 700; }
+  .shots { display: flex; flex-wrap: wrap; gap: var(--s-3); }
+  .shots figure { margin: 0; max-width: 360px; }
+  .shots img { width: 100%; border: var(--w-frame) solid var(--ink); display: block; }
+  .shots figcaption { font-size: var(--t-1); }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 19 — The rising sun</h1>
+<p>The match begins in half-light. A unit's sight in round <i>r</i> is its type's <code>sight</code> plus
+<code>SUN[min(r, SUN.length) − 1]</code>, at least 1, with <code>SUN = <span id="sun">?</span></code>. Ranges of actions do not change;
+an action whose sight rule is <code>own</code> can only be used on a hex the unit itself sees. The board's light follows the
+view's <code>dawn</code>. Only Vite is needed (no game server): <code>npx vite --port 5194 --strictPort</code>, then open
+<code>http://localhost:5194/eval/19-rising-sun.html</code>. <code>?round=4</code> opens the slider on that round.</p>
+
+<p class="observed" id="caveat"><b>What the implementer saw (2026-11-19):</b> this page in headless Chromium (Playwright's build,
+SwiftShader WebGL) on a Vite at 5194: the board drew, and the three screenshots below were taken from it with <code>?round=1</code>,
+<code>4</code> and <code>7</code> (dawn 0, 0.5, 1). The ease between two lights (about a second) was not watched frame by frame: a
+screenshot is taken after the first view, which is set at once. The manual at <code>/?manual=dawn</code> was opened the same way and
+showed round 1 at first light (screenshot below); the lesson was not played through to round 6 in the browser (its rounds are checked by
+<code>checkLesson</code> on this page and in <code>src/manual/lessons.test.ts</code>). Mean brightness of the board crop goes from 78 (dawn 0)
+to 83 (0.5) to 90 (1); on a lit patch of open ground 115 → 137 → 155.</p>
+
+<h2>1. The real board on <code>crossroads</code>, round 1 to 8</h2>
+<p>A four-player match from <code>createMatch</code> (presets dealt in order). The board shows Blue's (seat 0) <code>viewFor</code> of the
+same state with <code>round</code> set by the slider: its fog is what Blue's whole squad sees. The amber dots are the hexes the chosen unit
+sees alone (<code>visibleHexes</code> of a state holding only him). Both come from the real rules; the light is the kit's
+<code>light(scene, view.dawn)</code>, called by the board's <code>setView</code>.</p>
+<div class="bar">
+  <label>Round <input type="range" id="round" min="1" max="8" step="1" value="1" /> <b id="round-out">1</b></label>
+  <label>Unit <select id="unit"></select></label>
+</div>
+<div class="observed" id="readout" role="status">Loading…</div>
+<div class="stage" id="stage"></div>
+<div class="wrap" id="table"></div>
+
+<h2>2. The <i>Dawn</i> lesson in the real manual</h2>
+<p>The real client at <a href="/?manual=dawn" target="_blank" rel="noopener"><code>/?manual=dawn</code></a>: Blue's mortar team on A2
+watches Plum's rifleman on F2, five hexes off, on open ground. Nobody moves for six rounds. The round word over the phases says the
+light; the board brightens each round. Press Play (or Step).</p>
+<div class="frame"><iframe title="Field manual, Dawn lesson" width="1180" height="720" src="/?manual=dawn"></iframe></div>
+<div class="wrap" id="lesson"></div>
+
+<h2>3. Before and after, from seeded matches</h2>
+<p>Real runs on 2026-11-19, <code>npx tsx scripts/seeded.ts --figures 600</code> (seeds 1001 to 1600: 200 matches for each player count,
+Supply Line, the scripted players of <code>scripts/seeded.ts</code>), once before the sun (the engine of task 18; the script already
+counting first contact) and once after. <i>First contact</i> is the round in which any player was first told of an enemy (a
+<code>spotted</code> event). <i>Went down</i> counts every time a man went down (men come back in Supply Line); <i>down at the end</i>
+is the men down when the match ended.</p>
+<div class="wrap"><table class="t">
+  <caption>Per match, mean of 200 (before → after)</caption>
+  <thead><tr><th rowspan="2">players</th><th colspan="2">first contact (round)</th><th colspan="2">men went down</th><th colspan="2">down at the end</th>
+  <th colspan="2">hits</th><th colspan="2">enemies in view when planning</th><th colspan="2">ambushes</th><th colspan="2">supply in hand</th></tr>
+  <tr><th>before</th><th>after</th><th>before</th><th>after</th><th>before</th><th>after</th><th>before</th><th>after</th><th>before</th><th>after</th><th>before</th><th>after</th><th>before</th><th>after</th></tr></thead>
+  <tbody>
+    <tr><td>2</td><td>4.38</td><td>4.89</td><td>5.54</td><td>5.42</td><td>1.23</td><td>1.15</td><td>17.86</td><td>17.58</td><td>23.36</td><td>22.27</td><td>1.73</td><td>1.76</td><td>107.98</td><td>105.86</td></tr>
+    <tr><td>3</td><td>2.24</td><td>2.89</td><td>12.41</td><td>12.62</td><td>2.39</td><td>2.37</td><td>36.73</td><td>37.1</td><td>63.51</td><td>61.46</td><td>3.45</td><td>3.32</td><td>119.18</td><td>117.38</td></tr>
+    <tr><td>4</td><td>1.71</td><td>2.3</td><td>20.32</td><td>20.48</td><td>3.56</td><td>3.78</td><td>57.74</td><td>58.59</td><td>115.82</td><td>108.27</td><td>5.14</td><td>4.84</td><td>124.74</td><td>123.87</td></tr>
+    <tr><td>all</td><td>2.77</td><td>3.36</td><td>12.75</td><td>12.84</td><td>2.39</td><td>2.43</td><td>37.44</td><td>37.76</td><td>67.56</td><td>64</td><td>3.44</td><td>3.3</td><td>117.3</td><td>115.7</td></tr>
+  </tbody>
+</table></div>
+<p><b>Reading.</b> First contact comes about half a round to two thirds of a round later; fewer enemies are in view while planning
+(−6.5% with four players); the number of men put down per match does not change beyond noise. The scripted players walk to the
+objectives and shoot at what they see; they do not try to slip in under the dark, so these figures say little about infiltration.
+Seat figures (four players, score against the others): before −3.90, +4.40, +3.90, −4.40 (± 1.5); after −5.92, +3.41, +3.44, −0.92 (± 1.6).</p>
+<p><code>npm run bots -- --matches 200</code> after the change (seed 134195409): 200 of 200 matches passed; the bots' own sight checks use
+<code>sightOf</code> on their view.</p>
+
+<h2>4. Screenshots, from this page</h2>
+<div class="shots">
+  <figure><img src="assets/19/dawn-0.png" alt="The board at round 1, dawn 0" /><figcaption>Round 1, dawn 0: first light, sight −3.</figcaption></figure>
+  <figure><img src="assets/19/dawn-0.5.png" alt="The board at round 4, dawn 0.5" /><figcaption>Round 4, dawn 0.5: sight −2.</figcaption></figure>
+  <figure><img src="assets/19/dawn-1.png" alt="The board at round 7, dawn 1" /><figcaption>Round 7, dawn 1: full day (the look before this task).</figcaption></figure>
+  <figure><img src="assets/19/manual-dawn-round-1.png" alt="The Dawn lesson at its start in the manual" /><figcaption>The manual at <code>/?manual=dawn</code>, before Play: round 1 of 6, first light, the mortar's long shadow; F2 under the fog.</figcaption></figure>
+</div>
+
+<h2>What does not work, or was not looked at</h2>
+<ul>
+  <li>The easing of the light between two rounds was not watched frame by frame (it is a one-second smoothstep in the board's
+  <code>setView</code>; screenshots show its ends).</li>
+  <li>The play screen's round readout ("First light · sight −3", "Full day") and the sight in the hex and unit descriptions were
+  tested as text (<code>src/client/ui/light.test.ts</code>); the play screen itself was not opened in a browser for this task, and the
+  readout's extra line was not tried at phone sizes.</li>
+  <li>The seeded and bot players do not use the dark on purpose, so the before/after figures show the rule's mechanical effect, not
+  how people will play it.</li>
+  <li>The manual's other lessons are now played in full day (round 7 of the match), so their rules read as before; only <i>Dawn</i>
+  starts at round 1. That is a choice (a lesson field, <code>round</code>), not something the task doc asked for.</li>
+  <li><code>spots</code> now takes the state instead of the map (it needs the round): a change to a pinned v1 signature, folded into the plan.
+  <code>sightOf</code> takes a state or a view (the plan pinned a state; the client needs it on a view).</li>
+</ul>
+</main>
+
+<script type="module">
+  import { createBoard } from '/src/client/render/index.ts';
+  import { lowpolyKit, loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
+  import { MAPS, PRESETS, SUN, UNITS } from '/src/content/index.ts';
+  import { createMatch, sightOf, viewFor, visibleEnemies, visibleHexes } from '/src/rules/index.ts';
+  import { lightWords } from '/src/client/ui/light.ts';
+  import { lessonById, runLesson, checkLesson } from '/src/manual/lessons.ts';
+  import { viewOf } from '/src/manual/show.ts';
+  import * as H from '/src/shared/hex.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const table = (caption, head, rows) => `<table class="t"><caption>${caption}</caption><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead>`
+    + `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  $('sun').textContent = JSON.stringify(SUN);
+
+  await loadKitFonts();
+  const map = MAPS.crossroads;
+  const start = createMatch(map, [0, 1, 2, 3].map((player) => ({ player, units: PRESETS[player % PRESETS.length].units })));
+  const mine = start.units.filter((u) => u.owner === 0);
+  for (const u of mine) $('unit').insertAdjacentHTML('beforeend', `<option value="${u.id}">${esc(u.name)}, ${esc(UNITS[u.type].name.toLowerCase())} on ${H.label(u.pos)}</option>`);
+  const sniper = mine.find((u) => u.type === 'sniper') ?? mine[0];
+  $('unit').value = sniper.id;
+  const params = new URLSearchParams(location.search);
+  if (params.get('round')) $('round').value = params.get('round');
+  if (params.get('unit')) $('unit').value = params.get('unit');
+
+  let board = null;
+  {
+    const canvas = document.createElement('canvas');
+    $('stage').append(canvas);
+    try {
+      board = createBoard(canvas, lowpolyKit());
+      addEventListener('resize', () => board.resize());
+      board.resize();
+    } catch (err) {
+      $('stage').insertAdjacentHTML('beforeend', `<p class="observed bad">The board could not start here: ${esc(err.message ?? err)}</p>`);
+    }
+  }
+
+  const at = (round) => ({ ...start, round });
+  const alone = (state, u) => visibleHexes({ ...state, units: [u] }, 0);
+  let focused = null;
+  function show() {
+    const round = Number($('round').value);
+    const state = at(round);
+    const view = viewFor(state, 0);
+    const u = state.units.find((x) => x.id === $('unit').value);
+    const own = alone(state, u);
+    $('round-out').textContent = String(round);
+    $('readout').innerHTML = `Round ${round}: <b>${esc(lightWords(view))}</b>. <code>view.sun</code> = ${view.sun}, <code>view.dawn</code> = ${view.dawn.toFixed(3)}. `
+      + `${esc(u.name)} (${esc(UNITS[u.type].name.toLowerCase())}, type sight ${UNITS[u.type].sight}): <code>sightOf</code> = ${sightOf(state, u)}, sees ${own.size} hexes alone; `
+      + `Blue's squad sees ${view.visible.length} of ${Object.keys(map.cells).length} hexes and ${visibleEnemies(state, 0).length} enemies.`;
+    if (board) {
+      board.setView(view);
+      board.setMarks([{ kind: 'options', hexes: [...own].map(H.parseKey) }]);
+      if (focused !== u.id) { board.focus(u.pos); focused = u.id; }
+    }
+    document.body.dataset.round = String(round);
+    document.body.dataset.dawn = String(view.dawn);
+  }
+  $('round').addEventListener('input', show);
+  $('unit').addEventListener('change', show);
+  show();
+
+  // Every round, every unit of Blue's: the numbers the slider shows, side by side.
+  $('table').innerHTML = table('Blue\'s units: <code>sightOf</code> and hexes seen alone, by round (the real rules on the same state)',
+    ['Unit', 'Type sight', ...[1, 2, 3, 4, 5, 6, 7, 8].map((r) => `Round ${r}`)],
+    mine.map((u) => [esc(u.name), UNITS[u.type].sight, ...[1, 2, 3, 4, 5, 6, 7, 8].map((r) => `${sightOf(at(r), u)} · ${alone(at(r), u).size} hexes`)]))
+    + table('The light by round', ['Round', 'sun', 'dawn', 'Play screen readout'],
+      [1, 2, 3, 4, 5, 6, 7, 8].map((r) => { const v = viewFor(at(r), 0); return [r, v.sun, v.dawn.toFixed(3), esc(lightWords(v))]; }));
+
+  // The Dawn lesson, run here too.
+  {
+    const lesson = lessonById('dawn');
+    const run = runLesson(lesson);
+    const failed = checkLesson(lesson, run);
+    const [watcher, man] = run.states[0].units;
+    $('lesson').innerHTML = table('The lesson run here through <code>runLesson</code> (the same run the manual does)',
+      ['Planning round', 'Light', 'Watcher\'s sightOf', 'Distance to the man', 'Blue sees him', 'Blue told that round'],
+      run.states.map((s, i) => [s.round, esc(lightWords(viewOf(s, 0))), sightOf(s, s.units[0]), H.distance(watcher.pos, man.pos),
+        visibleEnemies(s, 0).some((x) => x.id === man.id) ? '<span class="ok">seen</span>' : 'not seen',
+        i === 0 ? '—' : esc(run.results[i - 1].playerEvents[0].filter((e) => e.t === 'spotted' || e.t === 'lost').map((e) => e.t).join(', ') || '—')]))
+      + `<p class="observed ${failed.length ? 'bad' : ''}"><code>checkLesson</code>: ${failed.length === 0 ? 'every expectation holds.' : esc(failed.join(' '))}</p>`;
+  }
+  document.body.dataset.ready = 'yes';
+</script>
+</body>
+</html>

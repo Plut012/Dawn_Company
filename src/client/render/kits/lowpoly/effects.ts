@@ -10,10 +10,10 @@
 import * as THREE from 'three';
 import { ACTIONS } from '../../../../content';
 import { neighbors } from '../../../../shared/hex';
-import type { GameEvent, Hex, UnitId } from '../../../../shared/types';
+import type { GameEvent, Hex, PlayerId, UnitId } from '../../../../shared/types';
 import type { KitCtx } from '../../kit';
 import { FACE_CAMERA, TOKENS, layFlat, text } from './parts';
-import { rigOf } from './units';
+import { PLAYERS, rigOf } from './units';
 
 type Event<T extends GameEvent['t']> = Extract<GameEvent, { t: T }>;
 
@@ -411,14 +411,63 @@ function stand(id: UnitId, helper: UnitId | null, ctx: KitCtx): Promise<void> {
   });
 }
 
+/** A man digs in: the sandbags come up out of the ground round him, in a ring of paper. */
+function dig(id: UnitId, ctx: KitCtx): Promise<void> {
+  return staged(ctx, async (props) => {
+    const object = ctx.unitObject(id);
+    const rig = rigOf(object);
+    if (!object || !rig) return;
+    try {
+      await Promise.all([
+        pulse(props, TOKENS.paper, object.position, 0.5, 0.95, 480),
+        tween(480, (k) => rig.dig(smooth(k))),
+      ]);
+    } finally {
+      rig.dig(1);
+    }
+  });
+}
+
 // ---- scoring
+
+/** Where an objective's flag stands, in the world: the marker itself for a kit object without a flag part. */
+function flagBase(marker: THREE.Object3D): THREE.Vector3 {
+  const flag = marker.userData.flag as THREE.Object3D | undefined;
+  return flag ? flag.getWorldPosition(new THREE.Vector3()) : marker.position.clone();
+}
+
+/** A flag changes hands: a ring in the new owner's colour, and the cloth turns over to theirs. */
+function capture(e: Event<'capture'>, ctx: KitCtx, marker: THREE.Object3D | undefined): Promise<void> {
+  return staged(ctx, async (props) => {
+    if (!marker) return;
+    const sign = marker.userData.sign as THREE.Object3D | undefined;
+    const setOwner = marker.userData.setOwner as ((owner: PlayerId | null) => void) | undefined;
+    const at = flagBase(marker);
+    const color = PLAYERS[e.player]?.color ?? TOKENS.paper;
+    let turned = false;
+    try {
+      await Promise.all([
+        pulse(props, color, at, 0.4, 1.3, 700),
+        tween(700, (k) => {
+          // The cloth folds away, and comes back in its new colour.
+          if (!turned && k >= 0.5) { setOwner?.(e.player); turned = true; }
+          sign?.scale.set(Math.max(0.05, Math.abs(Math.cos(k * Math.PI))), 1, 1);
+        }),
+      ]);
+    } finally {
+      if (!turned) setOwner?.(e.player);
+      sign?.scale.setScalar(1);
+    }
+  });
+}
 
 function score(e: Event<'score'>, ctx: KitCtx, marker: THREE.Object3D | undefined): Promise<void> {
   return staged(ctx, async (props) => {
     if (!marker) return;
     const sign = marker.userData.sign as THREE.Object3D | undefined;
-    const top = up(marker.position, 2.05);
-    top.z -= 0.5;
+    const base = flagBase(marker);
+    const top = up(base, (sign?.position.y ?? 1.45) + 0.55);
+    top.z -= 0.45;
     // The number is cut twice: amber, on a hard ink shadow.
     const label = `+${e.value}`;
     const shadow = text(label, 0.8, TOKENS.ink);
@@ -431,8 +480,8 @@ function score(e: Event<'score'>, ctx: KitCtx, marker: THREE.Object3D | undefine
     }
     try {
       await Promise.all([
-        pulse(props, TOKENS.amber, marker.position, 0.5, 1.15, 600),
-        pause(260).then(() => pulse(props, TOKENS.amber, marker.position, 0.5, 1.15, 600)),
+        pulse(props, TOKENS.amber, base, 0.5, 1.15, 600),
+        pause(260).then(() => pulse(props, TOKENS.amber, base, 0.5, 1.15, 600)),
         tween(950, (k) => {
           sign?.scale.setScalar(1 + 0.45 * arc(span(k, 0, 0.35)) + 0.3 * arc(span(k, 0.35, 0.7)));
           const rise = 0.7 * out(k);
@@ -457,6 +506,14 @@ function lit(e: Event<'reveal'>, ctx: KitCtx): Promise<void> {
   return staged(ctx, async (props) => {
     const object = ctx.unitObject(e.unit);
     if (object) await pulse(props, TOKENS.amber, object.position.clone(), 0.3, 0.95, 420);
+  });
+}
+
+/** (25) A work goes up: dust off the hex and a paper ring. The board then draws the hex again with the work on it. */
+function built(e: Event<'build'>, ctx: KitCtx): Promise<void> {
+  return staged(ctx, async (props) => {
+    const at = ctx.hexToWorld(e.at);
+    await Promise.all([dust(props, TOKENS.khaki, at, 6, 0.5, 0.14, 520), pulse(props, TOKENS.paper, at, 0.3, 1, 520)]);
   });
 }
 
@@ -488,6 +545,7 @@ export const LOOKS: Record<string, Partial<Look>> = {
   snipe: { fire },
   shell: { launch, impact },
   aid: { treat: (e, ctx) => stand(e.target, e.unit, ctx) },
+  build: {},   // (25) a build has no shot or treatment to draw; its `build` event is drawn by `built`
 };
 
 /** The look for the action an event names; the plain one for an action or icon this kit does not know. */
@@ -500,7 +558,8 @@ export function lookFor(action: string): Look {
 
 /**
  * `markers` are the objective markers this kit has made, by objective id: a
- * `score` event names its objective, and the marker is what pulses.
+ * `capture` or `score` event names its objective, and the marker's flag is
+ * what turns over or pulses.
  */
 export function effect(event: GameEvent, ctx: KitCtx, markers: Map<string, THREE.Object3D>): Promise<void> {
   switch (event.t) {
@@ -515,8 +574,11 @@ export function effect(event: GameEvent, ctx: KitCtx, markers: Map<string, THREE
     case 'spotted': return sight(event.unit.id, ctx, true);
     case 'lost': return sight(event.unit, ctx, false);
     case 'recover': return stand(event.unit, null, ctx);
-    // A score whose objective is not named (its holder is out of sight) shows nothing on the map.
-    case 'score': return score(event, ctx, event.objective === null ? undefined : markers.get(event.objective));
+    case 'dig': return dig(event.unit, ctx);   // (24)
+    case 'build': return built(event, ctx);    // (25)
+    case 'return': return Promise.all([sight(event.unit, ctx, true), stand(event.unit, null, ctx)]).then(() => undefined);   // (18) fades in at the HQ, in a ring of paper
+    case 'capture': return capture(event, ctx, markers.get(event.objective));
+    case 'score': return score(event, ctx, markers.get(event.objective));
     default: return Promise.resolve();   // eliminated, over, phase, dash: nothing in the world
   }
 }

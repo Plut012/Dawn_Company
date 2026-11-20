@@ -4,9 +4,11 @@
 //
 // Pure functions: no DOM, Node APIs, clock or randomness.
 
-import { TERRAIN, UNITS } from '../content';
+import { MODES, SUN, TERRAIN, UNITS } from '../content';
 import { distance, key, line, within } from '../shared/hex';
 import type { GameMap, GameState, Hex, HexKey, PlayerId, PlayerView, Unit } from '../shared/types';
+import { benefitOf } from './kinds';
+import { worthOf } from './survival';
 
 /**
  * The first hex on the sight line that stops it, or null if the line is clear.
@@ -56,15 +58,40 @@ export function hideRange(map: GameMap, unit: Unit): number | null {
   return unit.posture === 'moved' ? hide.moved : hide.still;
 }
 
+/** The change to every unit's sight in this round: the rising sun (19). */
+export function sunOf(round: number): number {
+  return SUN[Math.max(1, Math.min(round, SUN.length)) - 1] ?? 0;
+}
+
+/** How far the light has come in this round: 0 in round 1 .. 1 from round SUN.length on. */
+export function dawnOf(round: number): number {
+  if (SUN.length < 2) return 1;
+  return (Math.max(1, Math.min(round, SUN.length)) - 1) / (SUN.length - 1);
+}
+
+/**
+ * How far this unit sees in the round being resolved or planned (`round` of
+ * the state or view): its type's sight and the sun's change, at least 1,
+ * plus the `sight` of the objective it benefits from where it stands (21).
+ * The one place a unit's sight range is worked out.
+ */
+export function sightOf(state: GameState | PlayerView, unit: Unit): number {
+  const def = Object.hasOwn(UNITS, unit.type) ? UNITS[unit.type] : undefined;
+  if (!def) return 0;
+  return Math.max(1, def.sight + sunOf(state.round)) + (benefitOf(state, unit)?.kind.sight ?? 0);
+}
+
 /**
  * Does this unit itself see that one? Within its sight range, with a clear
  * line, and near enough for what hides the target (a spotter's `spotting` is
- * added to that distance). Says nothing of whether either is down.
+ * added to that distance). Its sight is `sightOf` in the state's round.
+ * Says nothing of whether either is down.
  */
-export function spots(map: GameMap, spotter: Unit, target: Unit): boolean {
+export function spots(state: GameState, spotter: Unit, target: Unit): boolean {
+  const map = state.map;
   const def = UNITS[spotter.type];
   const d = distance(spotter.pos, target.pos);
-  if (!def || d > def.sight) return false;
+  if (!def || d > sightOf(state, spotter)) return false;
   if (!canSee(map, spotter.pos, target.pos)) return false;
   const near = hideRange(map, target);
   return near === null || d <= near + def.spotting;
@@ -73,7 +100,7 @@ export function spots(map: GameMap, spotter: Unit, target: Unit): boolean {
 const living = (state: GameState, player: PlayerId): Unit[] =>
   state.units.filter((u) => u.owner === player && u.status !== 'down');
 
-/** Every hex the player sees now: the union over their living units. */
+/** Every hex the player sees now: the union over their living units, each to its `sightOf`. */
 export function visibleHexes(state: GameState, player: PlayerId): Set<HexKey> {
   const out = new Set<HexKey>();
   if (state.eliminated[player]) {
@@ -82,7 +109,7 @@ export function visibleHexes(state: GameState, player: PlayerId): Set<HexKey> {
   }
   for (const u of living(state, player)) {
     out.add(key(u.pos));
-    const sight = UNITS[u.type]?.sight ?? 0;
+    const sight = sightOf(state, u);
     for (const h of within(u.pos, sight)) {
       const k = key(h);
       if (!out.has(k) && state.map.cells[k] && canSee(state.map, u.pos, h)) out.add(k);
@@ -96,7 +123,7 @@ export function visibleEnemies(state: GameState, player: PlayerId): Unit[] {
   const enemies = state.units.filter((u) => u.owner !== player && u.status !== 'down');
   if (state.eliminated[player]) return enemies;
   const mine = living(state, player);
-  return enemies.filter((e) => mine.some((f) => spots(state.map, f, e)));
+  return enemies.filter((e) => mine.some((f) => spots(state, f, e)));
 }
 
 /** What a player is sent: their own units, the enemies they see, the hexes they see. */
@@ -113,7 +140,15 @@ export function viewFor(state: GameState, player: PlayerId): PlayerView {
     visible: [...visible],
     scores: [...state.scores],
     eliminated: [...state.eliminated],
+    flags: { ...state.flags },
+    mode: state.mode,
+    works: { ...(state.works ?? {}) },
     over: state.over,
     winners: [...state.winners],
+    sun: sunOf(state.round),
+    dawn: dawnOf(state.round),
+    // The tie-break of a survival match, told once it is over (20): everyone may know what stood.
+    ...(state.over && Object.hasOwn(MODES, state.mode) && MODES[state.mode].win === 'survival'
+      ? { worth: Array.from({ length: state.playerCount }, (_, p) => worthOf(state.units, p)) } : {}),
   };
 }

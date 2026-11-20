@@ -121,7 +121,7 @@ and the squad check. Nothing on this page is typed in by hand. Hover a hex for i
 </div>
 
 <script type="module">
-  import { UNITS, TERRAIN, MAPS, DEFAULT_MAP, PRESETS, RULES, NAMES, validateSquad } from '/src/content/index.ts';
+  import { UNITS, TERRAIN, MAPS, mapFor, PRESETS, RULES, NAMES, validateSquad } from '/src/content/index.ts';
   import { key, parseKey, eq, distance, offsetToAxial, axialToOffset, label, hexToPixel, pixelToHex } from '/src/shared/hex.ts';
 
   const showError = (m) => { const e = document.getElementById('error'); e.style.display = 'block'; e.textContent = 'Error: ' + m; };
@@ -143,7 +143,7 @@ and the squad check. Nothing on this page is typed in by hand. Hover a hex for i
   };
   const fact = (dl, name, value, cls) => { dl.append(h('dt', name), h('dd', String(value), cls)); };
 
-  const map = MAPS[DEFAULT_MAP];
+  const map = mapFor(4);
   const INK = '#1E2420';
 
   // ---- colours. Terrain by colour, elevation by stepped tint (paler = higher).

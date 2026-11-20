@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 16 — Objective areas, flags and HQs</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the board, the rules and the manual are the real modules */
+  body { padding: var(--s-3); }
+  main { max-width: 1200px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 90ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  pre { background: rgba(30,36,32,0.5); padding: var(--s-2); overflow-x: auto; max-width: 100ch; white-space: pre-wrap; }
+  .bar { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; margin: var(--s-2) 0 var(--s-3); }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; min-height: 1.5em; }
+  .bad { border-left-color: var(--rust, #9A4B32); }
+  .stage { position: relative; width: 100%; max-width: 1100px; height: 600px; border: var(--w-frame) solid var(--ink); background: var(--slate); }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  .frame iframe { box-sizing: content-box; border: var(--w-frame) solid var(--ink); background: var(--slate); display: block; max-width: 100%; }
+  table.t { border-collapse: collapse; margin: 0 0 var(--s-3); font-size: var(--t-1); }
+  table.t caption { text-align: left; padding: var(--s-1) 0; max-width: 100ch; }
+  table.t th, table.t td { border: var(--w-divider) solid rgba(233,223,198,0.35); padding: 2px 8px; text-align: left; vertical-align: top; }
+  table.t thead th { background: rgba(30,36,32,0.6); }
+  .wrap { overflow-x: auto; max-width: 100%; }
+  .check { list-style: none; margin: 0 0 var(--s-3); padding: 0; max-width: 100ch; }
+  .check li { display: grid; grid-template-columns: 28px 1fr; gap: var(--s-2); padding: var(--s-1) 0; border-top: var(--w-divider) solid rgba(233,223,198,0.25); }
+  .check input { width: 20px; height: 20px; margin: 2px 0 0; accent-color: var(--amber); }
+  .ok { color: var(--amber); }
+  .flag { display: inline-block; width: 14px; height: 10px; border: 2px solid var(--ink); vertical-align: middle; margin-right: 4px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 16 — Objective areas, flags and HQs</h1>
+<p>Everything on this page is computed when it loads, from the real modules through Vite: <code>MAPS</code> and
+<code>readMap</code> from <code>src/content</code>, <code>createMatch</code> / <code>resolve</code> / <code>viewFor</code>
+from <code>src/rules</code>, the real board and low-poly kit, the play screen's report <code>teller</code>, and the real
+field manual in a frame. Only Vite is needed (no game server).</p>
+<p class="observed bad"><b>Not checked by the implementer:</b> the two boards and the manual frame need WebGL. Headless Firefox in
+the implementer's sandbox cannot draw the WebGL board, so no screenshot was taken and the flags were never looked at
+by eye. Everything else on the page is text worked out by the real code, and the same facts are covered by
+<code>npm test</code>.</p>
+
+<h2>1. Crossroads: areas, kinds, values, HQs</h2>
+<p>A four-player match from <code>createMatch</code>, everything in sight. Every objective is an amber-washed area with a
+flag on its middle hex: a plain bone flag for nobody, the player's colour and mark for an owner. The four HQs (W X Y Z,
+taller flags) belong to the seats that start beside them.</p>
+<div class="stage" id="stage1"></div>
+<div class="wrap" id="objectives"></div>
+
+<h2>2. A scripted match on the real map</h2>
+<p>Two seats on Crossroads (seat 0 Blue from the north-west, HQ W; seat 1 Plum from the south-east, HQ Y). After
+<code>createMatch</code> the three riflemen are set down by the page next to the village C and on either side of the hill E
+(the only thing the page does by hand), then two rounds of orders go through <code>validateOrders</code> and the real
+<code>resolve</code>.</p>
+<ol>
+  <li>Round 1: Blue's 0-0 walks into the village C (alone: Blue takes it); Blue's 0-1 walks onto the hill E (alone: Blue takes it).</li>
+  <li>Round 2: 0-0 walks back out of C (the flag stays Blue's); Plum's 1-0 walks onto the hill beside 0-1 (two sides in E: it stays as it was, Blue's).</li>
+</ol>
+<div class="bar" id="bar2"></div>
+<div class="stage" id="stage2"></div>
+<div id="rounds"></div>
+
+<h2>3. The <i>Flags</i> lesson in the real manual</h2>
+<p>The real client at <a href="/?manual=flags" target="_blank" rel="noopener"><code>/?manual=flags</code></a>: Blue goes into A,
+takes it, steps out (the flag stays), goes back in as Plum comes in too (contested: unchanged). Press Play. The
+<i>Holding an objective</i> lesson before it was rewritten for areas and flags (<code>/?manual=score</code>).</p>
+<div class="frame"><iframe title="Field manual, Flags lesson" width="1180" height="720" src="/?manual=flags"></iframe></div>
+<div class="wrap" id="lesson"></div>
+
+<h2>4. <code>readMap</code> on bad drawings, live</h2>
+<p>A small drawing that reads (two HQs A and B, eight spawn hexes each, a village C, one <code>x</code> hex off the board),
+then the same drawing broken one way at a time. Each message is what <code>readMap</code> throws, caught here.</p>
+<pre id="small"></pre>
+<div class="wrap" id="errors"></div>
+
+<h2>What to check</h2>
+<ul class="check">
+  <li><input type="checkbox" /><span>Section 1: thirteen areas on the board, each washed amber, the hill three hexes along the top of the rise, each village over its two buildings; four bone flags on the depots, one bone flag on the hill, bone on the villages; Blue, Plum, Teal and Bone flags (with their marks) on W, X, Y, Z, taller than the others.</span></li>
+  <li><input type="checkbox" /><span>Section 2: press <b>Play round 1</b>, then <b>Play round 2</b>. In round 1 the village C's and the hill E's flags turn over to Blue during the score phase; in round 2 nothing turns over, though 0-0 has left C and Plum is standing on E.</span></li>
+  <li><input type="checkbox" /><span>Section 2 tables: the round 1 events have two <code>capture</code>s; round 2 has none; the flags after round 2 still show C and E as Blue's; every flag with an owner scored in both rounds.</span></li>
+  <li><input type="checkbox" /><span>Section 3: the lesson plays three rounds and its closing line holds (no red failure text in the frame).</span></li>
+  <li><input type="checkbox" /><span>Section 4: an unknown kind, a split area and a spawn hex equally near two HQs are each refused with a message that says so.</span></li>
+</ul>
+
+<h2>Not shown, or not working</h2>
+<ul>
+  <li>The boards and the manual frame were not seen by the implementer (no WebGL in the headless browser here); see the note at the top.</li>
+  <li>A kind gives nothing yet: every number in <code>OBJECTIVE_KINDS</code> is 0 (task 21). An HQ is an objective like any other: losing it changes nothing yet (task 18).</li>
+  <li>The terrain of the HQ corners is the old open ground; the fortified base is later map work (task 22).</li>
+  <li>Thirteen flags earn every round, so the play screen's log gets one <code>Supply: you +n, Bo +m.</code> line per round rather than a line per flag; scores are far higher than before (the fifty seeded matches: about 158 points scored a match, all seats together, against about 32 before; units down 11.2 a match against 12.6), which matters to task 18's supply numbers.</li>
+</ul>
+</main>
+
+<script type="module">
+  import { key as keyButton } from '/src/client/ui/components.ts';
+  import { createBoard } from '/src/client/render/index.ts';
+  import { lowpolyKit, loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
+  import { MAPS, OBJECTIVE_KINDS, PRESETS } from '/src/content/index.ts';
+  import { readMap } from '/src/content/mapFormat.ts';
+  import { createMatch, resolve, validateOrders, viewFor } from '/src/rules/index.ts';
+  import { teller } from '/src/client/ui/lines.ts';
+  import { lessonById, runLesson, checkLesson } from '/src/manual/lessons.ts';
+  import * as H from '/src/shared/hex.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const map = MAPS.crossroads;
+  const SIDES = ['Blue', 'Plum', 'Teal', 'Bone'];
+  const COLOURS = ['#3F6E8C', '#6B4E7A', '#2F7F78', '#E9DFC6'];
+  const at = (col, row) => H.offsetToAxial(col, row);
+  const owner = (p) => (p === null || p === undefined ? 'nobody' : `${SIDES[p]} (seat ${p})`);
+  const swatch = (p) => `<span class="flag" style="background:${p === null || p === undefined ? '#E9DFC6' : COLOURS[p]}"></span>`;
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const table = (caption, head, rows) => `<table class="t"><caption>${caption}</caption><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead>`
+    + `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  /** A view with every hex in sight, as the manual's umpire has it. */
+  const umpire = (state) => ({ ...viewFor(state, 0), units: state.units.filter((u) => u.status !== 'down'), visible: Object.keys(state.map.cells) });
+
+  await loadKitFonts();
+  function board(id) {
+    const canvas = document.createElement('canvas');
+    $(id).append(canvas);
+    try {
+      const b = createBoard(canvas, lowpolyKit());
+      addEventListener('resize', () => b.resize());
+      b.resize();
+      return b;
+    } catch (err) {
+      $(id).insertAdjacentHTML('beforeend', `<p class="observed bad">The board could not start here: ${esc(err.message ?? err)}</p>`);
+      return null;
+    }
+  }
+
+  // ---- 1. Crossroads
+  {
+    const state = createMatch(map, [0, 1, 2, 3].map((player) => ({ player, units: PRESETS[player % PRESETS.length].units })));
+    board('stage1')?.setView(umpire(state));
+    $('objectives').innerHTML = table(
+      `${map.objectives.length} objectives on <code>MAPS.crossroads</code>, with the flags <code>createMatch</code> gives a four-player match.`,
+      ['Id', 'Kind', 'Value', 'Area (hex labels, drawing order)', 'Zone', 'Flag at the start (4 players)', 'Flag at the start (2 players)'],
+      map.objectives.map((o) => [
+        `<b>${o.id}</b>`, `${OBJECTIVE_KINDS[o.kind].name} <small>(${esc(OBJECTIVE_KINDS[o.kind].blurb)})</small>`, o.value,
+        o.hexes.map(H.label).join(' '), o.zone ?? '—',
+        swatch(state.flags[o.id]) + owner(state.flags[o.id]),
+        (() => { const two = createMatch(map, [0, 1].map((player) => ({ player, units: ['rifleman'] }))).flags[o.id]; return swatch(two) + owner(two); })(),
+      ]),
+    );
+  }
+
+  // ---- 2. The scripted match
+  {
+    let state = createMatch(map, [{ player: 0, units: ['rifleman', 'rifleman'] }, { player: 1, units: ['rifleman'] }]);
+    const place = { '0-0': at(4, 3), '0-1': at(6, 6), '1-0': at(10, 6) };
+    state = { ...state, units: state.units.map((u) => ({ ...u, pos: place[u.id] })) };
+    const C = map.objectives.find((o) => o.id === 'C'), E = map.objectives.find((o) => o.id === 'E');
+    const move = (unit, ...path) => ({ unit, kind: 'move', path });
+    const rounds = [
+      [[move('0-0', C.hexes[0]), move('0-1', E.hexes[0])], []],
+      [[move('0-0', at(4, 3))], [move('1-0', E.hexes[2])]],
+    ];
+    const states = [state];
+    const results = [];
+    let html = table('Where the page sets the units down (after <code>createMatch</code>)', ['Unit', 'Seat', 'Hex'],
+      state.units.map((u) => [u.id, owner(u.owner), H.label(u.pos)]));
+    rounds.forEach((orders, i) => {
+      const before = states[i];
+      const errors = orders.flatMap((list, p) => validateOrders(before, p, list));
+      const r = resolve(before, orders);
+      results.push(r);
+      states.push(r.state);
+      const sc = r.events.slice(r.events.findIndex((e) => e.t === 'phase' && e.phase === 'score'));
+      const lines = teller(viewFor(before, 0), ['Ann', 'Bo']).tell(r.playerEvents[0]).map((l) => (l.danger ? `<b>${esc(l.text)}</b>` : esc(l.text)));
+      html += `<h3>Round ${i + 1}</h3>`
+        + `<p>Orders: <code>${esc(JSON.stringify(orders.map((l) => l.map((o) => `${o.unit} → ${o.path.map(H.label).join(' ')}`))))}</code>. `
+        + `<code>validateOrders</code>: ${errors.length === 0 ? '<span class="ok">no errors</span>' : `<b>${esc(JSON.stringify(errors))}</b>`}.</p>`
+        + table('The score phase, as <code>resolve</code> returns it (the full list; flags are public, so every player gets the same <code>capture</code> and <code>score</code> events)',
+          ['#', 'Event'], sc.map((e, k) => [k, `<code>${esc(JSON.stringify(e))}</code>`]))
+        + table(`Flags and scores after round ${i + 1}`, ['Objective', 'Flag', 'Units in the area'], map.objectives.map((o) => {
+          const keys = new Set(o.hexes.map(H.key));
+          const inside = r.state.units.filter((u) => keys.has(H.key(u.pos))).map((u) => `${u.id} (${u.status})`).join(', ');
+          return [`${o.id} ${OBJECTIVE_KINDS[o.kind].name}`, swatch(r.state.flags[o.id]) + owner(r.state.flags[o.id]), inside || '—'];
+        }))
+        + `<p>Scores: Blue ${r.state.scores[0]}, Plum ${r.state.scores[1]}. Same flags in each seat's <code>viewFor</code>: `
+        + `${JSON.stringify(viewFor(r.state, 0).flags) === JSON.stringify(viewFor(r.state, 1).flags) ? '<span class="ok">yes</span>' : '<b>no</b>'}.</p>`
+        + `<p>Blue's report lines for the round (the play screen's log strip, from the real <code>teller</code>):</p><pre>${lines.join('\n') || '(none)'}</pre>`;
+    });
+    const ok = states[1].flags.C === 0 && states[1].flags.E === 0 && states[2].flags.C === 0 && states[2].flags.E === 0
+      && results[0].events.filter((e) => e.t === 'capture').length === 2 && results[1].events.filter((e) => e.t === 'capture').length === 0;
+    html += `<p class="observed ${ok ? '' : 'bad'}">${ok ? 'As scripted: C and E taken in round 1; C kept after 0-0 left; E unchanged with both sides on it.' : 'NOT as scripted: see the tables.'}</p>`;
+    $('rounds').innerHTML = html;
+
+    const b = board('stage2');
+    if (b) {
+      b.setView(umpire(states[0]));
+      let shown = 0;
+      const status = document.createElement('span');
+      const show = () => { status.textContent = `Showing the start of round ${shown + 1}.`; };
+      show();
+      for (const i of [0, 1]) {
+        $('bar2').append(keyButton({ label: `Play round ${i + 1}`, onPress: async () => {
+          b.setView(umpire(states[i]));
+          status.textContent = `Playing round ${i + 1} (the full event list)…`;
+          await b.play(results[i].events);
+          b.setView(umpire(states[i + 1]));
+          shown = i + 1;
+          status.textContent = `After round ${i + 1}.`;
+        } }));
+      }
+      $('bar2').append(keyButton({ label: 'Back to the start', onPress: () => { shown = 0; b.setView(umpire(states[0])); show(); } }), status);
+    }
+  }
+
+  // ---- 3. The Flags lesson, checked here too
+  {
+    const lesson = lessonById('flags');
+    const run = runLesson(lesson);
+    const failed = checkLesson(lesson, run);
+    $('lesson').innerHTML = table('The lesson run here through <code>runLesson</code> (the same run the manual does)', ['After round', 'Flag of A', 'Captures that round', 'Blue / Plum score'],
+      run.results.map((r, i) => [i + 1, swatch(run.states[i + 1].flags.A) + owner(run.states[i + 1].flags.A), r.events.filter((e) => e.t === 'capture').length, run.states[i + 1].scores.join(' / ')]))
+      + `<p class="observed ${failed.length ? 'bad' : ''}"><code>checkLesson</code>: ${failed.length === 0 ? 'every expectation holds.' : esc(failed.join(' '))}</p>`;
+  }
+
+  // ---- 4. readMap errors
+  {
+    const SMALL = {
+      id: 'small', name: 'Small',
+      terrain: ['. . . . . . . . . . .', ' . . . . . . . . . . .', '. . . . . . . . . . x'],
+      elevation: ['. . . . . . . . . . .', ' . . . . . . . . . . .', '. . . . . . . . . . x'],
+      marks: ['A 1 2 3 4 . 1 2 3 4 B', ' A 5 6 7 8 C 5 6 7 8 B', '. . . . . C . . . . x'],
+      objectives: { A: { kind: 'hq', value: 1 }, B: { kind: 'hq', value: 1 }, C: { kind: 'village', value: 2 } },
+      seatSpawns: { 2: [0, 1] }, maxRounds: 1,
+    };
+    const good = readMap(SMALL);
+    $('small').textContent = `terrain:\n${SMALL.terrain.join('\n')}\nmarks:\n${SMALL.marks.join('\n')}\nobjectives: ${JSON.stringify(SMALL.objectives)}\n\n`
+      + `readMap → ${good.objectives.map((o) => `${o.id} ${o.kind} [${o.hexes.map(H.label).join(' ')}] zone ${o.zone}`).join('; ')}; `
+      + `${good.spawns.length} zones of ${good.spawns.map((z) => z.length).join(', ')} hexes; ${Object.keys(good.cells).length} cells (one x left out).`;
+    const cases = [
+      ['An unknown kind', { objectives: { ...SMALL.objectives, C: { kind: 'castle', value: 2 } } }],
+      ['A split area: C drawn in two pieces', { marks: ['A 1 2 3 4 C 1 2 3 4 B', ' A 5 6 7 8 . 5 6 7 8 B', '. . . . . C . . . . x'] }],
+      ['A spawn hex equally near two HQs (4 moved to the middle column)', { marks: ['A 1 2 3 . 4 1 2 3 4 B', ' A 5 6 7 8 C 5 6 7 8 B', '. . . . . C . . . . x'] }],
+      ['A letter without an entry', { objectives: { A: SMALL.objectives.A, B: SMALL.objectives.B } }],
+      ['An entry without a letter', { objectives: { ...SMALL.objectives, D: { kind: 'depot', value: 1 } } }],
+      ['A mark on an x hex', { terrain: ['x . . . . . . . . . .', ' . . . . . . . . . . .', '. . . . . . . . . . x'] }],
+      ['A zone short of a spawn hex', { marks: ['A 1 2 3 . . 1 2 3 4 B', ' A 5 6 7 8 C 5 6 7 8 B', '. . . . . C . . . . x'] }],
+      ['Spawn hexes but no HQ', { marks: ['. 1 2 3 4 . 1 2 3 4 .', ' . 5 6 7 8 C 5 6 7 8 .', '. . . . . C . . . . x'], objectives: { C: SMALL.objectives.C } }],
+    ];
+    $('errors').innerHTML = table('Each broken drawing put to the real <code>readMap</code>', ['Broken how', 'What readMap says'], cases.map(([what, change]) => {
+      try { readMap({ ...SMALL, ...change }); return [what, '<b>accepted — this should have been refused</b>']; }
+      catch (err) { return [what, `<code>${esc(err.message)}</code>`]; }
+    }));
+  }
+</script>
+</body>
+</html>

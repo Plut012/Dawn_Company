@@ -20,6 +20,7 @@ import type { Board } from '../../render';
 import { lowpolyKit, loadKitFonts } from '../../render/kits/lowpoly';
 import { el, key, panel, playerMark, report } from '../components';
 import type { Key } from '../components';
+import { lightWords } from '../light';
 import { teller } from '../lines';
 import type { Teller } from '../lines';
 
@@ -139,7 +140,9 @@ export function mountManual(root: HTMLElement, opts: ManualOptions = {}): () => 
     screen.dataset.state = finished ? 'end' : playing || busy ? 'playing' : 'ready';   // for scripts and the eval page
 
     const round = roundInHand();
-    roundWord.textContent = lesson.rounds.length > 1 ? `Round ${round + 1}/${lesson.rounds.length}` : '';
+    // A lesson set in a round of its own (19) says the light too: the Dawn lesson.
+    const light = lesson.round === undefined ? '' : ` · ${lightWords(viewOf(run.states[Math.min(round, run.states.length - 1)], 'umpire'))}`;
+    roundWord.textContent = lesson.rounds.length > 1 ? `Round ${round + 1}/${lesson.rounds.length}${light}` : light.slice(3);
     const reached = phaseNow === null ? -1 : PHASES.indexOf(phaseNow);
     PHASES.forEach((p, i) => {
       const word = phaseWords.get(p)!;

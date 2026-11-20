@@ -2,19 +2,24 @@
 //
 // Pure: no DOM, Node APIs, clock or randomness.
 
-import { NAMES, UNITS } from '../content';
-import type { GameMap, GameState, Squad, Unit } from '../shared/types';
+import { DEFAULT_MODE, MODES, NAMES, UNITS } from '../content';
+import type { GameMap, GameState, ModeId, PlayerId, Squad, Unit } from '../shared/types';
 
 /**
  * A new match. Seat `i` (the squad whose `player` is `i`) uses spawn zone
  * `map.seatSpawns[n][i]`; its units go on that zone's hexes in squad order.
  * Surnames are dealt round the table (`NAMES[index * n + seat]`), so no two
  * units share one while the pool lasts.
- * Throws on input no lobby should produce: a map without seats for this many
+ * Flags: each HQ belongs to the seat that uses its zone; an HQ whose zone no
+ * seat uses, and every other objective, to nobody.
+ * `mode` is stored on the state; `resolve` reads its return rule (18).
+ * Throws on input no lobby should produce: an unknown mode, a unit the mode
+ * does not allow, a map without seats for this many
  * players, seats that are not exactly 0..n-1, an unknown unit type, or a
  * squad larger than its spawn zone.
  */
-export function createMatch(map: GameMap, squads: Squad[]): GameState {
+export function createMatch(map: GameMap, squads: Squad[], mode: ModeId = DEFAULT_MODE): GameState {
+  if (!Object.hasOwn(MODES, mode)) throw new Error(`Unknown mode "${mode}".`);
   const n = squads.length;
   const zones = map.seatSpawns[n];
   if (!zones) throw new Error(`Map ${map.id} has no spawn layout for ${n} players.`);
@@ -23,6 +28,11 @@ export function createMatch(map: GameMap, squads: Squad[]): GameState {
   bySeat.forEach((squad, seat) => {
     if (squad.player !== seat) throw new Error(`Squads must be for seats 0 to ${n - 1}, one each.`);
     const zone = map.spawns[zones[seat]] ?? [];
+    for (const type of squad.units) {
+      const def = UNITS[type];
+      const allowed = MODES[mode].units;
+      if (def && allowed && !allowed.includes(type)) throw new Error(`${MODES[mode].name} has no ${type}.`);
+    }
     if (squad.units.length > zone.length) {
       throw new Error(`Seat ${seat} has ${squad.units.length} units but its spawn zone holds ${zone.length}.`);
     }
@@ -39,9 +49,16 @@ export function createMatch(map: GameMap, squads: Squad[]): GameState {
         pinnedRound: null,
         revealed: false,
         posture: 'still',
+        returnRound: null,
+        dugIn: false,
       });
     });
   });
+  const flags: Record<string, PlayerId | null> = {};
+  for (const o of map.objectives) {
+    const seat = o.zone === null ? -1 : zones.indexOf(o.zone);
+    flags[o.id] = seat >= 0 ? seat : null;
+  }
   return {
     map,
     playerCount: n,
@@ -49,6 +66,9 @@ export function createMatch(map: GameMap, squads: Squad[]): GameState {
     round: 1,
     scores: bySeat.map(() => 0),
     eliminated: bySeat.map(() => false),
+    flags,
+    mode,
+    works: {},
     over: false,
     winners: [],
   };

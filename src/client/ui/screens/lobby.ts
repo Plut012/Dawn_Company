@@ -1,9 +1,9 @@
 // The lobby: join, see who is here, build a squad, throw the ready lever.
 
-import { PRESETS, RULES, UNITS, validateSquad } from '../../../content';
+import { DEFAULT_MODE, MODES, PRESETS, RULES, UNITS, validateSquad } from '../../../content';
 import { manualSearch } from '../../../manual/show';
 import type { SeatStatus } from '../../../shared/protocol';
-import type { UnitTypeId } from '../../../shared/types';
+import type { ModeId, UnitTypeId } from '../../../shared/types';
 import { hasRememberedSeat, rememberedName } from '../../net';
 import {
   el, field, key, lamp, lever, panel, playerMark, readout, report, stepper, unitCard,
@@ -11,7 +11,7 @@ import {
 import type { Lamp, Stepper } from '../components';
 import type { App, Screen } from '../screen';
 import { session } from '../session';
-import { actionLines, add, move, remove, rosterRow, sameSquad, spent } from '../squad';
+import { actionLines, add, barredReason, move, remove, rosterRow, sameSquad } from '../squad';
 
 const NAME_MAX = 24;
 
@@ -28,8 +28,9 @@ export const lobbyScreen: Screen = {
   mount(root: HTMLElement, app: App): () => void {
     const off: (() => void)[] = [];
     let seats: SeatStatus[] = [];
-    const first = app.data as { t?: string; seats?: SeatStatus[] } | undefined;
-    if (first?.t === 'lobby' && first.seats) seats = first.seats;
+    const first = app.data as { t?: string; seats?: SeatStatus[]; mode?: ModeId } | undefined;
+    let mode: ModeId = DEFAULT_MODE;                      // the host's choice, as the server last said
+    if (first?.t === 'lobby' && first.seats) { seats = first.seats; if (first.mode && MODES[first.mode]) mode = first.mode; }
     let squad: UnitTypeId[] = session.squad ? [...session.squad] : [...PRESETS[0].units];
     let selected = -1;                                    // card just moved, outlined in Amber
     let rejoining = app.seat < 0 && hasRememberedSeat();
@@ -78,6 +79,23 @@ export const lobbyScreen: Screen = {
     readyBody.append(leverBox, readySide);
     const readyPanel = panel('Stand to', {}, readyBody);
 
+    // ---- mode: the host picks; the others read it
+    const modeList = el('div', 'mode-list');
+    const modeOptions = Object.values(MODES).map((m) => {
+      const k = key({ label: m.name, onPress: () => { say(null); app.net.send({ t: 'mode', mode: m.id }); } });
+      const blurb = el('p', 'note', m.blurb);
+      const box = el('div', 'mode-option');
+      box.append(k, blurb);
+      return { m, k, box };
+    });
+    const modeName = el('b', 'mode-name');
+    const modeBlurb = el('p', 'note');
+    const modeRead = el('div', 'mode-read');
+    modeRead.append(modeName, modeBlurb);
+    modeList.append(...modeOptions.map((o) => o.box));
+    const modePanel = panel('Mode', {}, modeList, modeRead);
+    modePanel.classList.add('mode');
+
     // ---- builder
     const points = readout('Points', '0/0');
     const presetKeys = PRESETS.map((p) => ({ p, k: key({ label: p.name, onPress: () => commit([...p.units]) }) }));
@@ -89,16 +107,19 @@ export const lobbyScreen: Screen = {
 
     const roster = el('div', 'roster');
     const steppers = new Map<UnitTypeId, Stepper>();
+    const rows = new Map<UnitTypeId, { row: HTMLElement; why: HTMLElement }>();
     for (const def of Object.values(UNITS)) {
       const st = stepper((d) => commit(d === 1 ? add(squad, def.id) : remove(squad, def.id)), def.name.toLowerCase());
       steppers.set(def.id, st);
       const info = el('div', 'roster-info');
       const title = el('b', '', def.name);
       title.append(el('span', '', ` ${def.rank}`));
-      info.append(title, el('p', 'blurb', def.blurb), ...actionLines(def.id).map((l) => el('p', 'blurb', l)));
+      const why = el('p', 'blurb barred-why');
+      info.append(title, why, el('p', 'blurb', def.blurb), ...actionLines(def.id).map((l) => el('p', 'blurb', l)));
       const row = el('div', 'roster-row');
       row.append(info, st);
       roster.append(row);
+      rows.set(def.id, { row, why });
     }
 
     const squadHead = el('h3', '', 'Order of march');
@@ -120,7 +141,7 @@ export const lobbyScreen: Screen = {
     const colA = el('div', 'stack');
     colA.append(signals, readyPanel);
     const colB = el('div', 'stack');
-    colB.append(builder);
+    colB.append(modePanel, builder);
     const grid = el('div', 'lobby');
     grid.append(joinPanel, colA, colB);
     root.replaceChildren(notice, manualRow, grid);
@@ -137,7 +158,7 @@ export const lobbyScreen: Screen = {
     }
 
     function afterEdit(): void {
-      const check = validateSquad(squad);
+      const check = validateSquad(squad, mode);
       const me = mine();
       if (check.ok) {
         if (me) me.ready = false;        // the server clears it too; do not wait to show it
@@ -158,7 +179,17 @@ export const lobbyScreen: Screen = {
       joinForm.hidden = rejoining;
       if (!joined) return;
 
-      const check = validateSquad(squad);
+      const check = validateSquad(squad, mode);
+
+      // mode
+      for (const o of modeOptions) {
+        o.k.setPressed(o.m.id === mode);
+        o.k.disabled = o.m.id === mode;
+        o.box.hidden = !app.host;
+      }
+      modeRead.hidden = app.host;
+      modeName.textContent = MODES[mode].name;
+      modeBlurb.textContent = MODES[mode].blurb;
 
       // signals
       signalsList.replaceChildren(...seats.map((s) => {
@@ -190,12 +221,20 @@ export const lobbyScreen: Screen = {
 
       // builder
       points.set(`${check.cost}/${RULES.budget}`, check.cost > RULES.budget);
-      for (const { p, k } of presetKeys) k.setPressed(sameSquad(squad, p.units));
+      for (const { p, k } of presetKeys) {
+        k.hidden = !validateSquad(p.units, mode).ok;           // only the sections this mode allows
+        k.setPressed(sameSquad(squad, p.units));
+      }
       const match = PRESETS.find((p) => sameSquad(squad, p.units));
       presetNote.textContent = match ? match.blurb : 'Pick a section, or build your own below.';
       for (const def of Object.values(UNITS)) {
-        const r = rosterRow(squad, def.id);
+        const r = rosterRow(squad, def.id, mode);
         steppers.get(def.id)!.set({ count: r.count, cost: r.caption, canDec: r.canDec, canInc: r.canInc, state: r.state });
+        const mark = rows.get(def.id)!;
+        const reason = barredReason(def.id, mode);
+        mark.row.classList.toggle('barred', reason !== null);
+        mark.why.hidden = reason === null;
+        mark.why.textContent = reason ?? '';
       }
       squadList.replaceChildren(...squad.map((id, i) => {
         const def = UNITS[id];
@@ -227,6 +266,7 @@ export const lobbyScreen: Screen = {
     }));
     off.push(app.net.on('lobby', (m) => {
       seats = m.seats;
+      if (MODES[m.mode]) mode = m.mode;
       refresh();
     }));
     off.push(app.net.on('error', (m) => {

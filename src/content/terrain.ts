@@ -18,4 +18,11 @@ export const TERRAIN: Record<TerrainId, TerrainDef> = {
   wall: { id: 'wall', name: 'Low wall', cover: true, hide: null, blocksSight: false, passable: true },
   // Seen across and shot across, never crossed.
   water: { id: 'water', name: 'Water', cover: false, hide: null, blocksSight: false, passable: false },
+  // Works (25): put up by an engineer during a match, never drawn on a map. Each replaces the hex's terrain.
+  // Sandbags: cover in plain view, like a wall.
+  sandbags: { id: 'sandbags', name: 'Sandbags', cover: true, hide: null, blocksSight: false, passable: true },
+  // Wire: seen through, shot through, never crossed.
+  wire: { id: 'wire', name: 'Wire', cover: false, hide: null, blocksSight: false, passable: false },
+  // An MG nest: cover, and hides a man who keeps still, like a building; but it does not block the line.
+  nest: { id: 'nest', name: 'MG nest', cover: true, hide: { still: 1, moved: null }, blocksSight: false, passable: true },
 };

@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 22 — Two-player map and four-player refit</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the maps, the board and the rules are the real modules */
+  body { padding: var(--s-3); }
+  main { max-width: 1200px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 90ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  pre { background: rgba(30,36,32,0.5); padding: var(--s-2); overflow-x: auto; max-width: 100ch; white-space: pre-wrap; }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; }
+  .bad { border-left-color: var(--rust, #9A4B32); }
+  .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--s-3); align-items: start; }
+  .stage { position: relative; width: 100%; height: 560px; border: var(--w-frame) solid var(--ink); background: var(--slate); }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  svg.chart { width: 100%; height: auto; background: var(--slate); border: var(--w-frame) solid var(--ink); }
+  svg.chart text { font-family: inherit; }
+  table.t { border-collapse: collapse; margin: 0 0 var(--s-3); font-size: var(--t-1); }
+  table.t caption { text-align: left; padding: var(--s-1) 0; max-width: 100ch; }
+  table.t th, table.t td { border: var(--w-divider) solid rgba(233,223,198,0.35); padding: 2px 8px; text-align: left; vertical-align: top; }
+  table.t thead th { background: rgba(30,36,32,0.6); }
+  .wrap { overflow-x: auto; max-width: 100%; }
+  .ok { color: var(--amber); }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--s-3); }
+  .shots figure { margin: 0; }
+  .shots img { width: 100%; height: auto; border: var(--w-frame) solid var(--ink); }
+  .shots figcaption { font-size: var(--t-1); }
+  .legend span { display: inline-block; margin-right: var(--s-3); }
+  .sw { display: inline-block; width: 14px; height: 10px; border: 1px solid var(--ink); vertical-align: middle; margin-right: 4px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 22 — Two-player map and four-player refit</h1>
+<p>Sections 1 and 2 are computed when the page loads, from the real modules through Vite (no game server):
+<code>MAPS</code> and <code>mapFor</code> from <code>src/content</code>, <code>createMatch</code>, <code>viewFor</code> and
+<code>canSee</code> from <code>src/rules</code>, the real board and low-poly kit. The charts beside each board are drawn by
+this page from the same <code>GameMap</code> (every hex, its terrain, the objective areas and kinds); the lanes on them
+are the shortest walks the page works out from HQ to HQ through each crossing. Section 3's screenshots and section 4's
+figures were taken by the implementer and are dated.</p>
+
+<h2>1. Ford, for two (<code>mapFor(2)</code>)</h2>
+<p id="ford-intro"></p>
+<div class="pair">
+  <div class="stage" id="ford-board"></div>
+  <div id="ford-chart"></div>
+</div>
+<div class="wrap" id="ford-tables"></div>
+
+<h2>2. Crossroads, for four (<code>mapFor(4)</code>; also <code>mapFor(3)</code> until task 23)</h2>
+<p id="crossroads-intro"></p>
+<div class="pair">
+  <div class="stage" id="crossroads-board"></div>
+  <div id="crossroads-chart"></div>
+</div>
+<div class="wrap" id="crossroads-tables"></div>
+
+<h2>3. Each map framed on the real play screen</h2>
+<p>Taken 2026-11-19 in headless Chromium (software WebGL, SwiftShader) at three window sizes, from
+<a href="22-play-frame.html?map=ford&umpire=1"><code>eval/22-play-frame.html</code></a>: the real play screen on the first
+plan of a real <code>createMatch</code> on that map, seat 0's squad, with <code>?umpire=1</code> lifting the fog so the whole
+drawing shows (the camera and layout are the play screen's own). No real phone was used.</p>
+<div class="shots" id="shots"></div>
+
+<h2>4. Figures (seeded scripted matches, 2026-11-19)</h2>
+<div class="wrap" id="figures"></div>
+
+<h2>What to check</h2>
+<ul>
+  <li>Section 1: the river runs from the north-east edge to the south-west edge through the hill; the only crossings are
+  the two fords (ringed) and the hill; three lanes; a village each side of each edge-lane ford; a depot each side; the
+  gates J and K in front of W and X. The step table's last column says <span class="ok">same</span> on every row.</li>
+  <li>Section 2: the hamlets C D F G each inside a ring of five low walls with three gaps; the stream down the middle
+  with the north ford, the south ford and the hilltop; J and K on the middle row; the ponds and the walls at the foot of
+  the hill gone. Every row of the step table <span class="ok">same</span>.</li>
+  <li>The hill sight tables: with the flag (+2) the hill sees more, at first light by a lot.</li>
+</ul>
+
+<h2>Not working, or not shown</h2>
+<ul>
+  <li>The scripted players seldom hold <code>ford</code>'s edge villages (held 0.21 of flag-rounds, nobody's at the end
+  in 0.66): every round each man heads for a random objective, so they hang about the middle. Whether the edge lanes are
+  worth walking for real players is not shown by these figures.</li>
+  <li>Three players still play on <code>crossroads</code> and are not fair (the seat opposite the empty corner: −22 points,
+  0.16 of the wins). Task 23 draws the triangle.</li>
+  <li>On <code>crossroads</code> the hilltop is now a plateau (all three hexes at height 2): each of its hexes sees 67 to 79
+  hexes with the flag at full day, where the old hill's middle saw 99 and its two ends only 40 and 46. The middle hex
+  sees less than before (its own neighbours on the plateau hide the foot of the hill); the ends see far more.</li>
+  <li>The labels for lanes, fords and kinds are on the page's chart, not on the 3D board (the board has no labels of
+  that kind); the two are drawn from the same map.</li>
+  <li>Nothing here was tried on a real phone or by people playing.</li>
+</ul>
+</main>
+
+<script type="module">
+  import { createBoard } from '/src/client/render/index.ts';
+  import { lowpolyKit, loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
+  import { MAPS, OBJECTIVE_KINDS, PRESETS, TERRAIN, UNITS, mapFor } from '/src/content/index.ts';
+  import { canSee, createMatch, viewFor } from '/src/rules/index.ts';
+  import * as H from '/src/shared/hex.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const table = (caption, head, rows) => `<table class="t"><caption>${caption}</caption><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead>`
+    + `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  const at = (col, row) => H.offsetToAxial(col, row);
+  const centre = (map) => at(Math.floor(map.cols / 2), Math.floor(map.rows / 2));
+  const walk = (map, h) => TERRAIN[map.cells[H.key(h)]?.terrain]?.passable ?? false;
+  /** Steps over passable ground from a set of hexes to every hex. */
+  function steps(map, from) {
+    const d = new Map(from.map((h) => [H.key(h), 0]));
+    for (let f = [...from]; f.length > 0;) {
+      const next = [];
+      for (const h of f) for (const n of H.neighbors(h)) if (walk(map, n) && !d.has(H.key(n))) { d.set(H.key(n), d.get(H.key(h)) + 1); next.push(n); }
+      f = next;
+    }
+    return d;
+  }
+  /** The shortest walk from a to b (both hexes), ties broken by the neighbour order. */
+  function path(map, a, b) {
+    const d = steps(map, [b]);
+    const out = [a];
+    let h = a;
+    while (H.key(h) !== H.key(b)) { h = H.neighbors(h).find((n) => d.get(H.key(n)) === d.get(H.key(h)) - 1); out.push(h); }
+    return out;
+  }
+  const into = (d, o) => Math.min(...o.hexes.map((h) => d.get(H.key(h)) ?? Infinity));
+  const turn = (map, h) => { const c = centre(map); return { q: 2 * c.q - h.q + 0, r: 2 * c.r - h.r + 0 }; };
+  const sameArea = (a, b) => a.map(H.key).sort().join(' ') === b.map(H.key).sort().join(' ');
+
+  const TERRAIN_FILL = { open: '#B8A57A', woods: '#4E5B3A', building: '#8C7B66', crops: '#C9B36A', wall: '#A39A88', water: '#2E3A40' };
+  const SEAT = ['#3F6E8C', '#6B4E7A', '#2F7F78', '#E9DFC6'];
+  const LANE = ['#E0A030', '#D9534F', '#7FB3D5', '#B4E080', '#F0E0B0'];
+
+  /** A chart of the map: every hex in its terrain colour, elevation as a number, areas outlined and lettered, crossings ringed, lanes drawn. */
+  function chart(map, lanes, crossings) {
+    const R = 10, W = Math.sqrt(3) * R;
+    const xy = (h) => [W * (h.q + h.r / 2), 1.5 * R * h.r];
+    const cells = Object.keys(map.cells).map(H.parseKey);
+    const xs = cells.map((h) => xy(h)[0]), ys = cells.map((h) => xy(h)[1]);
+    const [x0, y0, x1, y1] = [Math.min(...xs) - W, Math.min(...ys) - 2 * R, Math.max(...xs) + W, Math.max(...ys) + 2 * R];
+    const hexPath = (h, r = R) => { const [cx, cy] = xy(h); return Array.from({ length: 6 }, (_, i) => { const a = Math.PI / 180 * (60 * i - 30); return `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`; }).join(' '); };
+    const area = new Map(map.objectives.flatMap((o) => o.hexes.map((h) => [H.key(h), o])));
+    let svg = `<svg class="chart" viewBox="${x0} ${y0} ${x1 - x0} ${y1 - y0}" role="img" aria-label="${esc(map.name)} chart">`;
+    for (const h of cells) {
+      const c = map.cells[H.key(h)];
+      const o = area.get(H.key(h));
+      const stroke = o ? (o.kind === 'hq' ? SEAT[o.zone] : '#F2C14E') : '#1E2420';
+      svg += `<polygon points="${hexPath(h, R * 0.96)}" fill="${TERRAIN_FILL[c.terrain]}" stroke="${stroke}" stroke-width="${o ? 1.8 : 0.4}"/>`;
+      if (c.elevation > 0) svg += `<text x="${xy(h)[0] + 4}" y="${xy(h)[1] + 8}" font-size="5" fill="#1E2420">▲${c.elevation}</text>`;
+    }
+    for (const k of crossings.flat()) { const [cx, cy] = xy(H.parseKey(k)); svg += `<circle cx="${cx}" cy="${cy}" r="${R * 0.8}" fill="none" stroke="#FFFFFF" stroke-width="1.6" stroke-dasharray="3 2"/>`; }
+    lanes.forEach((lane, i) => {
+      const pts = lane.hexes.map((h) => xy(h).map((v) => v.toFixed(1)).join(',')).join(' ');
+      svg += `<polyline points="${pts}" fill="none" stroke="${LANE[i % LANE.length]}" stroke-width="2" stroke-opacity="0.85" stroke-linejoin="round"/>`;
+    });
+    for (const o of map.objectives) {
+      const [cx, cy] = xy(o.hexes[Math.floor((o.hexes.length - 1) / 2)]);
+      svg += `<text x="${cx}" y="${cy + 1}" font-size="9" font-weight="700" text-anchor="middle" fill="#FFFFFF" stroke="#1E2420" stroke-width="2" paint-order="stroke">${o.id}</text>`
+        + `<text x="${cx}" y="${cy + 8}" font-size="4.5" text-anchor="middle" fill="#FFFFFF" stroke="#1E2420" stroke-width="1.2" paint-order="stroke">${o.kind}</text>`;
+    }
+    svg += '</svg>';
+    const legend = `<p class="legend">${Object.entries(TERRAIN_FILL).map(([t, c]) => `<span><i class="sw" style="background:${c}"></i>${t}</span>`).join('')}`
+      + `<span>amber outline: an objective's area (HQs in the seat's colour); ▲ elevation; dashed white ring: a crossing of the water</span></p>`
+      + `<p class="legend">${lanes.map((l, i) => `<span><i class="sw" style="background:${LANE[i % LANE.length]}"></i>${esc(l.name)} (${l.hexes.length - 1} steps)</span>`).join('')}</p>`;
+    return svg + legend;
+  }
+
+  /** How many hexes a man on `h` has a clear line to within `range`. */
+  const sees = (map, h, range) => Object.keys(map.cells).filter((k) => H.distance(h, H.parseKey(k)) <= range && canSee(map, h, H.parseKey(k))).length;
+
+  await loadKitFonts();
+  function board(id, map) {
+    const canvas = document.createElement('canvas');
+    $(id).append(canvas);
+    try {
+      const b = createBoard(canvas, lowpolyKit());
+      addEventListener('resize', () => b.resize());
+      b.resize();
+      const players = map.spawns.length;
+      const state = createMatch(map, Array.from({ length: players }, (_, player) => ({ player, units: PRESETS[player % PRESETS.length].units })));
+      b.setView({ ...viewFor(state, 0), units: state.units, visible: Object.keys(map.cells) });
+      return b;
+    } catch (err) {
+      $(id).insertAdjacentHTML('beforeend', `<p class="observed bad">The board could not start here: ${esc(err.message ?? err)}</p>`);
+      return null;
+    }
+  }
+
+  const name = (g) => g.map((k) => H.label(H.parseKey(k))).join(' ');
+  /** `crossings`: groups of hex keys, each one way over the water. */
+  function show(id, map, lanes, crossings, intro) {
+    $(`${id}-intro`).innerHTML = intro;
+    board(`${id}-board`, map);
+    $(`${id}-chart`).innerHTML = chart(map, lanes, crossings);
+    const hqs = map.objectives.filter((o) => o.kind === 'hq');
+    const from = hqs.map((o) => steps(map, o.hexes));
+    const twinOf = (o) => map.objectives.find((p) => sameArea(p.hexes, o.hexes.map((h) => turn(map, h))));
+    const twinHq = (z) => hqs.find((o) => o.zone === (z + hqs.length / 2) % hqs.length);
+    let html = table(`Walking steps from each HQ to the nearest hex of every objective (<code>MAPS.${map.id}</code>). The last column checks the claim
+      "each HQ is the same number of steps from every objective as its twin is from the other HQ" (the half turn).`,
+      ['Objective', 'Kind', 'Value (+ kind supply)', 'Area', ...hqs.map((o) => `from HQ ${o.id} (zone ${o.zone})`), 'Twin', 'HQ to it = twin HQ to its twin'],
+      map.objectives.map((o) => {
+        const t = twinOf(o);
+        const same = hqs.every((hq, z) => into(from[z], o) === into(steps(map, twinHq(hq.zone).hexes), t));
+        return [`<b>${o.id}</b>`, OBJECTIVE_KINDS[o.kind].name, `${o.value}${OBJECTIVE_KINDS[o.kind].supply ? ` + ${OBJECTIVE_KINDS[o.kind].supply}` : ''}`,
+          o.hexes.map(H.label).join(' '), ...hqs.map((_, z) => into(from[z], o)), t?.id ?? '<b>none</b>', same ? '<span class="ok">same</span>' : '<b>DIFFERENT</b>'];
+      }));
+    // Crossings: shut them all and count the parts; open each alone.
+    const parts = (shut) => {
+      const left = new Set(Object.keys(map.cells).filter((k) => walk(map, H.parseKey(k)) && !shut.includes(k)));
+      let n = 0;
+      while (left.size > 0) { n++; const q = [left.values().next().value]; left.delete(q[0]); while (q.length) for (const x of H.neighbors(H.parseKey(q.pop()))) if (left.delete(H.key(x))) q.push(H.key(x)); }
+      return n;
+    };
+    html += table('The water and its crossings, worked out from the cells: with every crossing shut the passable ground falls in two; any one crossing open joins it again.',
+      ['Shut', 'Parts of the passable ground'],
+      [['all the crossings: ' + crossings.map(name).join('; '), parts(crossings.flat())],
+        ...crossings.map((g) => [`all but ${name(g)}`, parts(crossings.filter((x) => x !== g).flat())])]);
+    const hill = map.objectives.find((o) => o.kind === 'hill');
+    const base = UNITS.rifleman.sight;
+    html += table(`What a rifleman on the hill (${hill.id}) has a clear line to, hexes within range (<code>canSee</code>); a held hill adds +2 sight. First light is sight ${base - 3}, full day ${base}.`,
+      ['Hex', 'Height', `First light: ${base - 3} → ${base - 1} with the flag`, `Full day: ${base} → ${base + 2} with the flag`],
+      hill.hexes.map((h) => [H.label(h), map.cells[H.key(h)].elevation, `${sees(map, h, base - 3)} → <b>${sees(map, h, base - 1)}</b>`, `${sees(map, h, base)} → <b>${sees(map, h, base + 2)}</b>`]));
+    $(`${id}-tables`).innerHTML = html;
+  }
+
+  // ---- ford
+  {
+    const map = MAPS.ford;
+    const W = map.objectives.find((o) => o.id === 'W').hexes[0], X = map.objectives.find((o) => o.id === 'X').hexes[1];
+    const north = at(9, 1), south = at(3, 13), hill = centre(map);
+    const via = (name, ...pts) => ({ name, hexes: pts.slice(1).reduce((acc, p, i) => acc.concat(path(map, pts[i], p).slice(1)), [pts[0]]) });
+    const lanes = [
+      via('North lane: W east along the top, over the north ford, south down the east edge to X', W, at(5, 0), north, at(12, 6), X),
+      via('Middle lane: W over the hill to X', W, hill, X),
+      via('South lane: W south down the west edge, over the south ford, east along the bottom to X', W, at(0, 9), south, at(7, 14), X),
+    ];
+    show('ford', map, lanes, [[north], [south], [hill]].map((g) => g.map(H.key)),
+      `<code>mapFor(2).id</code> is <b>${mapFor(2).id}</b>. ${map.cols} × ${map.rows}, ${Object.keys(map.cells).length} hexes on the board, ${map.objectives.length} objectives,
+      ${map.maxRounds} rounds, seats <code>${JSON.stringify(map.seatSpawns)}</code>. The board shows a fresh two-player match with every hex in sight.`);
+  }
+
+  // ---- crossroads
+  {
+    const map = MAPS.crossroads;
+    const hq = (id, i = 0) => map.objectives.find((o) => o.id === id).hexes[i];
+    const north = at(8, 2), south = at(8, 10), hill = centre(map);
+    const via = (name, ...pts) => ({ name, hexes: pts.slice(1).reduce((acc, p, i) => acc.concat(path(map, pts[i], p).slice(1)), [pts[0]]) });
+    const J = map.objectives.find((o) => o.id === 'J').hexes[0], K = map.objectives.find((o) => o.id === 'K').hexes[0];
+    const lanes = [
+      via('North road: W over the north ford to X', hq('W', 1), north, hq('X', 1)),
+      via('South road: Z over the south ford to Y', hq('Z', 0), south, hq('Y', 0)),
+      via('West flank and middle lane: W through the woods to J, over the hill to K', hq('W', 1), J, hill, K),
+      via('West flank on to Z', J, hq('Z', 0)),
+      via('East flank: K to X and Y', hq('X', 1), K, hq('Y', 0)),
+    ];
+    const island = [...map.objectives.find((o) => o.id === 'E').hexes, at(7, 5), at(8, 5), at(7, 7), at(8, 7)];
+    show('crossroads', map, lanes, [[north], [south], island].map((g) => g.map(H.key)),
+      `<code>mapFor(4).id</code> is <b>${mapFor(4).id}</b>, <code>mapFor(3).id</code> <b>${mapFor(3).id}</b>. ${map.cols} × ${map.rows}, ${map.objectives.length} objectives,
+      ${map.maxRounds} rounds, seats <code>${JSON.stringify(map.seatSpawns)}</code>. The hill is three hexes on a plateau, with two slope hexes each side of
+      it in the stream's line: the plateau and the slopes together are the stream's third crossing (all ringed). The board shows a fresh four-player match with every hex in sight.`);
+  }
+
+  // ---- screenshots
+  {
+    const sizes = [['390x844', '390 × 844 (phone, portrait), device pixel ratio 2'], ['844x390', '844 × 390 (phone, landscape), device pixel ratio 2'], ['1280x800', '1280 × 800 (laptop), device pixel ratio 1']];
+    for (const m of ['ford', 'crossroads']) for (const [s, what] of sizes) {
+      const fig = document.createElement('figure');
+      fig.innerHTML = `<img src="assets/22/${m}-${s}.png" alt="${m} at ${s}" loading="lazy" /><figcaption><b>${m}</b>, ${what}.</figcaption>`;
+      $('shots').append(fig);
+    }
+  }
+
+  // ---- figures (real runs, written in by hand from the commands in the captions)
+  {
+    let html = '';
+    html += table(`Seat fairness. <code>npx tsx scripts/seeded.ts --figures 900</code> (seeds 1001 to 1900: 300 matches each for 2, 3 and 4 players;
+      2 players play <code>ford</code>, 3 and 4 <code>crossroads</code>), random preset per seat, and again with <code>--same line</code> (every seat the Line section),
+      2026-11-19, Supply Line, <code>buyBack</code> 6. "Against the others": a seat's supply minus the other seats' mean, ± one standard error.`,
+      ['Map, players', 'Squads', 'Mean supply per seat', 'Against the others', 'Win share'],
+      [
+        ['ford, 2', 'random', '69.92 / 66.89', '+3.02 ± 2.70 / −3.02 ± 2.70', '0.51 / 0.49'],
+        ['ford, 2', 'Line for all', '66.13 / 65.46', '+0.67 ± 2.63 / −0.67 ± 2.63', '0.54 / 0.47'],
+        ['crossroads, 4', 'random', '44.00 / 44.77 / 45.87 / 47.22', '−1.96 ± 1.64 / −0.92 ± 1.73 / +0.54 ± 1.78 / +2.34 ± 1.83', '0.21 / 0.22 / 0.28 / 0.29'],
+        ['crossroads, 4', 'Line for all', '44.48 / 45.24 / 44.26 / 43.86', '+0.03 ± 1.86 / +1.04 ± 1.81 / −0.27 ± 1.61 / −0.80 ± 1.84', '0.25 / 0.28 / 0.21 / 0.26'],
+        ['crossroads, 3 (zones 0, 1, 2)', 'random', '65.72 / 39.57 / 57.27', '+17.30 ± 2.29 / <b>−21.93 ± 1.93</b> / +4.63 ± 2.34', '0.50 / <b>0.16</b> / 0.35'],
+      ]);
+    html += `<p class="observed"><b>ford</b>: the two seats are level within noise (3.0 points, about 4% of the mean, 1.1 standard errors, with random squads;
+      0.7 points with the same squads). Task 21 measured ±13 points (about 15%) for two players on <code>crossroads</code>. <b>crossroads, four</b>: no seat
+      further than 2.3 points (1.3 standard errors) from the others. <b>Three players</b> on <code>crossroads</code> are not fair, as before: the seat opposite
+      the empty corner loses (task 23).</p>`;
+    html += table('Per match, the same run (random squads). Units down: at the end, and times a man went down. Captures: <code>capture</code> events (a flag changing hands, from nobody included).',
+      ['Map, players', 'Down at the end', 'Times down', 'Captures', 'Buy-backs', 'Supply earned per seat per round', 'Rifleman buy-back (12) in rounds of that income', 'First contact (round)'],
+      [
+        ['ford, 2', 1.40, 7.30, 6.93, 2.61, 5.85, '2.1', 4.25],
+        ['crossroads, 3', 2.34, 13.33, 8.35, 4.26, 4.95, '2.4', 2.43],
+        ['crossroads, 4', 3.70, 20.53, 9.77, 6.16, 4.46, '2.7', 1.94],
+      ]);
+    html += `<p class="observed"><b>Buy-back.</b> With <code>buyBack</code> 4 on these maps a rifleman came back for 8 supply, 1.4 to 1.8 rounds of income (5.85 / 4.94 / 4.50
+      per seat per round for 2 / 3 / 4 players, measured with 4). <code>MODES['supply-line'].returns.buyBack</code> is now <b>6</b>: 12 supply, 2.1 to 2.7 rounds (the table above,
+      measured with 6). A gunner, sniper or mortar costs 24.</p>`;
+    html += table('By kind (same run): share of flag-rounds held by somebody; at the end, held by nobody / by the seat whose HQ is nearest / by another seat.',
+      ['Kind', 'ford, 2: held', 'ford, 2: end nobody / nearest / other', 'crossroads, 4: held', 'crossroads, 4: end nobody / nearest / other'],
+      [
+        ['hq', '1.00', '0 / 1.00 / 0', '1.00', '0 / 1.00 / 0'],
+        ['village', '0.21', '0.66 / 0.32 / 0.02', '0.64', '0.08 / 0.83 / 0.09'],
+        ['hill', '0.68', '0.02 / — / 0.98 (no nearest seat)', '0.51', '0.18 / — / 0.82 (no nearest seat)'],
+        ['crossroads', '0.87', '0.02 / 0.98 / 0', '0.49', '0.21 / — / 0.79 (two seats equally near)'],
+        ['depot', '0.57', '0.13 / 0.86 / 0.01', '0.30', '0.51 / 0.45 / 0.04'],
+      ]);
+    html += `<p>Commands: <code>npx tsx scripts/seeded.ts --figures 900</code> and <code>npx tsx scripts/seeded.ts --figures 900 --same line</code>. The script was
+      changed by this task: a man heading for an objective now goes by walking steps (a river is walked round), any equally near end at random (before: a
+      beeline, ties in list order, which leaned to one side of a symmetric map: with it the four-player gap was −5.8 to +8.4 points).</p>`;
+    $('figures').innerHTML = html;
+  }
+</script>
+</body>
+</html>

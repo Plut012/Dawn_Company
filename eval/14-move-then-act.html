@@ -182,10 +182,13 @@ rework mentioned in section 3).</p>
     over sockets, the frames cover the screen); the look of a fall back as it animates (its events, the log lines and
     where everyone ends were checked, the animation was not watched frame by frame); <b>Enemy: ambush</b> in the
     frames by hand (the sandbox stage "Pinned on the way" covers the rule).</li>
-  <li><b>With a move pencilled in, a rifleman's Fire chit always aims the follow-up.</b> To give him a plain shot
-    from where he stands instead, press Hold first. The strip does not say so.</li>
-  <li><b>Follow-up marks are a lot of amber.</b> Every hex within range of the path's end is marked, in sight or not
-    (up to 60 for a rifle), because sight is not judged when ordering.</li>
+  <li><b>Fixed 2026-11-20: a plain shot after a move is pencilled in.</b> The first press of Fire aims the
+    follow-up; the strip says to press Fire again to shoot from where he stands, which replaces the move (checked by
+    mouse in the frame at 1280 &times; 720 and 390 &times; 844). A third press puts the chit down.</li>
+  <li><b>Fixed 2026-11-20: follow-up marks.</b> Only hexes where the follow-up would run as things stand are marked:
+    within his sight this round with a clear line from the path's end, and for Treat a hex where a teammate will be
+    (<code>likelyFollowUps</code> in <code>src/client/ui/draft.ts</code>). On the real maps a rifleman's move marks
+    about 21&ndash;29 hexes instead of 34&ndash;41. The order rule is unchanged: sight is still judged when the move is over.</li>
   <li><b>The unit card says "Move · Fire" without the hexes</b>; a 176 px card on a phone has no room for more. The
     strip and the map have them.</li>
   <li><b>A medic's follow-up at a teammate who is not pinned "runs" and does nothing, without an event.</b> His

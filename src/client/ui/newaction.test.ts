@@ -55,10 +55,11 @@ function field(cols: number, rows: number, spec: Record<string, string> = {}): G
 }
 const h = (q: number, r = 0): Hex => ({ q, r });
 function u(id: UnitId, type: UnitTypeId, q: number, r = 0, extra: Partial<Unit> = {}): Unit {
-  return { id, owner: Number(id.split('-')[0]), type, name: id, pos: h(q, r), status: 'ready', pinnedRound: null, revealed: false, posture: 'still', ...extra };
+  return { id, owner: Number(id.split('-')[0]), type, name: id, pos: h(q, r), status: 'ready', pinnedRound: null, revealed: false, posture: 'still', returnRound: null, dugIn: false, ...extra };
 }
 function game(map: GameMap, units: Unit[]): GameState {
-  return { map, playerCount: 2, units, round: 3, scores: [0, 0], eliminated: [false, false], over: false, winners: [] };
+  return { map, playerCount: 2, units, round: 7,   // full day (19): the rules below are the v1 ones, in full light
+    scores: [0, 0], eliminated: [false, false], flags: {}, mode: 'supply-line', works: {}, over: false, winners: [] };
 }
 function run(state: GameState, orders: Order[]) {
   const bySeat: Order[][] = [[], []];
@@ -126,7 +127,7 @@ describe('a new action is a new entry in the data', () => {
     expect(validateOrders(state, 0, [{ unit: '0-0', kind: 'fire', target: h(6) }]).map((e) => e.reason)).toEqual(['no line of sight to the target']);
 
     const open = run(state, [{ unit: '0-0', kind: 'fire', target: h(4) }]);
-    expect(names(open.events)).toEqual(['(treat)', '(fire)', 'launch', '(move)', '(assault)', '(mortar)', 'impact', 'hit 1-0 pinned', 'hit 1-0 down', '(score)']);
+    expect(names(open.events)).toEqual(['(treat)', '(fire)', 'launch', '(move)', '(assault)', '(mortar)', 'impact', 'hit 1-0 pinned', 'hit 1-0 down', '(score)', 'dig', 'dig', 'dig']);
     expect(open.events.find((e) => e.t === 'launch')).toEqual({ t: 'launch', unit: '0-0', from: h(0), action: 'shock' });
     expect(open.events.find((e) => e.t === 'impact')).toEqual({ t: 'impact', target: h(4), blast: 0, action: 'shock' });
     expect(unitIn(open.state, '1-0').status).toBe('down');
@@ -221,14 +222,16 @@ describe('the client\'s helpers take a new action as it comes', () => {
       'Pvt. Hale pinned at E1.',
       'Pvt. Hale down at E1.',
       "Bo's rifleman lost from sight.",              // Hale was the only one near enough to see into the woods
+      'Dug in: Spr. Vane, Pvt. Moss.',
     ]);
     const f = run(s, [{ unit: '0-0', kind: 'special', target: h(4) }]);
     const told = teller(viewFor(s, 0), ['Ann', 'Bo']).tell(f.playerEvents[0]);
     expect(told.map((l) => l.text)).toEqual([
       'Pvt. Hale given away: flare.',
       "Bo's rifleman given away: flare.",
+      "Dug in: Spr. Vane, Pvt. Hale, Pvt. Moss, Bo's rifleman.",
     ]);
-    expect(told.map((l) => l.danger)).toEqual([true, false]);
+    expect(told.map((l) => l.danger)).toEqual([true, false, false]);
     // An action this client has never heard of still gets a line.
     expect(teller(viewFor(s, 0), ['Ann', 'Bo']).tell([
       { t: 'fire', unit: '0-0', from: h(0), target: h(4), blast: 0, ambush: false, action: 'nope' },
@@ -261,7 +264,7 @@ describe('a new action as a move\'s follow-up', () => {
     const state = game(field(9, 1, { '6,0': 'w' }), [u('0-0', 'pioneer', 0), u('1-0', 'rifleman', 6)]);
     expect(visibleEnemies(state, 0)).toEqual([]);
     const r = run(state, [walk('0-0', [h(1), h(2)], 'special', h(6))]);
-    expect(names(r.events)).toEqual(['(treat)', '(fire)', '(move)', 'move', 'move', '(assault)', 'reveal', '(mortar)', '(score)']);
+    expect(names(r.events)).toEqual(['(treat)', '(fire)', '(move)', 'move', 'move', '(assault)', 'reveal', '(mortar)', '(score)', 'dig']);
     expect(r.playerEvents[0].filter((e) => e.t === 'spotted' || e.t === 'reveal').map((e) => e.t)).toEqual(['spotted', 'reveal']);
     expect(visibleEnemies(r.state, 0).map((x) => x.id)).toEqual(['1-0']);
     expect(unitIn(r.state, '0-0').revealed).toBe(false);

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Hex } from './types';
 import {
   axialToOffset, distance, eq, hexToPixel, key, label, line, neighbors,
-  offsetToAxial, parseKey, pixelToHex, within,
+  offsetToAxial, parseKey, pixelToHex, rotate, within,
 } from './hex';
 
 // Small seeded generator, so "random" tests are the same on every run.
@@ -210,6 +210,37 @@ describe('pixels', () => {
       const angle = rand() * Math.PI * 2;
       const d = rand() * inradius * 0.98;
       expect(pixelToHex(p.x + Math.cos(angle) * d, p.y + Math.sin(angle) * d, size)).toEqual(h);
+    }
+  });
+});
+
+describe('rotate', () => {
+  const c = { q: 3, r: 10 };
+  it('turns E to SE (clockwise on the screen), one sixth at a time', () => {
+    const ring = neighbors(c);   // E, NE, NW, W, SW, SE
+    // Clockwise on the screen: E -> SE -> SW -> W -> NW -> NE.
+    const order = [0, 5, 4, 3, 2, 1].map((i) => ring[i]);
+    for (let i = 0; i < 6; i++) expect(rotate(order[i], c, 1)).toEqual(order[(i + 1) % 6]);
+  });
+  it('is (q, r) -> (-q - r, q) about the centre for a third of a turn, and (-q, -r) for a half', () => {
+    const rand = rng(7);
+    for (let i = 0; i < 200; i++) {
+      const h = randomHex(rand);
+      const [a, b] = [h.q - c.q, h.r - c.r];
+      expect(rotate(h, c, 2)).toEqual({ q: -a - b + c.q + 0, r: a + c.r + 0 });
+      expect(rotate(h, c, 3)).toEqual({ q: -a + c.q + 0, r: -b + c.r + 0 });
+    }
+  });
+  it('keeps distances, leaves the centre where it is, comes back after six sixths, and undoes itself turned back', () => {
+    const rand = rng(8);
+    expect(rotate(c, c, 2)).toEqual(c);
+    for (let i = 0; i < 200; i++) {
+      const a = randomHex(rand), b = randomHex(rand);
+      const n = Math.floor(rand() * 13) - 6;
+      expect(distance(rotate(a, c, n), rotate(b, c, n))).toBe(distance(a, b));
+      expect(distance(rotate(a, c, n), c)).toBe(distance(a, c));
+      expect(rotate(a, c, 6)).toEqual(a);
+      expect(rotate(rotate(a, c, n), c, -n)).toEqual(a);
     }
   });
 });

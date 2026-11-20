@@ -43,4 +43,13 @@ export const ACTIONS: Record<ActionId, ActionDef> = {
     effects: [{ kind: 'recover' }],
     reveals: false, mobile: true,
   },
+  // (25) Acts on the hex, not on anyone: `affects` and `blast` touch nobody. The order names the work; it goes up
+  // in the score phase, before captures, if its owner can pay for it then.
+  build: {
+    id: 'build', name: 'Build', blurb: 'Puts up sandbags, wire or an MG nest on his own hex or the next, for supply, at the round\'s end.',
+    icon: 'build', phase: 'build',
+    range: 1, minRange: 0, sight: 'none', needs: 'any', affects: 'friends', blast: 0,
+    effects: [{ kind: 'build' }],
+    reveals: false, mobile: true,
+  },
 };

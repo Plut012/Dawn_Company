@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_MAP, MAPS } from '../../content';
+import { mapFor, MAPS } from '../../content';
 import { createMatch, viewFor } from '../../rules';
 import { label } from '../../shared/hex';
 import type { GameEvent, Unit } from '../../shared/types';
 import { teller } from './lines';
 
-const map = MAPS[DEFAULT_MAP];
+const map = mapFor(2);
 const squad = ['rifleman', 'gunner', 'mortar', 'medic'];
 const state = createMatch(map, [{ player: 0, units: squad }, { player: 1, units: squad }]);
 const view = viewFor(state, 0);
@@ -64,17 +64,29 @@ describe('report lines', () => {
     ]);
   });
 
-  it('scores in the voice of the design doc', () => {
-    expect(text([
-      { t: 'score', objective: 'C', player: 0, value: 3 },
-      { t: 'score', objective: 'A', player: 1, value: 1 },
-    ])).toEqual(['Objective C held. +3.', 'Objective A held by Bo. +1.']);
+  it('says captures in words, by kind and letter, and marks a flag lost as danger', () => {
+    const lines = teller(view, names).tell([
+      { t: 'capture', objective: 'C', player: 1, from: null },
+      { t: 'capture', objective: 'E', player: 0, from: null },
+      { t: 'capture', objective: 'W', player: 1, from: 0 },
+      { t: 'capture', objective: 'A', player: 0, from: 1 },
+    ]);
+    expect(lines).toEqual([
+      { text: 'Bo took the village C.', danger: false },
+      { text: 'You took the hill E.', danger: false },
+      { text: 'Bo took the HQ W from you.', danger: true },
+      { text: 'You took the depot A.', danger: false },
+    ]);
   });
 
-  it('does not say where a score came from when the event does not: the holder is out of sight', () => {
-    const lines = teller(view, names).tell([{ t: 'score', objective: null, player: 1, value: 3 }]);
-    expect(lines).toEqual([{ text: 'Bo scores. +3.', danger: false }]);
-    for (const o of map.objectives) expect(lines[0].text).not.toContain(` ${o.id} `);
+  it('tells what the flags earned in one line, yours first', () => {
+    expect(text([
+      { t: 'score', objective: 'A', player: 1, value: 1 },
+      { t: 'score', objective: 'C', player: 0, value: 2 },
+      { t: 'score', objective: 'E', player: 1, value: 3 },
+      { t: 'score', objective: 'W', player: 0, value: 1 },
+    ])).toEqual(['Supply: you +3, Bo +4.']);
+    expect(text([{ t: 'score', objective: 'Y', player: 1, value: 1 }])).toEqual(['Supply: Bo +1.']);
   });
 
   it('says nothing when a unit breaks into a run: the steps that follow show it', () => {
@@ -114,7 +126,7 @@ describe('report lines', () => {
       { t: 'eliminated', player: 0 },
       { t: 'spotted', unit: foe },
     ]);
-    expect(lines).toEqual([{ text: 'Your squad is out. Your score stands.', danger: true }]);
+    expect(lines).toEqual([{ text: 'Your squad is out. Your supply stands.', danger: true }]);
     // ... and it stays quiet for what follows in the same round.
     expect(t.tell([{ t: 'spotted', unit: { ...foe, id: '1-2' } }])).toEqual([]);
   });
@@ -164,5 +176,55 @@ describe('report lines: task 14', () => {
       { t: 'move', step: 2, unit: hale.id, from: F4, to: hale.pos },
     ]).map((l) => l.text)).toEqual([`${hale.name} blocked at F4.`, `${hale.name} falls back to ${label(hale.pos)}.`]);
     expect(t.tell([{ t: 'phase', phase: 'treat' }, { t: 'move', step: 1, unit: hale.id, from: hale.pos, to: F4 }])).toEqual([]);
+  });
+});
+
+describe('report lines for digging in (24)', () => {
+  it('tells the round\'s foxholes in one line, after what came before them, and a hit on a man dug in as cover', () => {
+    const lines = text([
+      { t: 'hit', unit: hale.id, at: F4, result: 'cover' },
+      { t: 'dig', unit: hale.id },
+      { t: 'dig', unit: medic.id },
+    ]);
+    expect(lines).toEqual([`${hale.name} hit at F4. Cover holds.`, `Dug in: ${hale.name}, ${medic.name}.`]);
+    expect(text([{ t: 'dig', unit: hale.id }, { t: 'recover', unit: medic.id }])).toEqual([`Dug in: ${hale.name}.`, `${medic.name} recovers.`]);
+  });
+});
+
+describe('report lines for Supply Line (18)', () => {
+  const W = map.objectives.find((o) => o.id === 'W')!;
+  it('says a buy-back and a return in words: own by name, an enemy by player', () => {
+    expect(text([{ t: 'purchase', player: 0, unit: hale.id, cost: 8 }])).toEqual([`You bought back ${hale.name} for 8 supply.`]);
+    expect(text([{ t: 'purchase', player: 1, unit: '1-0', cost: 8 }])).toEqual(['Bo bought a man back for 8 supply.']);
+    expect(text([{ t: 'return', unit: hale.id, at: W.hexes[0] }])).toEqual([`${hale.name} is back at the HQ W.`]);
+    expect(text([{ t: 'return', unit: '1-2', at: { q: 30, r: 30 } }])).toEqual(['An enemy comes back at AE31.'.replace('AE31', label({ q: 30, r: 30 }))]);
+  });
+});
+
+describe('report lines for Last Stand (20)', () => {
+  const stand = teller({ ...view, mode: 'last-stand' }, names);
+  it('says a man down is down for good, and a lost squad has no supply to speak of', () => {
+    expect(stand.tell([{ t: 'hit', unit: hale.id, at: F4, result: 'down' }]).map((l) => l.text)).toEqual([`${hale.name} down at F4. For good.`]);
+    expect(stand.tell([{ t: 'hit', unit: hale.id, at: F4, result: 'pinned' }]).map((l) => l.text)).toEqual([`${hale.name} pinned at F4.`]);
+    expect(stand.tell([{ t: 'eliminated', player: 0 }]).map((l) => l.text)).toEqual(['Your squad is out.']);
+    expect(teller(view, names).tell([{ t: 'eliminated', player: 0 }]).map((l) => l.text)).toEqual(['Your squad is out. Your supply stands.']);
+  });
+});
+
+describe('works in the report (25)', () => {
+  it('says a build, with what it cost the viewer, and why one did not happen', () => {
+    const eng: Unit = { ...hale, id: '0-9', type: 'engineer', name: 'Spr. Webb' };
+    const t = teller({ ...view, units: [...view.units, eng] }, names);
+    expect(text([
+      { t: 'build', unit: '0-9', at: F4, work: 'nest' },
+      { t: 'build', unit: '1-7', at: F4, work: 'sandbags' },
+      { t: 'unable', unit: '0-9', action: 'build', reason: 'supply' },
+      { t: 'unable', unit: '0-9', action: 'build', reason: 'blocked' },
+    ], t)).toEqual([
+      'Spr. Webb builds MG nest at F4 for 12 supply.',
+      'The enemy builds sandbags at F4.',
+      'Spr. Webb: build called off, not enough supply.',
+      'Spr. Webb: build called off, no room for it there.',
+    ]);
   });
 });

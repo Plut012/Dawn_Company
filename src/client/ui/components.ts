@@ -216,7 +216,7 @@ export function unitCard(opts: UnitCardOptions): UnitCard {
 }
 
 // ---------------------------------------------------------------- Stepper
-export type StepperState = 'idle' | 'at-limit' | 'unaffordable';
+export type StepperState = 'idle' | 'at-limit' | 'unaffordable' | 'barred';
 export interface StepperView {
   count: number;
   /** Cost caption, e.g. "4 PTS EA · 3 LEFT". */
@@ -248,6 +248,7 @@ export function stepper(onStep: (delta: -1 | 1) => void, label = ''): Stepper {
     plus.disabled = !v.canInc;
     s.classList.toggle('unaffordable', v.state === 'unaffordable');
     s.classList.toggle('at-limit', v.state === 'at-limit');
+    s.classList.toggle('barred', v.state === 'barred');
   };
   return s;
 }

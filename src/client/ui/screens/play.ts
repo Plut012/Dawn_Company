@@ -5,23 +5,26 @@
 // The screen holds no rules. What a unit may do comes from `orderOptions`,
 // the server judges what is sent, and the board draws what it is given.
 
-import { TERRAIN, UNITS } from '../../../content';
-import { actionOf, followUpOptions, orderOptions } from '../../../rules';
+import { MODES, OBJECTIVE_KINDS, TERRAIN, UNITS, WORKS } from '../../../content';
+import { actionOf, buyBackCost, followUpOptions, lineOpen, orderOptions } from '../../../rules';
 import { eq, key, label, parseKey } from '../../../shared/hex';
 import type { SeatStatus, ServerMsg } from '../../../shared/protocol';
-import type { Hex, HexKey, Order, OrderKind, PlayerView, Unit, UnitId } from '../../../shared/types';
+import type { Hex, HexKey, Order, OrderKind, PlayerView, Purchase, Unit, UnitId, WorkId } from '../../../shared/types';
 import { START_SCALE, createBoard } from '../../render';
 import type { Board, Mark } from '../../render';
 import { lowpolyKit, loadKitFonts } from '../../render/kits/lowpoly';
 import { BEAT, moments } from '../../render/playback';
-import { ICONS, chit, el, lamp, lever, playerMark, readout, report, unitCard } from '../components';
+import { ICONS, chit, el, key as keyButton, lamp, lever, playerMark, readout, report, unitCard } from '../components';
 import type { Chit, ChitState } from '../components';
 import {
-  actionIcon, actionName, allowance, clearDraft, draftSignature, followUpOf, friendlyFire, fromOrders, layRoute, loadDraft, moveOrder, orderBrief, orderLabel,
-  ownUnits, ownUnitsUnderFire, plannedEnd, prune, saveDraft, stance, throttled, toOrders, unitName,
+  actionIcon, actionName, allowance, clearDraft, draftSignature, followUpOf, friendlyFire, fromOrders, layRoute, likelyFollowUps, loadDraft, moveOrder, orderBrief, orderLabel,
+  ownUnits, ownUnitsUnderFire, plannedEnd, prune, saveDraft, stance, throttled, toOrders, unitName, workOf, workSpend, workWord,
 } from '../draft';
 import type { Draft } from '../draft';
+import { FOXHOLE_GIVES, FOXHOLE_LEAVES, benefitWords, dugIn, kindWords } from '../ground';
+import { lightName, lightWords, sightWords } from '../light';
 import { teller } from '../lines';
+import { scoreWord, survives } from '../outcome';
 import type { Line } from '../lines';
 import type { App, Screen } from '../screen';
 import { session } from '../session';
@@ -60,10 +63,13 @@ export const playScreen: Screen = {
     let view: PlayerView | null = null;
     let seats: SeatStatus[] = [];
     let draft: Draft = {};
+    let buys: Purchase[] = [];                              // buy-backs pencilled in with the draft (18)
     let phase: Phase = 'plan';
     let selected: UnitId | null = null;
     let mode: Aim | null = null;                            // the order now being aimed on the map
+    let fromHere = false;                                   // fire or special aimed from where the unit stands, though it has a move
     let pending: { unit: UnitId; target: Hex; kind: 'fire' | 'special' } | null = null;   // a shot over own units, waiting for a second tap
+    let choosing: { unit: UnitId; target: Hex; follow: boolean } | null = null;          // (25) a build aimed, waiting for its work
     let rejected = new Map<UnitId, string>();
     let log: Line[] = [];                                   // the last round's report lines
     let note: Line | null = null;                           // a passing line: an answer to the last tap
@@ -75,10 +81,13 @@ export const playScreen: Screen = {
 
     // ---- parts
     const roundOut = readout('Round', '–');
-    const scoreOut = readout('Score', '0');
+    const lightOut = el('i', 'play-light');                 // the light of the round (19)
+    roundOut.append(lightOut);
+    const scoreOut = readout('Supply', '0');
     const timeOut = readout('Time', '–');
     const readouts = el('div', 'play-readouts');
-    readouts.append(roundOut, scoreOut, timeOut);
+    const modeOut = el('span', 'play-mode');                // the mode's name, in the header
+    readouts.append(roundOut, scoreOut, timeOut, modeOut);
     const lamps = el('div', 'play-lamps');
     const top = el('header', 'play-top');
     top.append(readouts, lamps);
@@ -108,7 +117,7 @@ export const playScreen: Screen = {
     const leverText = el('p', 'play-ready-text');
     const leverBox = el('div', 'lever-box');
     leverBox.append(readyLever, legend, leverWord, leverText);
-    const outLine = el('p', 'play-out', 'Your squad is out. You see the whole field now. Your score stands to the end.');
+    const outLine = el('p', 'play-out', 'Your squad is out. You see the whole field now. Your supply stands to the end.');
     const tray = el('section', 'panel play-tray');
     tray.append(el('span', 'label', 'Squad'), squadRow, chitRow, leverBox, outLine);
 
@@ -129,20 +138,27 @@ export const playScreen: Screen = {
     const persist = (): void => { if (view) saveDraft(sessionStore(), slot, draftSignature(session.token, view), draft); };
     // The draft as it stands goes to the server while the lever is up; the server runs it at the bell.
     const draftSender = throttled(() => {
-      if (view && phase === 'plan' && !spectating()) app.net.send({ t: 'draft', orders: toOrders(draft) });
+      if (view && phase === 'plan' && !spectating()) app.net.send({ t: 'draft', orders: toOrders(draft), purchases: buys });
     }, DRAFT_GAP_MS);
     off.push(() => draftSender.cancel());
 
     /**
      * With a move pencilled in, the chit of an action that may follow a move aims the move's
-     * follow-up, from the end of the path: the hexes it may be aimed at. Null when the chit
-     * aims a plain order from where the unit stands.
+     * follow-up, from the end of the path: the hexes where it would run as things stand
+     * (possibly none). Null when the chit aims a plain order from where the unit stands:
+     * no move, an action that cannot follow one, or the player asked to fire from here.
      */
     function followTargets(u: Unit, kind: Aim): HexKey[] | null {
       const o = draft[u.id];
       if (!view || !o || o.kind !== 'move' || (kind !== 'fire' && kind !== 'special')) return null;
-      const list = followUpOptions(view, u.id, plannedEnd(u, draft))[kind];
-      return list.length > 0 ? list : null;
+      if (fromHere && mode === kind && u.id === selected) return null;
+      const legal = followUpOptions(view, u.id, plannedEnd(u, draft))[kind];
+      return legal.length > 0 ? likelyFollowUps(view, draft, u, kind, legal) : null;
+    }
+
+    /** May this unit's chit switch from aiming the follow-up to a plain order from where it stands? */
+    function canFireFromHere(u: Unit, kind: 'fire' | 'special'): boolean {
+      return !!view && (orderOptions(view, u.id)[kind]?.length ?? 0) > 0;
     }
 
     /** Has this unit an action it may use after a move? */
@@ -155,6 +171,39 @@ export const playScreen: Screen = {
       rejected.delete(id);
       persist();
       draftSender.poke();
+    }
+
+    // ---- buying back (18)
+
+    /** Supply left once the buy-backs and the works (25) in the draft are paid. */
+    const supplyLeft = (v: PlayerView): number => (v.scores[v.player] ?? 0) - buys.reduce((a, b) => a + (buyBackCost(v, b.unit) ?? 0), 0) - workSpend(draft);
+    const buying = (id: UnitId): boolean => buys.some((b) => b.unit === id);
+
+    /** A down unit's line on its card: when it comes back, or that it cannot. Null when it never will. */
+    function backLine(v: PlayerView, u: Unit): string | null {
+      if (u.status !== 'down' || u.returnRound === null || u.returnRound === undefined) return null;
+      if (!lineOpen(v, v.player)) return 'cut off';
+      if (buying(u.id)) return 'bought back';
+      const n = u.returnRound - v.round + 1;
+      return n <= 1 ? 'back at round\'s end' : `back in ${n}`;
+    }
+
+    function toggleBuy(id: UnitId): void {
+      if (!view || phase !== 'plan' || spectating()) return;
+      const u = unit(id);
+      if (buying(id)) {
+        buys = buys.filter((b) => b.unit !== id);
+        if (u) say(`${unitName(u)} stays on the casualty list.`);
+      } else {
+        const cost = buyBackCost(view, id);
+        if (cost === null || !u) return;
+        if (cost > supplyLeft(view)) { say(`${unitName(u)} costs ${cost} supply to bring back; you have ${supplyLeft(view)} left.`, true); refresh(); return; }
+        buys = [...buys, { kind: 'return', unit: id }];
+        say(`${unitName(u)} bought back for ${cost} supply. He is back at the HQ when the round ends.`);
+      }
+      rejected.delete(id);
+      draftSender.poke();
+      refresh();
     }
 
     // ---- drawing the kit
@@ -174,6 +223,9 @@ export const playScreen: Screen = {
         else out.push({ kind: 'ambush', hex: u.pos });
       }
       const sel = unit(selected);
+      if (choosing && sel && sel.id === choosing.unit) {
+        out.push({ kind: 'target', from: choosing.follow ? plannedEnd(sel, draft) : sel.pos, hex: choosing.target, blast: 0 });
+      }
       if (pending && sel && sel.id === pending.unit) {
         const from = followTargets(sel, pending.kind) ? plannedEnd(sel, draft) : sel.pos;
         out.push({ kind: 'target', from, hex: pending.target, blast: actionOf(sel.type, pending.kind)?.blast ?? 0 });
@@ -205,6 +257,9 @@ export const playScreen: Screen = {
       const sel = unit(selected);
       if (!sel) return log.at(-1) ?? { text: `Round ${view.round}. Pick a unit, then an order.`, danger: false };
       const name = unitName(sel);
+      if (choosing && choosing.unit === sel.id) {
+        return { text: `${name}: what goes up at ${label(choosing.target)}? Paid from supply at the round's end, if it is there then (${supplyLeft(view)} left now).`, danger: false };
+      }
       const why = rejected.get(sel.id);
       if (why) return { text: `${name}: order rejected, ${why}.`, danger: true };
       const asShooter = fires.find((f) => f.shooter.id === sel.id);
@@ -216,17 +271,25 @@ export const playScreen: Screen = {
         return { text: `${name} is under ${unitName(asVictim.shooter)}'s fire at ${label(asVictim.target)}.`, danger: true };
       }
       if (mode === 'move' || mode === 'dash') {
-        const max = allowance(sel, mode);
+        const max = allowance(view, sel, mode);
         return mode === 'dash'
-          ? { text: `Dash, up to ${max}: tap a marked hex. No cover on the run; one hit puts him down.`, danger: false }
-          : { text: `Move, up to ${max}: tap a marked hex. Tap on from there to shape the route.${canFollow(sel) ? ' Then a chit for what he does there.' : ''}`, danger: false };
+          ? { text: `Dash, up to ${max}: tap a marked hex. No cover on the run; one hit puts him down.${dugIn(sel) ? ` ${FOXHOLE_LEAVES}` : ''}`, danger: false }
+          : { text: `Move, up to ${max}: tap a marked hex. Tap on from there to shape the route.${canFollow(sel) ? ' Then a chit for what he does there.' : ''}${dugIn(sel) ? ` ${FOXHOLE_LEAVES}` : ''}`, danger: false };
       }
-      if ((mode === 'fire' || mode === 'special') && followTargets(sel, mode)) {
-        return {
-          text: `${actionName(sel.type, mode)} after the move, from ${label(plannedEnd(sel, draft))}: tap a marked hex. `
-            + 'Only if he gets there ready, in range, with a line.',
-          danger: false,
-        };
+      if (mode === 'fire' || mode === 'special') {
+        const follow = followTargets(sel, mode);
+        const end = label(plannedEnd(sel, draft));
+        const swap = canFireFromHere(sel, mode) ? ` Tap ${actionName(sel.type, mode)} again to do it from ${label(sel.pos)} instead, without the move.` : '';
+        if (follow && follow.length === 0) {
+          return { text: `${actionName(sel.type, mode)} after the move: nothing it could reach from ${end}.${swap}`, danger: false };
+        }
+        if (follow) {
+          return { text: `${actionName(sel.type, mode)} after the move, from ${end}: tap a marked hex.${swap}`, danger: false };
+        }
+        const going = draft[sel.id]?.kind;
+        if (going === 'move' || going === 'dash') {
+          return { text: `${actionName(sel.type, mode)} from ${label(sel.pos)}, without the move: tap a marked hex. It replaces the move.`, danger: false };
+        }
       }
       if (mode === 'fire' || mode === 'special') {
         return { text: `${actionName(sel.type, mode)}: tap a marked hex. ${actionOf(sel.type, mode)?.blurb ?? ''}`.trim(), danger: false };
@@ -235,7 +298,8 @@ export const playScreen: Screen = {
         return { text: `${name} is pinned at ${label(sel.pos)}. Orders run only if a medic treats him first.`, danger: true };
       }
       const o = draft[sel.id];
-      return { text: `${name} at ${label(sel.pos)}. ${o ? `${orderLabel(o, sel.type)}.` : 'No order: holds.'}`, danger: false };
+      const hole = dugIn(sel) ? ` Dug in: ${FOXHOLE_GIVES}.${o?.kind === 'move' || o?.kind === 'dash' ? ` ${FOXHOLE_LEAVES}` : ''}` : '';
+      return { text: `${name} at ${label(sel.pos)}, ${view ? sightWords(view, sel) : ''}. ${o ? `${orderLabel(o, sel.type)}.` : 'No order: holds.'}${hole}`, danger: false };
     }
 
     function refresh(): void {
@@ -244,17 +308,27 @@ export const playScreen: Screen = {
       const out = spectating();
 
       // readouts
+      modeOut.textContent = MODES[v.mode]?.name ?? v.mode;
       roundOut.set(`${Math.min(v.round, v.maxRounds)}/${v.maxRounds}`);
-      scoreOut.set(v.scores[v.player] ?? 0);
+      lightOut.textContent = lightWords(v);
+      roundOut.title = `Round ${Math.min(v.round, v.maxRounds)} of ${v.maxRounds}. ${lightWords(v)}.`;
+      const left = supplyLeft(v);
+      const word = scoreWord(v.mode);                      // Supply, or Standing in Last Stand (20)
+      scoreOut.set(left);
+      scoreOut.lastElementChild!.textContent = word;
+      scoreOut.title = survives(v.mode) ? `${left} of your men standing`
+        : buys.length > 0 ? `${v.scores[v.player] ?? 0} supply, ${left} after the buy-backs in your draft` : `${left} supply`;
+      outLine.textContent = survives(v.mode) ? 'Your squad is out. You see the whole field now.'
+        : 'Your squad is out. You see the whole field now. Your supply stands to the end.';
       tick();
 
       // lamps
       lamps.replaceChildren(...seats.map((s) => {
         const state = s.out ? 'out' : !s.connected ? 'disconnected' : s.ready ? 'ready' : 'planning';
-        const word = s.out ? 'out' : !s.connected ? 'lost signal' : s.ready ? 'ready' : 'planning';
+        const status = s.out ? 'out' : !s.connected ? 'lost signal' : s.ready ? 'ready' : 'planning';
         const l = lamp(s.name, state);
         l.append(el('b', '', String(v.scores[s.seat] ?? 0)));
-        l.title = `${s.name}: ${word}, ${v.scores[s.seat] ?? 0} points`;
+        l.title = `${s.name}: ${status}, ${v.scores[s.seat] ?? 0} ${word.toLowerCase()}`;
         l.setAttribute('aria-label', l.title);
         const box = el('div', s.seat === v.player ? 'play-lamp own' : 'play-lamp');
         box.append(playerMark(s.seat), l);
@@ -269,23 +343,46 @@ export const playScreen: Screen = {
         const card = unitCard({
           name: unitName(u), role: def?.name ?? u.type, seat: u.owner,
           state: u.status === 'ready' ? 'ready' : u.status,
-          detail: u.status === 'down' ? def?.name ?? u.type : `${def?.name ?? u.type} · ${stance(v.map, u)}`,
+          detail: u.status === 'down' ? def?.name ?? u.type
+            : [def?.name ?? u.type, stance(v.map, u), dugIn(u) ? 'Dug in' : null, benefitWords(v, u)].filter(Boolean).join(' · '),
         });
         const order = el('small', 'play-order');
         const o = draft[u.id];
-        if (u.status === 'down') order.textContent = 'Down';
+        const back = backLine(v, u);
+        if (u.status === 'down') {
+          order.textContent = back ? back[0].toUpperCase() + back.slice(1) : 'Down';     // the card itself says he is down
+          if (rejected.has(u.id)) { order.textContent = 'Buy-back rejected'; order.classList.add('danger'); }
+          else if (back === 'cut off') order.classList.add('danger');
+        }
         else if (rejected.has(u.id)) { order.textContent = 'Order rejected'; order.classList.add('danger'); }
         else if (underFire.has(u.id)) { order.textContent = `${orderBrief(o, u.type)} · own fire`; order.classList.add('danger'); }
         else order.textContent = `${u.status === 'pinned' ? 'Pinned · ' : ''}${orderBrief(o, u.type)}`;
         order.title = orderLabel(o, u.type);
         card.children[1]?.append(order);
+        const cost = u.status === 'down' && !out ? buyBackCost(v, u.id) : null;
+        if (cost !== null) {
+          const affordable = buying(u.id) || cost <= supplyLeft(v);
+          const buy = keyButton({
+            label: `Buy back · ${cost} supply`,
+            pressed: buying(u.id),
+            disabled: phase !== 'plan' || !affordable,
+            onPress: () => toggleBuy(u.id),
+          });
+          buy.classList.add('play-buy');
+          buy.dataset.buy = u.id;
+          buy.title = buying(u.id) ? 'Press again to take it back' : affordable ? `Bring ${unitName(u)} back at the HQ at the end of this round` : `Not enough supply: ${supplyLeft(v)} left`;
+          buy.addEventListener('click', (e) => e.stopPropagation());
+          buy.addEventListener('keydown', (e) => e.stopPropagation());
+          card.children[1]?.append(buy);
+        }
         card.classList.toggle('selected', u.id === selected);
         card.tabIndex = 0;
         card.setAttribute('role', 'button');
         card.setAttribute('aria-pressed', String(u.id === selected));
         card.dataset.unit = u.id;
         card.dataset.at = label(u.pos);
-        card.title = `${unitName(u)}, ${(def?.name ?? u.type).toLowerCase()}, at ${label(u.pos)}${u.status === 'down' ? '' : `, ${stance(v.map, u)}`}`;
+        card.title = `${unitName(u)}, ${(def?.name ?? u.type).toLowerCase()}, at ${label(u.pos)}${u.status === 'down' ? '' : `, ${stance(v.map, u)}`}${dugIn(u) ? `, dug in: ${FOXHOLE_GIVES}` : ''}`;
+        card.dataset.dug = String(dugIn(u));
         if (u.status !== 'down') card.dataset.stance = stance(v.map, u);
         card.addEventListener('click', () => pressCard(u.id));
         card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pressCard(u.id); } });
@@ -309,7 +406,9 @@ export const playScreen: Screen = {
       const options = live ? orderOptions(v, live.id) : null;
       const kinds: ChitKind[] = ['hold', ...(options?.kinds ?? (['move', 'dash', 'fire', 'ambush'] as OrderKind[]))];
       const locked = phase !== 'plan';
-      chitRow.replaceChildren(...kinds.map((k) => {
+      if (live && choosing && choosing.unit === live.id && !locked) {
+        chitRow.replaceChildren(...workKeys(v, live), keyButton({ label: 'Cancel', onPress: () => { choosing = null; refresh(); } }));
+      } else chitRow.replaceChildren(...kinds.map((k) => {
         let state: ChitState = 'idle';
         const has = live ? draft[live.id]?.kind : undefined;
         const then = live ? followUpOf(draft, live.id)?.kind : undefined;
@@ -326,6 +425,7 @@ export const playScreen: Screen = {
           onPress: () => pressChit(k),
         });
         if (state === 'disabled' && live && issued) c.classList.add('issued');
+        if (live && dugIn(live) && (k === 'move' || k === 'dash')) c.title = `${k === 'move' ? 'Move' : 'Dash'}: ${FOXHOLE_LEAVES.toLowerCase()}`;
         c.dataset.kind = k;
         return c;
       }));
@@ -356,6 +456,40 @@ export const playScreen: Screen = {
       board?.setMarks(marks());
     }
 
+    /**
+     * (25) One key per work, with its cost: greyed when the supply left after the draft's buy-backs and other works
+     * does not cover it, and wire where a man stands or means to end up (nobody may stand in it).
+     */
+    function workKeys(v: PlayerView, u: Unit): HTMLElement[] {
+      const target = choosing!.target;
+      const left = supplyLeft(v) + (workOf(draft[u.id]) ? WORKS[workOf(draft[u.id])!].cost : 0);   // his own last choice is replaced
+      const standing = v.units.some((x) => x.status !== 'down' && eq(x.owner === v.player ? plannedEnd(x, draft) : x.pos, target))
+        || (!choosing!.follow && eq(u.pos, target)) || (choosing!.follow && eq(plannedEnd(u, draft), target));
+      return Object.values(WORKS).map((w, i) => {
+        const short = w.cost > left;
+        const manned = !(TERRAIN[w.terrain]?.passable ?? true) && standing;
+        const b = keyButton({ label: `${w.name} · ${w.cost}`, disabled: short || manned, onPress: () => pickWork(w.id) });
+        b.classList.add('play-work');
+        b.dataset.work = w.id;
+        b.title = short ? `${w.name}: ${w.cost} supply, you have ${left} left` : manned ? `${w.name}: nobody may stand in it`
+          : `${w.name}, ${w.cost} supply (${i + 1}). ${w.blurb}`;
+        return b;
+      });
+    }
+
+    function pickWork(work: WorkId): void {
+      const u = unit(selected);
+      if (!choosing || !u || choosing.unit !== u.id || phase !== 'plan') return;
+      const { target, follow } = choosing;
+      const o = draft[u.id];
+      if (follow && o?.kind === 'move') setOrder({ unit: u.id, kind: 'move', path: o.path, then: { kind: 'special', target, work } }, u.id);
+      else setOrder({ unit: u.id, kind: 'special', target, work }, u.id);
+      say(`${unitName(u)}: ${workWord(work)} at ${label(target)}, ${WORKS[work].cost} supply when it goes up at the round's end.`);
+      choosing = null;
+      mode = null;
+      refresh();
+    }
+
     function tick(): void {
       if (deadline === null || phase === 'playback') {
         timeOut.hidden = deadline === null;
@@ -375,7 +509,9 @@ export const playScreen: Screen = {
     function select(id: UnitId | null): void {
       selected = id;
       mode = null;
+      fromHere = false;
       pending = null;
+      choosing = null;
       note = null;
     }
 
@@ -385,7 +521,11 @@ export const playScreen: Screen = {
       if (!u) return;
       // A second press on the same card finds the unit on the map. The first never moves the camera.
       if (selected === id || u.status === 'down') board?.focus(u.pos);
-      if (u.status === 'down') say(`${unitName(u)} is down at ${label(u.pos)}.`);
+      if (u.status === 'down') {
+        const back = view ? backLine(view, u) : null;
+        say(back === 'cut off' ? `${unitName(u)} is down. Your HQ is lost: nobody comes back until you retake it.`
+          : back ? `${unitName(u)} is down at ${label(u.pos)}, ${back}.` : `${unitName(u)} is down at ${label(u.pos)}.`);
+      }
       else if (selected !== id) select(id);
       refresh();
     }
@@ -395,9 +535,16 @@ export const playScreen: Screen = {
       if (phase !== 'plan' || !u || u.status === 'down') return;
       note = null;
       pending = null;
+      choosing = null;
       if (k === 'hold') { setOrder(null, u.id); mode = null; }
       else if (k === 'ambush') { setOrder({ unit: u.id, kind: 'ambush' }, u.id); mode = null; }
+      else if (mode === k && (k === 'fire' || k === 'special') && !fromHere && followTargets(u, k) !== null && canFireFromHere(u, k)) {
+        fromHere = true;        // a second press: aim from where he stands, not after the move
+        refresh();
+        return;
+      }
       else mode = mode === k ? null : k;
+      fromHere = false;
       refresh();
     }
 
@@ -405,18 +552,28 @@ export const playScreen: Screen = {
       const cell = view?.map.cells[key(hex)];
       if (!cell) return label(hex);
       const t = TERRAIN[cell.terrain];
-      const parts = [`${label(hex)}: ${(t?.name ?? cell.terrain).toLowerCase()}`];
+      const work = view?.works?.[key(hex)];
+      const parts = [work ? `${label(hex)}: ${workWord(work)}, a work` : `${label(hex)}: ${(t?.name ?? cell.terrain).toLowerCase()}`];
       if (cell.elevation > 0) parts.push(`hill level ${cell.elevation}`);
       if (t?.cover) parts.push('cover');
+      const holed = view?.units.find((x) => eq(x.pos, hex) && dugIn(x));
+      if (holed) parts.push(`${unitName(holed)} is dug in, ${FOXHOLE_GIVES} until he moves`);
       if (t?.hide) {
         parts.push(t.hide.moved === null
           ? `hides a unit that keeps still beyond ${t.hide.still}, not one that moves`
           : `hides a unit that keeps still beyond ${t.hide.still}, one that moves beyond ${t.hide.moved}`);
       }
       if (t && !t.passable) parts.push('cannot be crossed');
-      const obj = view?.map.objectives.find((o) => eq(o.hex, hex));
-      if (obj) parts.push(`objective ${obj.id}, ${obj.value} a round`);
-      if (view && !view.visible.includes(key(hex))) parts.push('not in sight');
+      const obj = view?.map.objectives.find((o) => o.hexes.some((h) => eq(h, hex)));
+      if (obj) {
+        const kind = Object.hasOwn(OBJECTIVE_KINDS, obj.kind) ? OBJECTIVE_KINDS[obj.kind].name : obj.kind;
+        const owner = view?.flags?.[obj.id] ?? null;
+        const flag = owner === null ? 'nobody\'s flag' : owner === view?.player ? 'your flag' : `${names()[owner] ?? `player ${owner + 1}`}'s flag`;
+        const gives = kindWords(obj.kind);
+        parts.push(`${kind === 'HQ' ? kind : kind.toLowerCase()} ${obj.id}, ${obj.value} a round${gives ? `, gives its holder ${gives}` : ''}, ${flag}`);
+      }
+      if (view && !view.visible.includes(key(hex))) parts.push(view.sun === 0 ? 'not in sight' : `not in sight at ${lightName(view).toLowerCase()} (sight ${view.sun < 0 ? '−' : '+'}${Math.abs(view.sun)})`);
+      else if (view && view.sun !== 0) parts.push(`in sight at ${lightName(view).toLowerCase()} (sight −${Math.abs(view.sun)})`);
       return `${parts.join(', ')}.`;
     }
 
@@ -436,7 +593,7 @@ export const playScreen: Screen = {
           const o = draft[sel.id];
           const current = o && o.kind === kind ? o.path : [];
           const then = kind === 'move' ? followUpOf(draft, sel.id) : null;
-          const route = layRoute(v.map, sel.pos, current, hex, allowance(sel, kind));
+          const route = layRoute(v.map, sel.pos, current, hex, allowance(v, sel, kind));
           if (route === null) say(`${label(hex)} is out of reach for ${unitName(sel)}.`);
           else if (route.length === 0) setOrder(null, sel.id);        // clearing the move clears its follow-up
           else if (kind === 'dash') setOrder({ unit: sel.id, kind, path: route }, sel.id);
@@ -471,10 +628,20 @@ export const playScreen: Screen = {
           }
         }
         pending = null;
+        if (kind === 'special' && (actionOf(sel.type, 'special')?.effects.some((e) => e.kind === 'build') ?? false)) {
+          // (25) A build: the hex first, then which work (keys in place of the chits).
+          choosing = { unit: sel.id, target: hex, follow: follow !== null };
+          refresh();
+          return;
+        }
         const o = draft[sel.id];
         if (follow && o?.kind === 'move') setOrder({ unit: sel.id, kind: 'move', path: o.path, then: { kind, target: hex } }, sel.id);
-        else setOrder({ unit: sel.id, kind, target: hex }, sel.id);
+        else {
+          if (o?.kind === 'move' || o?.kind === 'dash') say(`${unitName(sel)} stays at ${label(sel.pos)}: ${actionName(sel.type, kind).toLowerCase()} at ${label(hex)} in place of the move.`);
+          setOrder({ unit: sel.id, kind, target: hex }, sel.id);
+        }
         mode = null;
+        fromHere = false;
         refresh();
         return;
       }
@@ -485,7 +652,7 @@ export const playScreen: Screen = {
       } else if (onHex) {
         const def = UNITS[onHex.type];
         const whose = own ? unitName(onHex) : `${names()[onHex.owner] ?? 'Enemy'}'s ${(def?.name ?? onHex.type).toLowerCase()}`;
-        say(`${whose} at ${label(hex)}${onHex.status === 'ready' ? '' : `, ${onHex.status}`}.`);
+        say(`${whose} at ${label(hex)}${onHex.status === 'ready' ? '' : `, ${onHex.status}`}, ${sightWords(view, onHex)}.`);
         pending = null;
       } else {
         say(describeHex(hex));
@@ -498,12 +665,13 @@ export const playScreen: Screen = {
       if (!view || phase === 'playback') return;
       note = null;
       pending = null;
+      choosing = null;
       mode = null;
       draftSender.cancel();
       if (down) {
         rejected = new Map();
         phase = 'sent';
-        app.net.send({ t: 'orders', orders: toOrders(draft) });
+        app.net.send({ t: 'orders', orders: toOrders(draft), purchases: buys });
       } else {
         phase = 'plan';
         app.net.send({ t: 'recall' });
@@ -513,6 +681,11 @@ export const playScreen: Screen = {
 
     function onKey(e: KeyboardEvent): void {
       if (e.ctrlKey || e.metaKey || e.altKey || !view || phase === 'playback') return;
+      if (choosing && /^[1-9]$/.test(e.key)) {
+        const b = chitRow.querySelectorAll<HTMLButtonElement>('.play-work')[Number(e.key) - 1];
+        if (b) { e.preventDefault(); b.click(); }
+        return;
+      }
       const k = CHIT_KEYS[e.key.toLowerCase()];
       if (k) {
         const c = chitRow.querySelector<HTMLButtonElement>(`[data-kind="${k}"]`);
@@ -530,6 +703,7 @@ export const playScreen: Screen = {
       } else if (e.key === 'Escape') {
         mode = null;
         pending = null;
+        choosing = null;
         note = null;
         logOpen = false;
         refresh();
@@ -556,17 +730,19 @@ export const playScreen: Screen = {
       // server that holds nothing lets this tab's own saved draft in, and then tells the server of it.
       const held = m.t === 'plan' ? m.orders ?? null : null;      // a `resolve` starts a round with nothing held
       draft = prune(m.view, held ? fromOrders(held) : loadDraft(sessionStore(), slot, draftSignature(session.token, m.view)));
+      buys = (m.t === 'plan' ? m.purchases ?? [] : []).filter((b) => buyBackCost(m.view, b.unit) !== null);
       persist();
       rejected = new Map();
       mode = null;
       pending = null;
+      choosing = null;
       note = null;
       const mine = ownUnits(m.view).filter((u) => u.status !== 'down');
       if (spectating()) selected = null;
       else if (!mine.some((u) => u.id === selected)) selected = mine[0]?.id ?? null;
       phase = m.seats.find((s) => s.seat === m.view.player)?.ready && !spectating() ? 'sent' : 'plan';
       draftSender.cancel();
-      if (held === null && phase === 'plan' && toOrders(draft).length > 0) draftSender.poke();
+      if (held === null && phase === 'plan' && (toOrders(draft).length > 0 || buys.length > 0)) draftSender.poke();
       if (!framed && board && mine.length > 0 && !wholeMapFits(m.view)) {
         // Open on the squad: the unit nearest its middle. A phone does not show the whole map.
         const cq = mine.reduce((a, u) => a + u.pos.q, 0) / mine.length;
@@ -597,6 +773,7 @@ export const playScreen: Screen = {
       draftSender.cancel();
       mode = null;
       pending = null;
+      choosing = null;
       note = null;
       logOpen = false;
       log = [];

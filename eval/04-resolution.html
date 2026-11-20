@@ -112,7 +112,7 @@ Nothing on this page decides an outcome: the board is redrawn from the events an
 </div>
 
 <script type="module">
-  import { UNITS, TERRAIN, MAPS, DEFAULT_MAP, PRESETS } from '/src/content/index.ts';
+  import { UNITS, TERRAIN, MAPS, mapFor, PRESETS } from '/src/content/index.ts';
   import { key, parseKey, distance, within, label, hexToPixel } from '/src/shared/hex.ts';
   import { createMatch, validateOrders, resolve, orderOptions, findPath, viewFor } from '/src/rules/index.ts';
 
@@ -135,7 +135,7 @@ Nothing on this page decides an outcome: the board is redrawn from the events an
     return n;
   };
 
-  const map = MAPS[DEFAULT_MAP];
+  const map = mapFor(4);
   const INK = '#1E2420', PAPER = '#E9DFC6', AMBER = '#E8A23A', RUST = '#9A4B32';
   const SEAT = ['#3F6E8C', '#6B4E7A', '#2F7F78', '#D9CFB4'];
   const SEAT_NAME = ['Blue', 'Plum', 'Teal', 'Bone'];

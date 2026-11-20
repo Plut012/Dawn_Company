@@ -7,10 +7,10 @@
 // connection that joined; a `plan` or `resolve` carries only that seat's view
 // and events.
 
-import { DEFAULT_MAP, MAPS, PRESETS, validateSquad } from '../content';
-import { createMatch, resolve, validateOrders, viewFor } from '../rules';
+import { DEFAULT_MODE, MAPS, MODES, PRESETS, mapFor, validateSquad } from '../content';
+import { createMatch, resolve, validateOrders, validatePurchases, viewFor } from '../rules';
 import type { ClientMsg, SeatStatus, ServerMsg } from '../shared/protocol';
-import type { GameState, Order, PlayerId, Squad, UnitTypeId } from '../shared/types';
+import type { GameState, ModeId, Order, PlayerId, Purchase, Squad, UnitTypeId } from '../shared/types';
 
 export type ConnId = number;
 /** One thing to do: send a message to a connection, or hang up on it. */
@@ -22,11 +22,12 @@ export const LOBBY_GRACE_MS = 5 * 60_000;   // a phone that slept or switched ap
 const MAX_NAME = 24;
 const MAX_SQUAD = 32;
 const MAX_ORDERS = 64;
+const MAX_PURCHASES = 32;
 const MAX_TOKEN = 128;
 
 // ---- the order log: one JSON object per line
-export interface LogStart { t: 'start'; at: number; map: string; seats: { seat: PlayerId; name: string; token: string; squad: UnitTypeId[] }[] }
-export interface LogRound { t: 'round'; round: number; orders: Order[][] }
+export interface LogStart { t: 'start'; at: number; map: string; mode?: ModeId; seats: { seat: PlayerId; name: string; token: string; squad: UnitTypeId[] }[] }
+export interface LogRound { t: 'round'; round: number; orders: Order[][]; purchases?: Purchase[][] }   // purchases (18): left out = none
 export type LogLine = LogStart | LogRound;
 export type LogSink = (line: LogLine) => void;
 
@@ -47,6 +48,7 @@ interface Seat {
   conn: ConnId | null;
   lostAt: number | null;           // when the connection dropped
   orders: Order[] | null;          // what the server holds for this round: committed, or a draft; run at the bell either way
+  purchases: Purchase[] | null;    // held with the orders, under the same rules (18)
 }
 
 const fail = (to: ConnId, message: string): Out[] => [{ to, msg: { t: 'error', message } }];
@@ -72,11 +74,12 @@ export function parseClientMsg(x: unknown): ClientMsg | string {
     case 'ready':
       return typeof m.ready === 'boolean' ? { t: 'ready', ready: m.ready } : 'ready must be true or false.';
     case 'orders':
-      if (!Array.isArray(m.orders) || m.orders.length > MAX_ORDERS) return 'Orders must be a short list.';
-      return { t: 'orders', orders: m.orders as Order[] };
     case 'draft':
       if (!Array.isArray(m.orders) || m.orders.length > MAX_ORDERS) return 'Orders must be a short list.';
-      return { t: 'draft', orders: m.orders as Order[] };
+      if (m.purchases !== undefined && (!Array.isArray(m.purchases) || m.purchases.length > MAX_PURCHASES)) return 'Purchases must be a short list.';
+      return { t: m.t, orders: m.orders as Order[], purchases: (m.purchases ?? []) as Purchase[] };
+    case 'mode':
+      return typeof m.mode === 'string' && m.mode.length <= MAX_TOKEN ? { t: 'mode', mode: m.mode } : 'A mode is a name.';
     case 'start':
     case 'recall':
     case 'rematch':
@@ -90,6 +93,7 @@ export class Room {
   private stage: Stage = 'lobby';
   private seats: Seat[] = [];
   private game: GameState | null = null;
+  private mode: ModeId = DEFAULT_MODE;           // chosen in the lobby by the host; kept across a rematch
   private deadline: number | null = null;      // when the planning timer fires
   private paused = false;                      // resumed match: timer waits for the first return
   private log: LogSink | null = null;
@@ -117,15 +121,17 @@ export class Room {
     if (!map) throw new Error(`The log is for an unknown map "${first.map}".`);
     const room = new Room(opts);
     const squads: Squad[] = first.seats.map((s, i) => ({ player: i, units: [...s.squad] }));
-    let state = createMatch(map, squads);
+    const mode = first.mode ?? DEFAULT_MODE;         // a log from before modes is a Supply Line match
+    room.mode = mode;
+    let state = createMatch(map, squads, mode);
     for (const line of lines.slice(1)) {
       if (line.t !== 'round') throw new Error('Unexpected line in the log.');
       if (line.round !== state.round) throw new Error(`The log jumps to round ${line.round}; expected ${state.round}.`);
-      state = resolve(state, line.orders).state;
+      state = resolve(state, line.orders, line.purchases).state;
     }
     room.seats = first.seats.map((s, i) => ({
       name: s.name, token: s.token, squad: [...s.squad], ready: false,
-      conn: null, lostAt: null, orders: null,
+      conn: null, lostAt: null, orders: null, purchases: null,
     }));
     room.game = state;
     room.log = sink;
@@ -147,9 +153,10 @@ export class Room {
       switch (m.t) {
         case 'squad': return this.setSquad(conn, seat, m.units);
         case 'ready': return this.setReady(conn, seat, m.ready);
+        case 'mode': return this.setMode(conn, seat, m.mode);
         case 'start': return this.start(conn, seat);
-        case 'orders': return this.submit(conn, seat, m.orders);
-        case 'draft': return this.draft(seat, m.orders);
+        case 'orders': return this.submit(conn, seat, m.orders, m.purchases ?? []);
+        case 'draft': return this.draft(seat, m.orders, m.purchases ?? []);
         case 'recall': return this.recall(conn, seat);
         case 'rematch': return this.rematch(conn, seat);
       }
@@ -212,26 +219,40 @@ export class Room {
         conn,
         lostAt: null,
         orders: null,
+        purchases: null,
       });
     }
     out.push(this.welcome(i));
-    if (this.stage === 'lobby') out.push({ to: conn, msg: { t: 'lobby', seats: this.status() } });
+    if (this.stage === 'lobby') out.push({ to: conn, msg: this.lobbyMsg() });
     else out.push({ to: conn, msg: this.plan(i) });
     return [...out, ...this.announce(conn)];
   }
 
   private setSquad(conn: ConnId, i: number, units: UnitTypeId[]): Out[] {
     if (this.stage !== 'lobby') return fail(conn, 'Squads can only change in the lobby.');
-    const check = validateSquad(units);
+    const check = validateSquad(units, this.mode);
     if (!check.ok) return fail(conn, `Illegal squad: ${check.errors.join(' ')}`);
     this.seats[i].squad = [...units];
     this.seats[i].ready = false;
     return this.announce();
   }
 
+  /** The host picks the mode. Every seat's ready is cleared; a squad the mode does not allow is kept, and cannot ready. */
+  private setMode(conn: ConnId, i: number, mode: ModeId): Out[] {
+    if (this.stage !== 'lobby') return fail(conn, 'The mode can only change in the lobby.');
+    if (i !== 0) return fail(conn, 'Only the host can pick the mode.');
+    if (!Object.hasOwn(MODES, mode)) return fail(conn, `No such mode: "${mode}".`);
+    this.mode = mode;
+    for (const s of this.seats) s.ready = false;
+    return this.announce();
+  }
+
   private setReady(conn: ConnId, i: number, ready: boolean): Out[] {
     if (this.stage !== 'lobby') return fail(conn, 'Ready is only for the lobby.');
-    if (ready && !validateSquad(this.seats[i].squad).ok) return fail(conn, 'Pick a legal squad first.');
+    if (ready) {
+      const check = validateSquad(this.seats[i].squad, this.mode);
+      if (!check.ok) return fail(conn, `Pick a legal squad first. ${check.errors.join(' ')}`);
+    }
     this.seats[i].ready = ready;
     return this.announce();
   }
@@ -242,15 +263,16 @@ export class Room {
     if (this.seats.length < 2) return fail(conn, 'Two players are needed.');
     if (!this.seats.every((s) => s.ready)) return fail(conn, 'Not everyone is ready.');
     const squads: Squad[] = this.seats.map((s, p) => ({ player: p, units: [...s.squad] }));
-    if (!squads.every((s) => validateSquad(s.units).ok)) return fail(conn, 'A squad is illegal.');
-    const mapId = DEFAULT_MAP;
-    this.game = createMatch(MAPS[mapId], squads);      // throws on bad setup; handle() turns that into an error
+    const bad = squads.map((s) => validateSquad(s.units, this.mode)).find((c) => !c.ok);
+    if (bad) return fail(conn, `A squad is illegal. ${bad.errors.join(' ')}`);
+    const map = mapFor(squads.length);
+    this.game = createMatch(map, squads, this.mode);      // throws on bad setup; handle() turns that into an error
     this.stage = 'playing';
     this.paused = false;
-    for (const s of this.seats) { s.ready = false; s.orders = null; }
+    for (const s of this.seats) { s.ready = false; s.orders = null; s.purchases = null; }
     this.log = this.opts.newLog?.() ?? null;
     this.log?.({
-      t: 'start', at: this.opts.now(), map: mapId,
+      t: 'start', at: this.opts.now(), map: map.id, mode: this.mode,
       seats: this.seats.map((s, p) => ({ seat: p, name: s.name, token: s.token, squad: [...s.squad] })),
     });
     this.restartTimer();
@@ -268,6 +290,7 @@ export class Room {
     for (const s of this.seats) {
       s.ready = false;
       s.orders = null;
+      s.purchases = null;
       if (s.conn === null) s.lostAt = now;        // the lobby grace starts now
     }
     return this.announce();
@@ -275,12 +298,13 @@ export class Room {
 
   // ---- rounds
 
-  private submit(conn: ConnId, i: number, orders: Order[]): Out[] {
+  private submit(conn: ConnId, i: number, orders: Order[], purchases: Purchase[]): Out[] {
     if (this.stage !== 'playing' || !this.game) return fail(conn, 'There is no round to plan.');
     if (this.game.eliminated[i]) return fail(conn, 'Your squad is out of the match.');
-    const errors = validateOrders(this.game, i, orders);
+    const errors = [...validateOrders(this.game, i, orders), ...validatePurchases(this.game, i, purchases)];
     if (errors.length > 0) return [{ to: conn, msg: { t: 'rejected', errors } }];
     this.seats[i].orders = orders;
+    this.seats[i].purchases = purchases;
     this.seats[i].ready = true;
     return [...this.announce(), ...(this.everyoneReady() ? this.endRound() : [])];
   }
@@ -290,9 +314,12 @@ export class Room {
    * seat holds and leaves `ready` alone. A bad one, one from a seat that is ready, or one that
    * arrives out of turn is dropped without a word: the next draft is already on its way.
    */
-  private draft(i: number, orders: Order[]): Out[] {
+  private draft(i: number, orders: Order[], purchases: Purchase[]): Out[] {
     if (this.stage !== 'playing' || !this.game || this.game.eliminated[i] || this.seats[i].ready) return [];
-    if (validateOrders(this.game, i, orders).length === 0) this.seats[i].orders = orders;
+    if (validateOrders(this.game, i, orders).length === 0 && validatePurchases(this.game, i, purchases).length === 0) {
+      this.seats[i].orders = orders;          // the orders and the purchases are one draft: kept or dropped together
+      this.seats[i].purchases = purchases;
+    }
     return [];
   }
 
@@ -314,10 +341,11 @@ export class Room {
     const g = this.game;
     if (!g || g.over) return [];
     const orders: Order[][] = this.seats.map((s) => s.orders ?? []);   // what each seat holds, lever pulled or not; nothing = hold
-    const result = resolve(g, orders);
-    this.log?.({ t: 'round', round: g.round, orders });
+    const purchases: Purchase[][] = this.seats.map((s) => s.purchases ?? []);
+    const result = resolve(g, orders, purchases);
+    this.log?.({ t: 'round', round: g.round, orders, purchases });
     this.game = result.state;
-    for (const s of this.seats) { s.ready = false; s.orders = null; }
+    for (const s of this.seats) { s.ready = false; s.orders = null; s.purchases = null; }
     if (result.state.over) {
       this.stage = 'over';
       this.deadline = null;
@@ -347,6 +375,10 @@ export class Room {
     return this.seats.findIndex((s) => s.conn === conn);
   }
 
+  private lobbyMsg(): ServerMsg {
+    return { t: 'lobby', seats: this.status(), mode: this.mode };
+  }
+
   private status(): SeatStatus[] {
     return this.seats.map((s, p) => ({
       seat: p, name: s.name, connected: s.conn !== null, ready: s.ready, out: this.game?.eliminated[p] ?? false,
@@ -357,17 +389,17 @@ export class Room {
     const s = this.seats[i];
     return {
       to: s.conn as ConnId,
-      msg: { t: 'welcome', seat: i, token: s.token, host: i === 0, mapId: this.game?.map.id ?? DEFAULT_MAP, squad: [...s.squad] },
+      msg: { t: 'welcome', seat: i, token: s.token, host: i === 0, mapId: this.game?.map.id ?? mapFor(Math.max(this.seats.length, 2)).id, squad: [...s.squad] },
     };
   }
 
   private plan(i: number): ServerMsg {
-    return { t: 'plan', view: viewFor(this.game as GameState, i), seats: this.status(), timer: this.timerLeft(), orders: this.seats[i].orders };
+    return { t: 'plan', view: viewFor(this.game as GameState, i), seats: this.status(), timer: this.timerLeft(), orders: this.seats[i].orders, purchases: this.seats[i].purchases };
   }
 
   /** Tell every connected seat (but `except`) the seat list for this stage. */
   private announce(except?: ConnId): Out[] {
-    const msg: ServerMsg = this.stage === 'lobby' ? { t: 'lobby', seats: this.status() } : { t: 'seats', seats: this.status() };
+    const msg: ServerMsg = this.stage === 'lobby' ? this.lobbyMsg() : { t: 'seats', seats: this.status() };
     return this.seats.flatMap((s) => (s.conn !== null && s.conn !== except ? [{ to: s.conn, msg }] : []));
   }
 

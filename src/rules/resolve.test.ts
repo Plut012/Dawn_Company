@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_MAP, MAPS, NAMES, PRESETS, UNITS } from '../content';
+import { mapFor, MAPS, NAMES, PRESETS, UNITS } from '../content';
 import { distance } from '../shared/hex';
-import type { GameEvent, GameMap, GameState, Hex, Order, Unit, UnitId, UnitTypeId } from '../shared/types';
-import { canSee, createMatch, resolve, viewFor } from './index';
+import type { GameEvent, GameMap, GameState, Hex, Objective, Order, Unit, UnitId, UnitTypeId } from '../shared/types';
+import { benefitOf, buyBackCost, canSee, createMatch, moveOf, orderOptions, resolve, sightOf, validateOrders, validatePurchases, viewFor, visibleEnemies } from './index';
 
 // ---- hand-built boards: a parallelogram of open, level ground; `spec` overrides hexes by "q,r".
 function field(cols: number, rows: number, spec: Record<string, string> = {}, extra: Partial<GameMap> = {}): GameMap {
@@ -17,17 +17,23 @@ function field(cols: number, rows: number, spec: Record<string, string> = {}, ex
   return { id: 'field', name: 'Field', cols, rows, cells, objectives: [], spawns: [], seatSpawns: {}, maxRounds: 9, ...extra };
 }
 const h = (q: number, r = 0): Hex => ({ q, r });
+/** An objective over these hexes. By default a kind that gives nothing (21): an HQ whose zone no seat uses. The kinds' gifts have tests of their own. */
+const obj = (id: string, value: number, hexes: Hex[], extra: Partial<Objective> = {}): Objective =>
+  ({ id, kind: 'hq', hexes, value, zone: null, ...extra });
 
 function u(id: UnitId, type: UnitTypeId, q: number, r = 0, extra: Partial<Unit> = {}): Unit {
-  return { id, owner: Number(id.split('-')[0]), type, name: id, pos: h(q, r), status: 'ready', pinnedRound: null, revealed: false, posture: 'still', ...extra };
+  return { id, owner: Number(id.split('-')[0]), type, name: id, pos: h(q, r), status: 'ready', pinnedRound: null, revealed: false, posture: 'still', returnRound: null, dugIn: false, ...extra };
 }
 function game(map: GameMap, units: Unit[], extra: Partial<GameState> = {}): GameState {
   const playerCount = extra.playerCount ?? 2;
   return {
     map, playerCount, units, round: 3,
-    scores: Array(playerCount).fill(0), eliminated: Array(playerCount).fill(false), over: false, winners: [], ...extra,
+    scores: Array(playerCount).fill(0), eliminated: Array(playerCount).fill(false),
+    flags: Object.fromEntries(map.objectives.map((o) => [o.id, null])), mode: 'supply-line', works: {}, over: false, winners: [], ...extra,
   };
 }
+/** Full day (19): for a test of a v1 rule that needs a unit's whole sight. Most tests here plan round 3, at sight −2. */
+const DAY: Partial<GameState> = { round: 7 };
 /** Resolve a flat list of orders, sorted into seats by the unit's owner. */
 function run(state: GameState, orders: Order[]) {
   const bySeat: Order[][] = Array.from({ length: state.playerCount }, () => []);
@@ -47,8 +53,9 @@ const ofType = <T extends GameEvent['t']>(events: GameEvent[], t: T) =>
   events.filter((e): e is Extract<GameEvent, { t: T }> => e.t === t);
 
 describe('createMatch', () => {
-  const map = MAPS[DEFAULT_MAP];
+  const map = mapFor(4);
   it('puts each seat on its spawn zone in squad order, round 1, nothing scored', () => {
+    const map = mapFor(2);
     const s = createMatch(map, [
       { player: 0, units: PRESETS[0].units },
       { player: 1, units: PRESETS[1].units },
@@ -85,9 +92,40 @@ describe('createMatch', () => {
     for (const x of s.units) expect(x.pos).toEqual(map.spawns[map.seatSpawns[4][x.owner]][Number(x.id.split('-')[1])]);
   });
   it('is the same every time and takes squads in any order', () => {
+    const map = mapFor(2);
     const a = createMatch(map, [{ player: 0, units: PRESETS[0].units }, { player: 1, units: PRESETS[2].units }]);
     const b = createMatch(map, [{ player: 1, units: PRESETS[2].units }, { player: 0, units: PRESETS[0].units }]);
     expect(b).toEqual(a);
+  });
+});
+
+describe('createMatch and the mode', () => {
+  const squad = (units: UnitTypeId[]) => [{ player: 0, units }, { player: 1, units }];
+  const noMortar = PRESETS.find((p) => !p.units.includes('mortar'))!.units;
+  it('stores the mode (supply-line unless told), and viewFor copies it', () => {
+    const map = mapFor(2);
+    expect(createMatch(map, squad(noMortar)).mode).toBe('supply-line');
+    const s = createMatch(map, squad(noMortar), 'last-stand');
+    expect(s.mode).toBe('last-stand');
+    expect(viewFor(s, 0).mode).toBe('last-stand');
+    expect(resolve(s, [[], []]).state.mode).toBe('last-stand');
+  });
+  it('throws on an unknown mode, or a unit the mode does not allow', () => {
+    const map = mapFor(2);
+    expect(() => createMatch(map, squad(noMortar), 'no-such-mode')).toThrow(/Unknown mode/);
+    expect(() => createMatch(map, squad(PRESETS[0].units), 'last-stand')).toThrow(/Last Stand has no mortar/);
+    expect(() => createMatch(map, squad(PRESETS[0].units))).not.toThrow();
+  });
+  it('starts the same match in either mode; only what the mode changes (20) differs in the first round', () => {
+    const map = mapFor(2);
+    const a = createMatch(map, squad(noMortar));
+    const b = createMatch(map, squad(noMortar), 'last-stand');
+    expect({ ...b, mode: a.mode }).toEqual(a);
+    const ra = resolve(a, [[], []]);
+    const rb = resolve(b, [[], []]);
+    expect(rb.events).toEqual(ra.events.filter((e) => e.t !== 'score'));    // Last Stand's flags earn nothing
+    expect(rb.state.scores).toEqual([noMortar.length, noMortar.length]);     // the score is the men standing
+    expect({ ...rb.state, mode: ra.state.mode, scores: ra.state.scores }).toEqual(ra.state);
   });
 });
 
@@ -188,7 +226,7 @@ describe('mortar', () => {
   const squad = () => [u('0-0', 'mortar', 0), u('0-1', 'rifleman', 4)];
   it('launches in phase 1, lands in the mortar phase on the hex and its neighbours', () => {
     const r = run(game(map, [...squad(), u('1-0', 'rifleman', 7), u('1-1', 'rifleman', 8), u('1-2', 'rifleman', 10)]), [fire('0-0', 8)]);
-    const order = r.events.map((e) => (e.t === 'phase' ? e.phase : e.t));
+    const order = r.events.filter((e) => e.t !== 'dig').map((e) => (e.t === 'phase' ? e.phase : e.t));
     expect(order).toEqual(['treat', 'fire', 'launch', 'move', 'assault', 'mortar', 'impact', 'hit', 'hit', 'score']);
     expect(ofType(r.events, 'impact')[0]).toEqual({ t: 'impact', target: h(8), blast: 1, action: 'shell' });
     expect(hits(r.events)).toEqual(['1-0 pinned', '1-1 pinned']);
@@ -275,7 +313,7 @@ describe('ambush', () => {
   });
   it('two ambushers fire in the same step even if one pins the other; a machine gun on ambush keeps its blast', () => {
     const map = field(8, 1);
-    const r = run(game(map, [u('0-0', 'gunner', 0), u('1-0', 'rifleman', 3), u('1-1', 'rifleman', 6), u('0-1', 'rifleman', 7)]), [
+    const r = run(game(map, [u('0-0', 'gunner', 0), u('1-0', 'rifleman', 3), u('1-1', 'rifleman', 6), u('0-1', 'rifleman', 7)], DAY), [
       ambush('0-0'), ambush('1-0'), move('1-1', h(5), h(4)), move('0-1', h(6)),
     ]);
     // Step 1: 0-1 moves to 6 (seen by 1-0, three away): 1-0 fires. 1-1 moves to 5: the gunner fires at 5, blast reaches 6.
@@ -403,15 +441,15 @@ describe('pinned, recover, treat', () => {
 });
 
 describe('score and the end', () => {
-  const objectives = [{ id: 'A', hex: h(1), value: 2 }, { id: 'B', hex: h(5), value: 3 }, { id: 'C', hex: h(7), value: 1 }];
+  const objectives = [obj('A', 2, [h(1)]), obj('B', 3, [h(5)]), obj('C', 1, [h(7)])];
   const map = field(9, 1, {}, { objectives, maxRounds: 4 });
-  it('a living unit on an objective scores its value for its owner, pinned or not', () => {
+  it('a ready unit alone in an area takes its flag; a pinned or down one does not; each flag earns for its owner', () => {
     const start = game(map, [u('0-0', 'rifleman', 0), u('1-0', 'rifleman', 5, 0, { status: 'pinned', pinnedRound: 3 }), u('1-1', 'rifleman', 7, 0, { status: 'down' })], { round: 1, scores: [1, 1] });
     const r = run(start, [move('0-0', h(1))]);
-    expect(ofType(r.events, 'score')).toEqual([
-      { t: 'score', objective: 'A', player: 0, value: 2 }, { t: 'score', objective: 'B', player: 1, value: 3 },
-    ]);
-    expect(r.state.scores).toEqual([3, 4]);
+    expect(ofType(r.events, 'capture')).toEqual([{ t: 'capture', objective: 'A', player: 0, from: null }]);
+    expect(ofType(r.events, 'score')).toEqual([{ t: 'score', objective: 'A', player: 0, value: 2 }]);
+    expect(r.state.flags).toEqual({ A: 0, B: null, C: null });
+    expect(r.state.scores).toEqual([3, 1]);
     expect(r.state.over).toBe(false);
     expect(r.state.round).toBe(2);
   });
@@ -428,7 +466,7 @@ describe('score and the end', () => {
     expect(r.state.winners).toEqual([0, 1]);
   });
   it('a squad with no living units is eliminated, keeps its score, and the match ends when one squad is left', () => {
-    const start = game(map, [u('0-0', 'rifleman', 0), u('0-1', 'rifleman', 0 + 2), u('1-0', 'rifleman', 4, 0, { status: 'pinned', pinnedRound: 3 })], { round: 2, scores: [0, 9] });
+    const start = game(map, [u('0-0', 'rifleman', 0), u('0-1', 'rifleman', 0 + 2), u('1-0', 'rifleman', 4, 0, { status: 'pinned', pinnedRound: 3 })], { round: 7, scores: [0, 9] });
     const r = run(start, [fire('0-0', 4)]);
     expect(hits(r.events)).toEqual(['1-0 down']);
     expect(ofType(r.events, 'eliminated')).toEqual([{ t: 'eliminated', player: 1 }]);
@@ -460,8 +498,8 @@ describe('score and the end', () => {
 describe('resolve: shape of a round', () => {
   it('emits the six phases in order, even with no orders', () => {
     const r = run(game(field(8, 1), [u('0-0', 'rifleman', 0), u('1-0', 'rifleman', 7)]), []);
-    expect(r.events).toEqual(['treat', 'fire', 'move', 'assault', 'mortar', 'score'].map((phase) => ({ t: 'phase', phase })));
-    expect(r.playerEvents[0]).toEqual(r.events);
+    expect(r.events).toEqual([...['treat', 'fire', 'move', 'assault', 'mortar', 'score'].map((phase) => ({ t: 'phase', phase })), { t: 'dig', unit: '0-0' }, { t: 'dig', unit: '1-0' }]);
+    expect(r.playerEvents[0]).toEqual(r.events.filter((e) => e.t !== 'dig' || e.unit === '0-0'));   // 1-0 is out of sight
   });
   it('ignores illegal orders, orders for the wrong seat, and all but the first order for a unit', () => {
     const start = game(field(8, 1), [u('0-0', 'rifleman', 0), u('1-0', 'rifleman', 7)]);
@@ -482,7 +520,7 @@ describe('resolve: shape of a round', () => {
       }
       return o;
     };
-    const start = game(field(9, 2, { '6,0': 'w' }, { objectives: [{ id: 'A', hex: h(1), value: 1 }] }), [
+    const start = game(field(9, 2, { '6,0': 'w' }, { objectives: [obj('A', 1, [h(1)])] }), [
       u('0-0', 'rifleman', 0), u('0-1', 'gunner', 0, 1), u('0-2', 'medic', 1, 1, { revealed: true }),
       u('1-0', 'rifleman', 4), u('1-1', 'rifleman', 6), u('1-2', 'mortar', 8, 1, { status: 'pinned', pinnedRound: 2 }),
     ]);
@@ -501,7 +539,7 @@ describe('resolve: shape of a round', () => {
     expect(ofType(r.events, 'move').length).toBeGreaterThan(0);
   });
   it('replaying a recorded order list gives the same final state', () => {
-    const map = MAPS[DEFAULT_MAP];
+    const map = mapFor(2);
     const squads = [{ player: 0, units: PRESETS[0].units }, { player: 1, units: PRESETS[1].units }];
     const script: Order[][][] = [
       [[dash('0-0', h(2, 1), h(3, 1)), move('0-3', h(2, 2))], [ambush('1-0')]],
@@ -529,7 +567,7 @@ describe('playerEvents: what each player is told', () => {
     const map = field(10, 1, { '4,0': 'w' });
     const r = run(game(map, [u('0-0', 'rifleman', 0), u('1-0', 'rifleman', 8)]), [move('0-0', h(1), h(2))]);
     expect(ofType(r.playerEvents[0], 'move').length).toBe(2);
-    expect(r.playerEvents[1]).toEqual(ofType(r.events, 'phase'));
+    expect(r.playerEvents[1]).toEqual([...ofType(r.events, 'phase'), { t: 'dig', unit: '1-0' }]);
   });
   it('fire: full if the shooter is seen, without the shooter if only the target hex is, else nothing', () => {
     // Shooter 0-0 fires out of woods at an empty hex. 1-0 is 3 away from it (sees the hex, but firing reveals the shooter).
@@ -546,7 +584,7 @@ describe('playerEvents: what each player is told', () => {
   it('firing reveals a hidden shooter: `spotted`, then the full fire event', () => {
     const map = field(8, 1, { '0,0': 'w' });
     const r = run(game(map, [u('0-0', 'rifleman', 0), u('1-0', 'rifleman', 4)]), [fire('0-0', 4)]);
-    const seen1 = r.playerEvents[1].filter((e) => e.t !== 'phase');
+    const seen1 = r.playerEvents[1].filter((e) => e.t !== 'phase' && e.t !== 'dig');
     expect(seen1.map((e) => e.t)).toEqual(['spotted', 'fire', 'hit']);
     expect(seen1[0]).toMatchObject({ t: 'spotted', unit: { id: '0-0', revealed: true, pos: h(0) } });
     expect(viewFor(r.state, 1).units.map((x) => x.id)).toContain('0-0');
@@ -558,8 +596,8 @@ describe('playerEvents: what each player is told', () => {
     const map = field(12, 2, { '7,1': 'w' });
     // 0-0 at (2,0) sees 6 hexes. 1-0 starts 7 away, steps to 6 away in the open (seen),
     // then into woods, still 6 away (a mover there is hidden beyond 2).
-    const r = run(game(map, [u('0-0', 'rifleman', 2), u('1-0', 'rifleman', 9)]), [move('1-0', h(8), h(7, 1))]);
-    const seen0 = r.playerEvents[0].filter((e) => e.t !== 'phase');
+    const r = run(game(map, [u('0-0', 'rifleman', 2), u('1-0', 'rifleman', 9)], DAY), [move('1-0', h(8), h(7, 1))]);
+    const seen0 = r.playerEvents[0].filter((e) => e.t !== 'phase' && e.t !== 'dig');
     expect(seen0).toEqual([
       { t: 'spotted', unit: { ...u('1-0', 'rifleman', 8, 0, { posture: 'moved' }) } },
       { t: 'move', step: 2, unit: '1-0', from: h(8), to: h(7, 1) },
@@ -568,7 +606,7 @@ describe('playerEvents: what each player is told', () => {
     expect(viewFor(r.state, 0).units.map((x) => x.id)).toEqual(['0-0']);
     // and one seen throughout
     const open = run(game(field(8, 1), [u('0-0', 'rifleman', 1), u('1-0', 'rifleman', 5)]), [move('1-0', h(4))]);
-    expect(open.playerEvents[0].filter((e) => e.t !== 'phase')).toEqual([{ t: 'move', step: 1, unit: '1-0', from: h(5), to: h(4) }]);
+    expect(open.playerEvents[0].filter((e) => e.t !== 'phase' && e.t !== 'dig')).toEqual([{ t: 'move', step: 1, unit: '1-0', from: h(5), to: h(4) }]);
   });
   it('the player\'s own movement brings enemies into view and loses them', () => {
     const map = field(12, 1, { '5,0': 'w' });
@@ -592,7 +630,7 @@ describe('playerEvents: what each player is told', () => {
   });
   it('launch only if the mortar is seen; impact if the target hex is seen, and always for the mortar\'s owner', () => {
     const map = field(14, 1);
-    const r = run(game(map, [u('0-0', 'mortar', 0), u('0-1', 'rifleman', 5), u('1-0', 'rifleman', 13), u('2-0', 'rifleman', 4, 0, { status: 'ready' })], { playerCount: 3 }), [fire('0-0', 10)]);
+    const r = run(game(map, [u('0-0', 'mortar', 0), u('0-1', 'rifleman', 5), u('1-0', 'rifleman', 13), u('2-0', 'rifleman', 4, 0, { status: 'ready' })], { playerCount: 3, ...DAY }), [fire('0-0', 10)]);
     expect(ofType(r.playerEvents[0], 'launch').length).toBe(1);
     expect(ofType(r.playerEvents[1], 'launch').length).toBe(0);   // 13 away
     expect(ofType(r.playerEvents[2], 'launch').length).toBe(1);   // 4 away, in the open
@@ -606,11 +644,11 @@ describe('playerEvents: what each player is told', () => {
     const map = field(12, 1, { '0,0': 'w' });
     // Medic lying still in woods at 0 (hidden beyond 1), patient in the open at 1. Enemy at 5.
     const r = run(game(map, [u('0-0', 'medic', 0), u('0-1', 'rifleman', 1, 0, { status: 'pinned', pinnedRound: 2 }), u('1-0', 'rifleman', 5)]), [treat('0-0', 1)]);
-    expect(r.playerEvents[1].filter((e) => e.t !== 'phase')).toEqual([{ t: 'recover', unit: '0-1' }]);
+    expect(r.playerEvents[1].filter((e) => e.t !== 'phase' && e.t !== 'dig')).toEqual([{ t: 'recover', unit: '0-1' }]);
     expect(ofType(r.playerEvents[0], 'treat').length).toBe(1);
     // Two hexes off he still sees only the patient; next to the woods he sees both.
     const two = run(game(map, [u('0-0', 'medic', 0), u('0-1', 'rifleman', 1, 0, { status: 'pinned', pinnedRound: 2 }), u('1-0', 'rifleman', 2)]), [treat('0-0', 1)]);
-    expect(two.playerEvents[1].filter((e) => e.t !== 'phase')).toEqual([{ t: 'recover', unit: '0-1' }]);
+    expect(two.playerEvents[1].filter((e) => e.t !== 'phase' && e.t !== 'dig')).toEqual([{ t: 'recover', unit: '0-1' }]);
     const wide = field(12, 2, { '0,0': 'w' });
     const near = run(game(wide, [u('0-0', 'medic', 0), u('0-1', 'rifleman', 1, 0, { status: 'pinned', pinnedRound: 2 }), u('1-0', 'rifleman', 0, 1)]), [treat('0-0', 1)]);
     expect(ofType(near.playerEvents[1], 'treat').length).toBe(1);
@@ -621,7 +659,7 @@ describe('posture: what a unit has done in the round', () => {
   const postures = (s: GameState) => Object.fromEntries(s.units.map((x) => [x.id, x.posture]));
 
   it('a match starts with everyone still', () => {
-    const s = createMatch(MAPS[DEFAULT_MAP], [{ player: 0, units: PRESETS[0].units }, { player: 1, units: PRESETS[1].units }]);
+    const s = createMatch(mapFor(2), [{ player: 0, units: PRESETS[0].units }, { player: 1, units: PRESETS[1].units }]);
     expect(new Set(s.units.map((x) => x.posture))).toEqual(new Set(['still']));
   });
 
@@ -653,7 +691,7 @@ describe('posture: what a unit has done in the round', () => {
     const map = field(10, 1, { '6,0': 'w', '5,0': 'w' });
     // 1-0 lies in woods 4 from the watcher and creeps one hex nearer, still in woods: 3 away, a mover's 2 not reached.
     const r = run(game(map, [u('0-0', 'rifleman', 2), u('1-0', 'rifleman', 6)]), [move('1-0', h(5))]);
-    expect(r.playerEvents[0].filter((e) => e.t !== 'phase')).toEqual([]);
+    expect(r.playerEvents[0].filter((e) => e.t !== 'phase' && e.t !== 'dig')).toEqual([]);
     expect(unitIn(r.state, '1-0')).toMatchObject({ posture: 'moved', pos: h(5) });
     // At 2 hexes a mover in woods is seen, where a man lying there is not.
     const lying = game(field(10, 1, { '4,0': 'w' }), [u('0-0', 'rifleman', 2), u('1-0', 'rifleman', 4)]);
@@ -675,12 +713,12 @@ describe('posture: what a unit has done in the round', () => {
     const map = field(12, 4, { '8,0': 'w', '7,0': 'w', '6,0': 'w' });
     for (const q of [6, 7, 8]) expect([distance(h(6, 3), h(q)), canSee(map, h(6, 3), h(q))]).toEqual([3, true]);
     const r = run(game(map, [u('0-0', 'rifleman', 6, 3), u('1-0', 'rifleman', 8)]), [dash('1-0', h(7), h(6))]);
-    const told = r.playerEvents[0].map((e) => (e.t === 'phase' ? e.phase : e.t));
+    const told = r.playerEvents[0].map((e) => (e.t === 'phase' ? e.phase : e.t)).filter((t) => t !== 'dig');
     expect(told).toEqual(['treat', 'fire', 'spotted', 'dash', 'move', 'move', 'move', 'assault', 'mortar', 'score']);
     expect(r.playerEvents[0].find((e) => e.t === 'spotted')).toMatchObject({ unit: { id: '1-0', pos: h(8), posture: 'dashed' } });
     // The same walk at a creep is never seen: 3 hexes off all the way, where a mover is seen from 2.
     const crept = run(game(map, [u('0-0', 'rifleman', 6, 3), u('1-0', 'rifleman', 8)]), [move('1-0', h(7), h(6))]);
-    expect(crept.playerEvents[0].filter((e) => e.t !== 'phase')).toEqual([]);
+    expect(crept.playerEvents[0].filter((e) => e.t !== 'phase' && e.t !== 'dig')).toEqual([]);
   });
 
   it('a dasher in woods goes down from one hit', () => {
@@ -730,54 +768,97 @@ describe('ambush and stealth', () => {
     expect(viewFor(start, 1).units.map((x) => x.id)).toEqual(['1-0']);
     const r = run(start, [ambush('0-0'), move('1-0', h(5), h(4))]);
     // Walking up to 2 hexes from him the mover sees nothing; then the shot gives the ambusher away.
-    const told = r.playerEvents[1].filter((e) => e.t !== 'phase' && e.t !== 'move').map((e) => e.t);
+    const told = r.playerEvents[1].filter((e) => e.t !== 'phase' && e.t !== 'dig' && e.t !== 'move').map((e) => e.t);
     expect(told).toEqual(['spotted', 'fire', 'hit']);
     expect(ofType(r.events, 'fire')).toMatchObject([{ unit: '0-0', target: h(4), ambush: true }]);
   });
 });
 
-describe('scoring does not give a hidden holder away', () => {
-  const map = field(12, 1, { '8,0': 'w' }, { objectives: [{ id: 'A', hex: h(3), value: 2 }, { id: 'B', hex: h(8), value: 3 }], maxRounds: 9 });
-  const scores = (events: GameEvent[]) => ofType(events, 'score');
+describe('flags', () => {
+  // A is a three-hex area; B one hex in woods at the far end.
+  const map = field(12, 1, { '10,0': 'w' }, { objectives: [obj('A', 2, [h(3), h(4), h(5)]), obj('B', 3, [h(10)])], maxRounds: 9 });
+  const flagsOf = (s: GameState) => s.flags;
 
-  it('the objective is named to its holder and to a player who sees the holder; to anyone else it is null', () => {
-    // 0-0 on A in the open; 1-0 on B, lying in woods 5 hexes from the nearest enemy: unseen.
-    const start = game(map, [u('0-0', 'rifleman', 3), u('1-0', 'rifleman', 8)]);
+  it('a flag stays with its owner after they leave, and earns every round', () => {
+    const r1 = run(game(map, [u('0-0', 'rifleman', 2), u('1-0', 'rifleman', 11)]), [move('0-0', h(3))]);
+    expect(flagsOf(r1.state)).toEqual({ A: 0, B: null });
+    const r2 = run(r1.state, [move('0-0', h(2), h(1))]);
+    expect(ofType(r2.events, 'capture')).toEqual([]);
+    expect(ofType(r2.events, 'score')).toEqual([{ t: 'score', objective: 'A', player: 0, value: 2 }]);
+    expect(flagsOf(r2.state)).toEqual({ A: 0, B: null });
+    expect(r2.state.scores).toEqual([4, 0]);
+  });
+
+  it('any hex of the area counts; two sides in it leave the flag as it was', () => {
+    const held = game(map, [u('0-0', 'rifleman', 3), u('1-0', 'rifleman', 6)], { flags: { A: 0, B: null } });
+    const r = run(held, [move('1-0', h(5))]);
+    expect(ofType(r.events, 'capture')).toEqual([]);
+    expect(flagsOf(r.state)).toEqual({ A: 0, B: null });
+    const nobody = run({ ...held, flags: { A: null, B: null } }, [move('1-0', h(5))]);
+    expect(flagsOf(nobody.state)).toEqual({ A: null, B: null });
+    expect(ofType(nobody.events, 'score')).toEqual([]);
+  });
+
+  it('an enemy who is pinned in the area does not contest it; the flag changes hands, from its old owner', () => {
+    const start = game(map, [u('0-0', 'rifleman', 3, 0, { status: 'pinned', pinnedRound: 3 }), u('1-0', 'rifleman', 6)], { flags: { A: 0, B: null } });
+    const r = run(start, [move('1-0', h(5))]);
+    expect(ofType(r.events, 'capture')).toEqual([{ t: 'capture', objective: 'A', player: 1, from: 0 }]);
+    expect(ofType(r.events, 'score')).toEqual([{ t: 'score', objective: 'A', player: 1, value: 2 }]);
+  });
+
+  it('a unit that is already the owner\'s raises no capture', () => {
+    const r = run(game(map, [u('0-0', 'rifleman', 4), u('1-0', 'rifleman', 11)], { flags: { A: 0, B: null } }), []);
+    expect(ofType(r.events, 'capture')).toEqual([]);
+  });
+
+  it('captures and scores are told to everyone, even of a unit nobody sees; the unit stays hidden', () => {
+    // 1-0 lies in the woods on B, out of 0-0's sight.
+    const start = game(map, [u('0-0', 'rifleman', 3), u('1-0', 'rifleman', 10)]);
     expect(viewFor(start, 0).units.map((x) => x.id)).toEqual(['0-0']);
-    expect(viewFor(start, 1).units.map((x) => x.id)).toEqual(['0-0', '1-0']);
     const r = run(start, []);
-    const a = { t: 'score', objective: 'A', player: 0, value: 2 }, b = { t: 'score', objective: 'B', player: 1, value: 3 };
-    expect(scores(r.events)).toEqual([a, b]);                              // the full list always names it
-    expect(scores(r.playerEvents[0])).toEqual([a, { ...b, objective: null }]);
-    expect(scores(r.playerEvents[1])).toEqual([a, b]);                     // 1-0 sees the man on A across the open
-    expect(r.state.scores).toEqual([2, 3]);                                // the scores themselves are public
-    expect(viewFor(r.state, 0).scores).toEqual([2, 3]);
-    expect(JSON.stringify(r.playerEvents[0])).not.toContain('"B"');
+    const caps = [{ t: 'capture', objective: 'A', player: 0, from: null }, { t: 'capture', objective: 'B', player: 1, from: null }];
+    const pts = [{ t: 'score', objective: 'A', player: 0, value: 2 }, { t: 'score', objective: 'B', player: 1, value: 3 }];
+    for (const told of [r.events, r.playerEvents[0], r.playerEvents[1]]) {
+      expect(ofType(told, 'capture')).toEqual(caps);
+      expect(ofType(told, 'score')).toEqual(pts);
+    }
+    expect(ofType(r.playerEvents[0], 'spotted')).toEqual([]);
+    expect(viewFor(r.state, 0).flags).toEqual({ A: 0, B: 1 });
+    expect(viewFor(r.state, 0).units.map((x) => x.id)).toEqual(['0-0']);
   });
 
-  it('once the holder is seen (next to it, or because it fired) the objective is named', () => {
-    const near = game(map, [u('0-0', 'rifleman', 7), u('1-0', 'rifleman', 8)]);
-    expect(scores(run(near, []).playerEvents[0])).toEqual([{ t: 'score', objective: 'B', player: 1, value: 3 }]);
-    const fired = game(map, [u('0-0', 'rifleman', 5), u('1-0', 'rifleman', 8)]);
-    expect(scores(run(fired, []).playerEvents[0])).toEqual([{ t: 'score', objective: null, player: 1, value: 3 }]);
-    expect(scores(run(fired, [fire('1-0', 5)]).playerEvents[0])).toEqual([{ t: 'score', objective: 'B', player: 1, value: 3 }]);
-  });
-
-  it('a holder that crept on is named from 2 hexes, one that lay there only from 1', () => {
-    const lane = field(12, 1, { '8,0': 'w', '9,0': 'w' }, { objectives: [{ id: 'B', hex: h(8), value: 3 }], maxRounds: 9 });
-    const start = game(lane, [u('0-0', 'rifleman', 6), u('1-0', 'rifleman', 9)]);
-    const crept = run(start, [move('1-0', h(8))]);
-    expect(scores(crept.playerEvents[0])).toEqual([{ t: 'score', objective: 'B', player: 1, value: 3 }]);
-    const held = run(crept.state, []);
-    expect(scores(held.playerEvents[0])).toEqual([{ t: 'score', objective: null, player: 1, value: 3 }]);
-  });
-
-  it('an eliminated player, who sees the whole board, is told every objective', () => {
-    const start = game(map, [u('0-0', 'rifleman', 1, 0, { status: 'down' }), u('1-0', 'rifleman', 8), u('2-0', 'rifleman', 11)], { playerCount: 3, eliminated: [true, false, false] });
+  it('the score phase runs capture, then supply, then recovery and elimination', () => {
+    const start = game(map, [u('0-0', 'rifleman', 3), u('0-1', 'rifleman', 1, 0, { status: 'pinned', pinnedRound: 2 }), u('1-0', 'rifleman', 10)]);
     const r = run(start, []);
-    expect(scores(r.playerEvents[0])).toEqual([{ t: 'score', objective: 'B', player: 1, value: 3 }]);
-    // The third player, still in the match and 3 hexes from the holder, is not.
-    expect(scores(r.playerEvents[2])).toEqual([{ t: 'score', objective: null, player: 1, value: 3 }]);
+    const after = r.events.slice(r.events.findIndex((e) => e.t === 'phase' && e.phase === 'score') + 1).filter((e) => e.t !== 'dig').map((e) => e.t);
+    expect(after).toEqual(['capture', 'capture', 'score', 'score', 'recover']);
+  });
+
+  it('the flags of an eliminated player go to nobody, with no event, and earn no more', () => {
+    const start = game(map, [u('0-0', 'rifleman', 6), u('1-0', 'rifleman', 7, 0, { status: 'pinned', pinnedRound: 3 }), u('2-0', 'rifleman', 0)],
+      { playerCount: 3, flags: { A: 1, B: 1 } });
+    const r = run(start, [fire('0-0', 7)]);
+    expect(ofType(r.events, 'eliminated')).toEqual([{ t: 'eliminated', player: 1 }]);
+    expect(ofType(r.events, 'score').map((e) => e.player)).toEqual([1, 1]);   // they earned this round, before going out
+    expect(ofType(r.events, 'capture')).toEqual([]);
+    expect(r.state.flags).toEqual({ A: null, B: null });
+    expect(ofType(run(r.state, []).events, 'score')).toEqual([]);
+  });
+
+  it('createMatch gives each HQ to the seat that uses its zone, and nothing else to anybody', () => {
+    // No real map leaves a zone empty since 23 (each is made for exactly its count), but the rule stands: crossroads
+    // with the layouts for two and three it had before is the fixture.
+    const cross: GameMap = { ...MAPS.crossroads, seatSpawns: { 2: [0, 2], 3: [0, 1, 2], 4: [0, 1, 2, 3] } };
+    const squads = (n: number) => Array.from({ length: n }, (_, p) => ({ player: p, units: ['rifleman'] }));
+    const hq = (zone: number) => cross.objectives.find((o) => o.zone === zone)!.id;
+    for (const n of [2, 3, 4]) {
+      const s = createMatch(cross, squads(n));
+      const want: Record<string, number | null> = Object.fromEntries(cross.objectives.map((o) => [o.id, null]));
+      cross.seatSpawns[n].forEach((zone, seat) => { want[hq(zone)] = seat; });
+      expect(s.flags, `${n} players`).toEqual(want);
+      expect(viewFor(s, 0).flags).toEqual(want);
+    }
+    expect(createMatch(cross, squads(2)).flags).toMatchObject({ W: 0, X: null, Y: 1, Z: null });
   });
 });
 
@@ -869,7 +950,7 @@ describe('friends do not block', () => {
     }
   });
   it('is told to each player as any movement is, and the events add up to the view', () => {
-    const start = game(field(8, 1), [u('0-0', 'rifleman', 0), u('0-1', 'rifleman', 1), u('0-2', 'rifleman', 2), u('1-0', 'rifleman', 6)]);
+    const start = game(field(8, 1), [u('0-0', 'rifleman', 0), u('0-1', 'rifleman', 1), u('0-2', 'rifleman', 2), u('1-0', 'rifleman', 6)], DAY);
     const r = run(start, [move('0-0', h(1), h(2))]);
     expect(r.playerEvents[1].filter((e) => e.t === 'move' || e.t === 'blocked')).toEqual(r.events.filter((e) => e.t === 'move' || e.t === 'blocked'));
     expect(viewFor(r.state, 1).units.find((x) => x.id === '0-0')!.pos).toEqual(h(0));
@@ -880,7 +961,7 @@ describe('assault: move, then act', () => {
   it('a rifleman walks into range and fires from where he ends up', () => {
     const start = game(field(10, 1), [u('0-0', 'rifleman', 0), u('1-0', 'rifleman', 6)]);
     const r = run(start, [then(move('0-0', h(1), h(2)), 'fire', 6)]);
-    expect(r.events.map((e) => (e.t === 'phase' ? e.phase : e.t))).toEqual(['treat', 'fire', 'move', 'move', 'move', 'assault', 'fire', 'hit', 'mortar', 'score']);
+    expect(r.events.filter((e) => e.t !== 'dig').map((e) => (e.t === 'phase' ? e.phase : e.t))).toEqual(['treat', 'fire', 'move', 'move', 'move', 'assault', 'fire', 'hit', 'mortar', 'score']);
     expect(ofType(r.events, 'fire')).toEqual([{ t: 'fire', unit: '0-0', from: h(2), target: h(6), blast: 0, ambush: false, action: 'rifle' }]);
     expect(hits(r.events)).toEqual(['1-0 pinned']);
     expect(unitIn(r.state, '0-0')).toMatchObject({ pos: h(2), posture: 'moved', revealed: true });
@@ -942,7 +1023,7 @@ describe('assault: move, then act', () => {
   it('a medic walks up and treats a man pinned this very round', () => {
     const start = game(field(10, 1), [u('0-0', 'medic', 0), u('0-1', 'rifleman', 3), u('1-0', 'rifleman', 6)]);
     const r = run(start, [then(move('0-0', h(1), h(2)), 'special', 3), fire('1-0', 3)]);
-    expect(r.events.map((e) => (e.t === 'phase' ? e.phase : e.t))).toEqual(['treat', 'fire', 'fire', 'hit', 'move', 'move', 'move', 'assault', 'treat', 'mortar', 'score']);
+    expect(r.events.filter((e) => e.t !== 'dig').map((e) => (e.t === 'phase' ? e.phase : e.t))).toEqual(['treat', 'fire', 'fire', 'hit', 'move', 'move', 'move', 'assault', 'treat', 'mortar', 'score']);
     expect(ofType(r.events, 'treat')).toEqual([{ t: 'treat', unit: '0-0', target: '0-1', action: 'aid' }]);
     expect(unitIn(r.state, '0-1')).toMatchObject({ status: 'ready', pinnedRound: null });
     expect(unitIn(r.state, '0-0').revealed).toBe(false);
@@ -965,8 +1046,540 @@ describe('assault: move, then act', () => {
     expect(viewFor(start, 1).units.map((x) => x.id)).toEqual(['0-0', '1-0']);
     const r = run(start, [then(move('0-0', h(2)), 'fire', 6)]);
     // He creeps back into the woods, 4 hexes off, and is lost; firing gives him away again.
-    const told = r.playerEvents[1].filter((e) => e.t !== 'phase').map((e) => e.t);
+    const told = r.playerEvents[1].filter((e) => e.t !== 'phase' && e.t !== 'dig').map((e) => e.t);
     expect(told).toEqual(['move', 'lost', 'spotted', 'fire', 'hit']);
     expect(viewFor(r.state, 1).units.some((x) => x.id === '0-0')).toBe(true);
+  });
+});
+
+describe('Supply Line: coming back, buying back, a cut line (18)', () => {
+  // A strip of 12: Blue's HQ W on 0 and 1 (zone 0), Plum's HQ X on 10 and 11 (zone 1); start zones beside them.
+  const map = field(12, 1, {}, {
+    objectives: [obj('W', 1, [h(0), h(1)], { kind: 'hq', zone: 0 }), obj('X', 1, [h(10), h(11)], { kind: 'hq', zone: 1 })],
+    spawns: [[h(2), h(3)], [h(9), h(8)]],
+    seatSpawns: { 2: [0, 1] },
+    maxRounds: 20,
+  });
+  const held = { flags: { W: 0, X: 1 } };
+  const returns = { rounds: 3, buyBack: 6 };     // what MODES['supply-line'] says; checked below
+  const buy = (unit: UnitId) => ({ kind: 'return' as const, unit });
+  const downed = (id: UnitId, q: number, returnRound: number) => u(id, 'rifleman', q, 0, { status: 'down', returnRound });
+
+  it('reads its numbers from the mode', async () => {
+    const { MODES } = await import('../content');
+    expect(MODES['supply-line'].returns).toEqual(returns);
+    expect(MODES['last-stand'].returns).toBeNull();
+  });
+
+  it('a unit that goes down is due back `rounds` later; in a mode without returns it is not', () => {
+    const start = game(map, [u('0-0', 'rifleman', 5, 0, { status: 'pinned', pinnedRound: 2 }), u('0-1', 'rifleman', 4), u('1-0', 'rifleman', 7)], held);
+    const r = run(start, [fire('1-0', 5)]);
+    expect(unitIn(r.state, '0-0')).toMatchObject({ status: 'down', returnRound: 3 + returns.rounds });
+    const last = run({ ...start, mode: 'last-stand' }, [fire('1-0', 5)]);
+    expect(unitIn(last.state, '0-0')).toMatchObject({ status: 'down', returnRound: null });
+  });
+
+  it('comes back at the end of the round it is due, on the first free hex of the HQ, ready and still', () => {
+    const start = game(map, [u('0-0', 'rifleman', 0), downed('0-1', 5, 3), u('1-0', 'rifleman', 9)], held);
+    const r = run(start, []);
+    expect(ofType(r.events, 'return')).toEqual([{ t: 'return', unit: '0-1', at: h(1) }]);
+    expect(unitIn(r.state, '0-1')).toMatchObject({ status: 'ready', pos: h(1), posture: 'still', revealed: false, pinnedRound: null, returnRound: null });
+    // Not yet due: it waits.
+    expect(ofType(run({ ...start, round: 2 }, []).events, 'return')).toEqual([]);
+  });
+
+  it('with the HQ full it comes back in the start zone; with that full too, it waits', () => {
+    const start = game(map, [u('0-0', 'rifleman', 0), u('0-1', 'rifleman', 1), downed('0-2', 6, 3), u('1-0', 'rifleman', 9)], held);
+    expect(ofType(run(start, []).events, 'return')).toEqual([{ t: 'return', unit: '0-2', at: h(2) }]);
+    const full = game(map, [u('0-0', 'rifleman', 0), u('0-1', 'rifleman', 1), u('0-3', 'rifleman', 2), u('1-1', 'rifleman', 3), downed('0-2', 6, 3), u('1-0', 'rifleman', 9)], held);
+    const r = run(full, []);
+    expect(ofType(r.events, 'return')).toEqual([]);
+    expect(unitIn(r.state, '0-2')).toMatchObject({ status: 'down', returnRound: 3 });
+  });
+
+  it('a cut line: nobody comes back, however long due; the round the HQ is retaken, he is back', () => {
+    const cut = game(map, [u('0-0', 'rifleman', 4), downed('0-1', 6, 1), u('1-0', 'rifleman', 0)], { flags: { W: 1, X: 1 } });
+    const r = run(cut, []);
+    expect(ofType(r.events, 'return')).toEqual([]);
+    expect(r.state.eliminated).toEqual([false, false]);
+    // Blue walks back into W, which Plum has left: captured, and then he returns, in the same score phase.
+    const retake = run(game(map, [u('0-0', 'rifleman', 2), downed('0-1', 6, 1), u('1-0', 'rifleman', 5)], { flags: { W: 1, X: 1 } }), [move('0-0', h(1))]);
+    expect(ofType(retake.events, 'capture')).toEqual([{ t: 'capture', objective: 'W', player: 0, from: 1 }]);
+    expect(ofType(retake.events, 'return')).toEqual([{ t: 'return', unit: '0-1', at: h(0) }]);
+    const order = retake.events.filter((e) => e.t === 'capture' || e.t === 'score' || e.t === 'return').map((e) => e.t);
+    expect(order).toEqual(['capture', 'score', 'score', 'return']);
+  });
+
+  it('a squad with nobody standing is out only when nobody can come back', () => {
+    // Line open, a man due: not out.
+    const waiting = run(game(map, [downed('0-0', 5, 5), u('1-0', 'rifleman', 9)], held), []);
+    expect(waiting.state.eliminated).toEqual([false, false]);
+    expect(waiting.state.over).toBe(false);
+    // Line cut: out, and the match is over.
+    const cut = run(game(map, [downed('0-0', 5, 5), u('1-0', 'rifleman', 0)], { flags: { W: 1, X: 1 } }), []);
+    expect(cut.state.eliminated).toEqual([true, false]);
+    expect(cut.state.over).toBe(true);
+    // Nobody due (Last Stand's dead): out.
+    const gone = run(game(map, [u('0-0', 'rifleman', 5, 0, { status: 'down' }), u('1-0', 'rifleman', 9)], held), []);
+    expect(gone.state.eliminated).toEqual([true, false]);
+  });
+
+  it('buying back: paid after supply, from what is left, and he is back at the end of the round', () => {
+    const start = game(map, [u('0-0', 'rifleman', 4), downed('0-1', 6, 5), u('1-0', 'rifleman', 9)], { ...held, scores: [12, 0] });
+    expect(validatePurchases(start, 0, [buy('0-1')])).toEqual([]);
+    expect(buyBackCost(start, '0-1')).toBe(UNITS.rifleman.cost * returns.buyBack);
+    const r = resolve(start, [[], []], [[buy('0-1')], []]);
+    expect(ofType(r.events, 'purchase')).toEqual([{ t: 'purchase', player: 0, unit: '0-1', cost: 12 }]);
+    expect(ofType(r.playerEvents[1], 'purchase')).toEqual(ofType(r.events, 'purchase'));   // told to everyone
+    expect(ofType(r.events, 'return')).toEqual([{ t: 'return', unit: '0-1', at: h(0) }]);
+    expect(r.state.scores).toEqual([12 + 1 - 12, 1]);
+    const after = r.events.slice(r.events.findIndex((e) => e.t === 'phase' && e.phase === 'score') + 1).filter((e) => e.t !== 'dig').map((e) => e.t);
+    expect(after).toEqual(['score', 'score', 'purchase', 'return']);
+  });
+
+  it('purchases that cannot be made are dropped, one by one, as orders are', () => {
+    const start = game(map, [u('0-0', 'rifleman', 4), downed('0-1', 6, 5), downed('0-2', 7, 5), u('1-0', 'rifleman', 9)], { ...held, scores: [13, 0] });
+    expect(validatePurchases(start, 0, [buy('0-1'), buy('0-2')]).map((e) => e.reason)).toEqual(['not enough supply']);
+    expect(validatePurchases(start, 0, [buy('0-1'), buy('0-1')]).map((e) => e.reason)).toEqual(['bought back twice']);
+    expect(validatePurchases(start, 0, [buy('0-0')]).map((e) => e.reason)).toEqual(['unit is not down']);
+    expect(validatePurchases(start, 0, [buy('1-0')]).map((e) => e.reason)).toEqual(['not your unit']);
+    expect(validatePurchases({ ...start, flags: { W: 1, X: 1 } }, 0, [buy('0-1')]).map((e) => e.reason)).toEqual(['your line is cut: retake your HQ']);
+    expect(validatePurchases({ ...start, mode: 'last-stand' }, 0, [buy('0-1')]).map((e) => e.reason)).toEqual(['No supply in this mode.']);
+    expect(buyBackCost({ ...start, round: 5 }, '0-1')).toBeNull();      // due this round anyway
+    const r = resolve(start, [[], []], [[buy('0-1'), buy('0-2'), buy('1-0')], [buy('0-1')]]);
+    expect(ofType(r.events, 'purchase')).toEqual([{ t: 'purchase', player: 0, unit: '0-1', cost: 12 }]);
+    expect(r.state.scores).toEqual([13 + 1 - 12, 1]);
+  });
+
+  it('a purchase whose line is cut in the round itself is not paid', () => {
+    // Plum walks into W, where Blue has nobody: the line is cut at capture, before purchases.
+    const start = game(map, [u('0-0', 'rifleman', 6), downed('0-1', 7, 5), u('1-0', 'rifleman', 2)], { ...held, scores: [12, 0] });
+    const r = resolve(start, [[], [move('1-0', h(1))]], [[buy('0-1')], []]);
+    expect(r.state.flags.W).toBe(1);
+    expect(ofType(r.events, 'purchase')).toEqual([]);
+    expect(r.state.scores[0]).toBe(12);
+  });
+
+  it('a return is told to its owner and to whoever sees the hex, who then also spot him', () => {
+    const start = game(map, [u('0-0', 'rifleman', 5), downed('0-1', 6, 3), u('1-0', 'rifleman', 4)], held);
+    const r = run(start, []);
+    const ret = { t: 'return', unit: '0-1', at: h(0) };
+    expect(ofType(r.playerEvents[0], 'return')).toEqual([ret]);
+    expect(ofType(r.playerEvents[1], 'return')).toEqual([ret]);
+    expect(ofType(r.playerEvents[1], 'spotted').map((e) => e.unit.id)).toContain('0-1');
+    expect(viewFor(r.state, 1).units.map((x) => x.id)).toContain('0-1');
+    // Out of sight: Plum is told nothing.
+    const far = run(game(map, [u('0-0', 'rifleman', 5), downed('0-1', 6, 3), u('1-0', 'rifleman', 11)], held), []);
+    expect(ofType(far.playerEvents[1], 'return')).toEqual([]);
+  });
+});
+
+describe('Last Stand (20)', () => {
+  const map = field(12, 1, {}, { objectives: [obj('V', 3, [h(5)])], maxRounds: 9 });
+  const last = (units: Unit[], extra: Partial<GameState> = {}) => game(map, units, { mode: 'last-stand', ...extra });
+  const rifle = (id: UnitId, q: number, extra: Partial<Unit> = {}) => u(id, 'rifleman', q, 0, extra);
+  const pinned = { status: 'pinned' as const, pinnedRound: 7 };
+  const buy = (unit: UnitId) => ({ kind: 'return' as const, unit });
+
+  it('reads its switches from the mode, not from its name', async () => {
+    const { MODES } = await import('../content');
+    expect(MODES['last-stand']).toMatchObject({ supply: false, returns: null, win: 'survival' });
+    MODES['test-mode'] = { ...MODES['last-stand'], id: 'test-mode', name: 'Test' };
+    try {
+      const r = run(game(map, [rifle('0-0', 5), rifle('1-0', 11)], { mode: 'test-mode' }), []);
+      expect(ofType(r.events, 'score')).toEqual([]);
+      expect(r.state.scores).toEqual([1, 1]);
+    } finally { delete MODES['test-mode']; }
+  });
+
+  it('flags are still captured, but nothing earns: no score events, no supply', () => {
+    const r = run(last([rifle('0-0', 5), rifle('1-0', 11)]), []);
+    expect(ofType(r.events, 'capture')).toEqual([{ t: 'capture', objective: 'V', player: 0, from: null }]);
+    expect(r.state.flags.V).toBe(0);
+    expect(ofType(r.events, 'score')).toEqual([]);
+    const again = run(r.state, []);                     // held, and still nothing
+    expect(ofType(again.events, 'score')).toEqual([]);
+    // The same board in Supply Line pays.
+    expect(ofType(run(game(map, [rifle('0-0', 5), rifle('1-0', 11)]), []).events, 'score')).toHaveLength(1);
+  });
+
+  it('every purchase is invalid, and a purchase sent anyway is never paid', () => {
+    const start = last([rifle('0-0', 5), rifle('0-1', 4, { status: 'down' }), rifle('1-0', 11)], { scores: [9, 1] });
+    expect(validatePurchases(start, 0, [buy('0-1')]).map((e) => e.reason)).toEqual(['No supply in this mode.']);
+    expect(validatePurchases(start, 0, [buy('0-0')]).map((e) => e.reason)).toEqual(['No supply in this mode.']);
+    expect(buyBackCost(start, '0-1')).toBeNull();
+    const r = resolve(start, [[], []], [[buy('0-1')], []]);
+    expect(ofType(r.events, 'purchase')).toEqual([]);
+    expect(unitIn(r.state, '0-1')).toMatchObject({ status: 'down', returnRound: null });
+  });
+
+  it('down is final: nobody returns, and the score is the men standing, with no event', () => {
+    const start = last([rifle('0-0', 4), rifle('0-1', 3), rifle('1-0', 6, pinned), rifle('1-1', 11)], DAY);
+    const r = run(start, [fire('0-0', 6)]);
+    expect(hits(r.events)).toEqual(['1-0 down']);
+    expect(unitIn(r.state, '1-0')).toMatchObject({ status: 'down', returnRound: null });
+    expect(r.state.scores).toEqual([2, 1]);
+    expect(ofType(r.events, 'score')).toEqual([]);
+    // Rounds on, he is still down.
+    const later = run({ ...r.state, round: 6 }, []);
+    expect(unitIn(later.state, '1-0').status).toBe('down');
+    expect(ofType(later.events, 'return')).toEqual([]);
+  });
+
+  it('a squad with no men left is out and the match is over: the other wins', () => {
+    const start = last([rifle('0-0', 0), rifle('1-0', 2, pinned), rifle('1-1', 11)], DAY);
+    const alone = run(start, [fire('0-0', 2)]);
+    expect(alone.state.eliminated).toEqual([false, false]);          // one man left each: it goes on
+    const r = run(last([rifle('0-0', 0), rifle('1-0', 2, pinned)], DAY), [fire('0-0', 2)]);
+    expect(r.state.eliminated).toEqual([false, true]);
+    expect(r.state.over).toBe(true);
+    expect(r.state.winners).toEqual([0]);
+    expect(r.state.scores).toEqual([1, 0]);
+  });
+
+  it('after maxRounds the most men win', () => {
+    const end = { round: map.maxRounds };
+    const r = run(last([rifle('0-0', 0), rifle('0-1', 1), rifle('1-0', 10), rifle('1-1', 11), rifle('1-2', 9)], end), []);
+    expect(r.state.over).toBe(true);
+    expect(r.state.scores).toEqual([2, 3]);
+    expect(r.state.winners).toEqual([1]);
+    expect(viewFor(r.state, 0).worth).toEqual([2 * UNITS.rifleman.cost, 3 * UNITS.rifleman.cost]);
+    // Not over before its time, and no `worth` until it is.
+    const mid = run(last([rifle('0-0', 0), rifle('1-0', 11)]), []);
+    expect(mid.state.over).toBe(false);
+    expect(viewFor(mid.state, 0).worth).toBeUndefined();
+    expect(viewFor(run(game(map, [rifle('0-0', 0), rifle('1-0', 11)], end), []).state, 0).worth).toBeUndefined();   // Supply Line
+  });
+
+  it('level on men, the dearer men win: a gunner is worth more than a rifleman', () => {
+    const end = { round: map.maxRounds };
+    const r = run(last([rifle('0-0', 0), rifle('0-1', 1), rifle('1-0', 10), u('1-1', 'gunner', 11)], end), []);
+    expect(r.state.scores).toEqual([2, 2]);
+    expect(r.state.winners).toEqual([1]);
+    expect(viewFor(r.state, 0).worth).toEqual([2 * UNITS.rifleman.cost, UNITS.rifleman.cost + UNITS.gunner.cost]);
+  });
+
+  it('level on men and on cost, they share the win', () => {
+    const end = { round: map.maxRounds };
+    const r = run(last([rifle('0-0', 0), rifle('0-1', 1), rifle('1-0', 10), rifle('1-1', 11)], end), []);
+    expect(r.state.winners).toEqual([0, 1]);
+  });
+
+  it('the dearer men count only if they stand: the tie-break is of the living', () => {
+    const end = { round: map.maxRounds };
+    const r = run(last([rifle('0-0', 0), u('0-1', 'gunner', 1, 0, { status: 'down' }), rifle('1-0', 10), rifle('1-1', 11)], end), []);
+    expect(r.state.scores).toEqual([1, 2]);
+    expect(r.state.winners).toEqual([1]);
+  });
+
+  it('if the last squads lose their last men in the same round, every squad not already out shares the win', () => {
+    // Two players, both wiped in the same round (two gunners a side, each pair bursting the other's): both share.
+    const g = (id: UnitId, q: number, extra: Partial<Unit> = {}) => u(id, 'gunner', q, 0, extra);
+    const volley = [fire('0-0', 8), fire('0-1', 8), fire('1-0', 3), fire('1-1', 3)];
+    const duel = run(last([g('0-0', 3), g('0-1', 4), g('1-0', 7), g('1-1', 8)], DAY), volley);
+    expect(hits(duel.events).filter((x) => x.endsWith('down')).sort()).toEqual(['0-0 down', '0-1 down', '1-0 down', '1-1 down']);
+    expect(duel.state.eliminated).toEqual([true, true]);
+    expect(duel.state.over).toBe(true);
+    expect(duel.state.scores).toEqual([0, 0]);
+    expect(duel.state.winners).toEqual([0, 1]);
+    expect(viewFor(duel.state, 0).worth).toEqual([0, 0]);
+    // Three players, seat 2 already out: the two that fell together share; the one that fell before does not.
+    const out = { ...DAY, playerCount: 3, eliminated: [false, false, true] };
+    const three = run(last([g('0-0', 3), g('0-1', 4), g('1-0', 7), g('1-1', 8), rifle('2-0', 11, { status: 'down' })], out), volley);
+    expect(three.state.over).toBe(true);
+    expect(three.state.eliminated).toEqual([true, true, true]);
+    expect(three.state.winners).toEqual([0, 1]);
+    // Three players, one standing at the end of it: the standing squad wins alone.
+    const one = run(last([g('0-0', 3), g('0-1', 4), g('1-0', 7), g('1-1', 8), rifle('2-0', 11)], { ...DAY, playerCount: 3 }), volley);
+    expect(one.state.over).toBe(true);
+    expect(one.state.winners).toEqual([2]);
+  });
+});
+
+describe('the rising sun (19)', () => {
+  const map = field(12, 1);
+  it('a sniper still reaches 8, but fires on his own sight only at what he sees in this light', () => {
+    const at = (round: number) => game(map, [u('0-0', 'sniper', 0), u('1-0', 'rifleman', 11)], { round });
+    // round 1: sight 5. Range 8 is unchanged, but beyond 5 the `own` rule fails.
+    expect(validateOrders(at(1), 0, [fire('0-0', 5)])).toEqual([]);
+    expect(validateOrders(at(1), 0, [fire('0-0', 6)]).map((e) => e.reason)).toEqual(['the target is beyond his sight (5)']);
+    expect(validateOrders(at(7), 0, [fire('0-0', 8)])).toEqual([]);
+    expect(validateOrders(at(7), 0, [fire('0-0', 9)]).map((e) => e.reason)).toEqual(['target is out of range']);
+    const fires = (round: number) => orderOptions(viewFor(at(round), 0), '0-0').fire.map((k) => Number(k.split(',')[0])).sort((a, b) => a - b);
+    expect(fires(1)).toEqual([2, 3, 4, 5]);
+    expect(fires(3)).toEqual([2, 3, 4, 5, 6]);
+    expect(fires(7)).toEqual([2, 3, 4, 5, 6, 7, 8]);
+  });
+  it('the mortar\'s `squad` rule follows what the squad sees in this light', () => {
+    const s = (round: number) => game(field(14, 1), [u('0-0', 'mortar', 0), u('0-1', 'rifleman', 4), u('1-0', 'rifleman', 13)], { round });
+    // A spotter at 4 sees to 7 at first light and to 10 in full day.
+    expect(validateOrders(s(1), 0, [fire('0-0', 7)])).toEqual([]);
+    expect(validateOrders(s(1), 0, [fire('0-0', 8)]).map((e) => e.reason)).toEqual(['no friendly unit can see the target']);
+    expect(validateOrders(s(7), 0, [fire('0-0', 10)])).toEqual([]);
+  });
+  it('an ambusher sees by the light of the round being resolved', () => {
+    // A rifleman on ambush at 0; the enemy steps from 5 to 4. Round 3: sight 4, he fires. Round 1: sight 3, nothing.
+    const play = (round: number) => run(game(map, [u('0-0', 'rifleman', 0), u('1-0', 'rifleman', 5)], { round }), [ambush('0-0'), move('1-0', h(4))]);
+    expect(ofType(play(3).events, 'fire').map((e) => e.unit)).toEqual(['0-0']);
+    expect(ofType(play(1).events, 'fire')).toEqual([]);
+  });
+  it('when the light grows at the round\'s end, what comes into reach is `spotted`, and the events add up to the view', () => {
+    // Round 2 is planned at sight 3, round 3 at sight 4: a man standing 4 away is seen only once round 2 is over.
+    const start = game(map, [u('0-0', 'rifleman', 0), u('1-0', 'rifleman', 4)], { round: 2 });
+    expect(viewFor(start, 0).units.map((x) => x.id)).toEqual(['0-0']);
+    const r = run(start, []);
+    const told = r.playerEvents[0].filter((e) => e.t !== 'phase' && e.t !== 'dig');
+    expect(told.map((e) => e.t)).toEqual(['spotted']);
+    expect(viewFor(r.state, 0).units.map((x) => x.id)).toEqual(['0-0', '1-0']);
+    expect(sightOf(r.state, r.state.units[0])).toBe(4);
+  });
+});
+
+describe('objective kinds (21)', () => {
+  // A row of open ground. Each kind's area is two hexes, 0 and 1; whoever's flag it is benefits standing there.
+  const kindMap = (kind: string, value = 1) => field(16, 1, {}, { objectives: [obj('K', value, [h(0), h(1)], { kind })], maxRounds: 20 });
+  const held = (kind: string, units: Unit[], owner: number | null = 0, extra: Partial<GameState> = {}) =>
+    game(kindMap(kind), units, { ...DAY, flags: { K: owner }, ...extra });
+  const rifle = (id: UnitId, q: number, extra: Partial<Unit> = {}) => u(id, 'rifleman', q, 0, extra);
+  const path = (from: number, steps: number) => Array.from({ length: steps }, (_, i) => h(from + i + 1));
+
+  it('the table: hq gives nothing; village supply 1; hill sight 2; crossroads move 1; depot supply 2 and rally', async () => {
+    const { OBJECTIVE_KINDS } = await import('../content');
+    const table = Object.fromEntries(Object.values(OBJECTIVE_KINDS).map((k) => [k.id, [k.sight, k.move, k.supply, k.rally]]));
+    expect(table).toEqual({
+      hq: [0, 0, 0, false], village: [0, 0, 1, false], hill: [2, 0, 0, false], crossroads: [0, 1, 0, false], depot: [0, 0, 2, true],
+    });
+  });
+
+  it('hq: a unit on its own HQ gains nothing; the flag earns its value', () => {
+    const s = held('hq', [rifle('0-0', 0), rifle('1-0', 15)]);
+    expect(benefitOf(s, unitIn(s, '0-0'))?.objective.id).toBe('K');
+    expect(sightOf(s, unitIn(s, '0-0'))).toBe(UNITS.rifleman.sight);
+    expect(moveOf(s, unitIn(s, '0-0'))).toBe(UNITS.rifleman.move);
+    expect(ofType(run(s, []).events, 'score')).toEqual([{ t: 'score', objective: 'K', player: 0, value: 1 }]);
+  });
+
+  it('village: the flag earns value + 1, in one score event, whether or not anyone stands there; nothing in Last Stand', () => {
+    const s = held('village', [rifle('0-0', 5), rifle('1-0', 15)]);
+    expect(ofType(run(s, []).events, 'score')).toEqual([{ t: 'score', objective: 'K', player: 0, value: 2 }]);
+    expect(run(s, []).state.scores).toEqual([2, 0]);
+    expect(ofType(run({ ...s, mode: 'last-stand' }, []).events, 'score')).toEqual([]);
+  });
+
+  it('hill: its holder\'s men on it see 2 further; an enemy on it, or anyone on a hill nobody holds, does not', () => {
+    const sight = UNITS.rifleman.sight;
+    const s = held('hill', [rifle('0-0', 1), rifle('1-0', 1 + sight + 2)]);
+    expect(sightOf(s, unitIn(s, '0-0'))).toBe(sight + 2);
+    expect(visibleEnemies(s, 0).map((x) => x.id)).toEqual(['1-0']);
+    expect(viewFor(s, 0).visible).toContain(`${1 + sight + 2},0`);
+    const nobody = held('hill', s.units, null);
+    expect(sightOf(nobody, unitIn(nobody, '0-0'))).toBe(sight);
+    expect(visibleEnemies(nobody, 0)).toEqual([]);
+    const theirs = held('hill', s.units, 1);
+    expect(benefitOf(theirs, unitIn(theirs, '0-0'))).toBeNull();
+    expect(sightOf(theirs, unitIn(theirs, '0-0'))).toBe(sight);
+    // The hill adds to the light's sight; the light's minimum of 1 is applied first (round 1, sun −3).
+    expect(sightOf({ ...s, round: 1 }, unitIn(s, '0-0'))).toBe(Math.max(1, sight - 3) + 2);
+  });
+
+  it('crossroads: a unit that begins the round in the area moves one further, and dashes two further', () => {
+    const move = UNITS.rifleman.move;
+    const s = held('crossroads', [rifle('0-0', 1), rifle('0-1', 2), rifle('1-0', 15)]);
+    expect(moveOf(s, unitIn(s, '0-0'))).toBe(move + 1);
+    expect(moveOf(s, unitIn(s, '0-1'))).toBe(move);                     // one hex outside: nothing
+    expect(validateOrders(s, 0, [{ unit: '0-0', kind: 'move', path: path(1, move + 1) }])).toEqual([]);
+    expect(validateOrders(s, 0, [{ unit: '0-0', kind: 'dash', path: path(1, 2 * (move + 1)) }])).toEqual([]);
+    expect(validateOrders(s, 0, [{ unit: '0-0', kind: 'move', path: path(1, move + 2) }])).toHaveLength(1);
+    expect(validateOrders(s, 0, [{ unit: '0-1', kind: 'move', path: path(2, move + 1) }])).toHaveLength(1);
+    const r = run(s, [{ unit: '0-0', kind: 'dash', path: path(1, 2 * (move + 1)) }]);
+    expect(unitIn(r.state, '0-0').pos).toEqual(h(1 + 2 * (move + 1)));
+    // Not the holder's: nothing.
+    const theirs = held('crossroads', s.units, 1);
+    expect(validateOrders(theirs, 0, [{ unit: '0-0', kind: 'move', path: path(1, move + 1) }])).toHaveLength(1);
+  });
+
+  it('orderOptions on a held crossroads reach one hex (two for a dash) further, from the view', () => {
+    const move = UNITS.rifleman.move;
+    const s = held('crossroads', [rifle('0-0', 1), rifle('1-0', 15)]);
+    const far = (keys: string[]) => Math.max(...keys.map((k) => Number(k.split(',')[0]) - 1));
+    const opts = orderOptions(viewFor(s, 0), '0-0');
+    expect(far(opts.move)).toBe(move + 1);
+    expect(far(opts.dash)).toBe(2 * (move + 1));
+    const plain = orderOptions(viewFor(held('crossroads', s.units, null), 0), '0-0');
+    expect(far(plain.move)).toBe(move);
+    expect(far(plain.dash)).toBe(2 * move);
+  });
+
+  it('a unit that walks into a crossroads gets no more that round; one that leaves loses the gift the next round', () => {
+    const move = UNITS.rifleman.move;
+    // Walks in: judged from where it began, outside. (The rifleman's move is 2.)
+    expect(move).toBe(2);
+    const s = held('crossroads', [rifle('0-0', 3), rifle('1-0', 15)]);
+    expect(validateOrders(s, 0, [{ unit: '0-0', kind: 'move', path: [h(2), h(1), h(0)] }])).toHaveLength(1);
+    const inside = run(s, [{ unit: '0-0', kind: 'move', path: [h(2), h(1)] }]).state;
+    expect(moveOf(inside, unitIn(inside, '0-0'))).toBe(3);              // from the next round on
+    // Leaves: the long move is legal from inside, and once out the next round's allowance is the plain one.
+    const start = held('crossroads', [rifle('0-0', 1), rifle('1-0', 15)]);
+    const out = run(start, [{ unit: '0-0', kind: 'move', path: path(1, move + 1) }]).state;
+    expect(unitIn(out, '0-0').pos).toEqual(h(2 + move));
+    expect(out.flags.K).toBe(0);
+    expect(moveOf(out, unitIn(out, '0-0'))).toBe(move);
+    expect(validateOrders(out, 0, [{ unit: '0-0', kind: 'move', path: path(2 + move, move + 1) }])).toHaveLength(1);
+  });
+
+  it('a unit that leaves a hill sees as far as its type again, from the next round', () => {
+    const sight = UNITS.rifleman.sight;
+    const start = held('hill', [rifle('0-0', 1), rifle('1-0', 15)]);
+    const out = run(start, [{ unit: '0-0', kind: 'move', path: [h(2)] }]).state;
+    expect(sightOf(out, unitIn(out, '0-0'))).toBe(sight);
+  });
+
+  it('depot: earns value + 2; a pinned unit on its holder\'s depot rallies in the round it was pinned', () => {
+    // 1-0 fires at 0-0 on the depot: pinned, and back on his feet at the round's end.
+    const s = held('depot', [rifle('0-0', 1), rifle('1-0', 4)]);
+    const r = run(s, [fire('1-0', 1)]);
+    expect(hits(r.events)).toEqual(['0-0 pinned']);
+    expect(ofType(r.events, 'recover')).toEqual([{ t: 'recover', unit: '0-0' }]);
+    expect(unitIn(r.state, '0-0')).toMatchObject({ status: 'ready', pinnedRound: null });
+    expect(ofType(r.events, 'score')).toEqual([{ t: 'score', objective: 'K', player: 0, value: 3 }]);
+    // The rally comes after the capture: a pinned man does not take a flag, but he rallies on one already his.
+    expect(r.events.findIndex((e) => e.t === 'recover')).toBeGreaterThan(r.events.findIndex((e) => e.t === 'score'));
+    // Nobody's depot, or the enemy's: no rally, as before.
+    for (const owner of [null, 1]) {
+      const other = run(held('depot', s.units, owner), [fire('1-0', 1)]);
+      expect(ofType(other.events, 'recover')).toEqual([]);
+      expect(unitIn(other.state, '0-0').status).toBe('pinned');
+    }
+    // Off the area, one hex from it: no rally.
+    const beside = run(held('depot', [rifle('0-0', 2), rifle('1-0', 5)]), [fire('1-0', 2)]);
+    expect(ofType(beside.events, 'recover')).toEqual([]);
+  });
+});
+
+describe('dig in (24)', () => {
+  // Blue's riflemen fire at one man of Plum, who stands on 3,1 with the ground the test gives him.
+  const squad = [u('0-0', 'rifleman', 0, 1), u('0-1', 'rifleman', 1, 0), u('0-2', 'rifleman', 1, 2), u('0-3', 'rifleman', 2, 0)];
+  const volley = (n: number) => squad.slice(0, n).map((s) => fire(s.id, 3, 1));
+  const shot = (ground: string, dugIn: boolean, n: number) =>
+    hits(run(game(field(8, 3, ground ? { '3,1': ground } : {}), [...squad, u('1-0', 'rifleman', 3, 1, { dugIn })]), volley(n)).events);
+
+  it('a man who held still a whole round is dug in at its end, with a `dig` event told to those who see him', () => {
+    const start = game(field(10, 1), [u('0-0', 'rifleman', 0), u('1-0', 'rifleman', 9)]);
+    const r = run(start, []);
+    expect(ofType(r.events, 'dig')).toEqual([{ t: 'dig', unit: '0-0' }, { t: 'dig', unit: '1-0' }]);
+    expect(unitIn(r.state, '0-0').dugIn).toBe(true);
+    expect(viewFor(r.state, 0).units.find((x) => x.id === '0-0')?.dugIn).toBe(true);
+    // 1-0 is out of sight: Blue is not told, and does not see him.
+    expect(ofType(r.playerEvents[0], 'dig')).toEqual([{ t: 'dig', unit: '0-0' }]);
+    expect(viewFor(r.state, 0).units.map((x) => x.id)).toEqual(['0-0']);
+    // Already dug in: no second event, and he stays dug in.
+    const again = run(r.state, []);
+    expect(ofType(again.events, 'dig')).toEqual([]);
+    expect(unitIn(again.state, '0-0').dugIn).toBe(true);
+  });
+
+  it('a pinned man who holds still digs in too; a man who was down at the start of the round does not', () => {
+    const start = game(field(10, 1), [u('0-0', 'rifleman', 0, 0, { status: 'pinned', pinnedRound: 3 }), u('0-1', 'rifleman', 1, 0, { status: 'down' }), u('1-0', 'rifleman', 9)]);
+    const r = run(start, []);
+    expect(ofType(r.events, 'dig').map((e) => e.unit)).toEqual(['0-0', '1-0']);
+    expect(unitIn(r.state, '0-1').dugIn).toBe(false);
+  });
+
+  it('the hit rule: the ground and the foxhole each turn aside one hit a round', () => {
+    expect(shot('', false, 3)).toEqual(['1-0 pinned', '1-0 down']);                        // open ground, not dug in: nothing
+    expect(shot('', true, 3)).toEqual(['1-0 cover', '1-0 pinned', '1-0 down']);            // dug in: one
+    expect(shot('b', false, 3)).toEqual(['1-0 cover', '1-0 pinned', '1-0 down']);          // a building: one
+    expect(shot('b', true, 3)).toEqual(['1-0 cover', '1-0 cover', '1-0 pinned']);          // both: two
+    expect(shot('b', true, 4)).toEqual(['1-0 cover', '1-0 cover', '1-0 pinned', '1-0 down']);
+    expect(shot('=', true, 2)).toEqual(['1-0 cover', '1-0 cover']);                        // a wall is cover too
+    expect(shot('w', true, 2)).toEqual(['1-0 cover', '1-0 pinned']);                       // woods are not
+  });
+
+  it('a hit that ignores cover (the sniper\'s) ignores the foxhole too, and uses neither up', () => {
+    const map = field(8, 3, { '3,1': 'b' });
+    const start = game(map, [u('0-0', 'sniper', 0, 1), u('0-1', 'rifleman', 1, 0), u('0-2', 'rifleman', 1, 2), u('1-0', 'rifleman', 3, 1, { dugIn: true })]);
+    const r = run(start, [fire('0-0', 3, 1), fire('0-1', 3, 1), fire('0-2', 3, 1)]);
+    expect(hits(r.events)).toEqual(['1-0 pinned', '1-0 cover', '1-0 cover']);
+    expect(unitIn(r.state, '1-0').status).toBe('pinned');
+  });
+
+  it('the foxhole is back every round', () => {
+    const start = game(field(8, 3), [...squad, u('1-0', 'rifleman', 3, 1, { dugIn: true })]);
+    const one = run(start, volley(1));
+    expect(hits(one.events)).toEqual(['1-0 cover']);
+    expect(hits(run(one.state, volley(1)).events)).toEqual(['1-0 cover']);
+  });
+
+  it('a runner is never dug in: he gives it up as he breaks into the dash, and goes down from one hit', () => {
+    const start = game(field(8, 3), [...squad, u('1-0', 'rifleman', 3, 1, { dugIn: true })]);
+    const r = run(start, [...volley(1), dash('1-0', h(4, 1), h(5, 1))]);
+    expect(hits(r.events)).toEqual(['1-0 down']);
+    expect(unitIn(r.state, '1-0').dugIn).toBe(false);
+    const free = run(game(field(8, 1), [u('0-0', 'rifleman', 0, 0, { dugIn: true }), u('1-0', 'rifleman', 7)]), [dash('0-0', h(1), h(2))]);
+    expect(unitIn(free.state, '0-0')).toMatchObject({ dugIn: false, posture: 'dashed', pos: h(2) });
+    expect(ofType(free.events, 'dig').map((e) => e.unit)).toEqual(['1-0']);
+  });
+
+  it('his first step leaves the foxhole: shots of the fire phase still find him in it, later ones in the open', () => {
+    const start = game(field(8, 3), [...squad, u('1-0', 'rifleman', 3, 1, { dugIn: true })]);
+    const r = run(start, [...volley(1), move('1-0', h(4, 1))]);
+    expect(hits(r.events)).toEqual(['1-0 cover']);
+    expect(unitIn(r.state, '1-0')).toMatchObject({ dugIn: false, posture: 'moved', pos: h(4, 1) });
+    expect(ofType(r.events, 'dig').map((e) => e.unit)).not.toContain('1-0');
+    // The follow-up of a rifleman who walks up lands after the step: no foxhole, no cover on open ground.
+    const late = run(start, [fire('0-0', 3, 1), then(move('0-1', h(2, 0)), 'fire', 4, 1), move('1-0', h(4, 1))]);
+    expect(hits(late.events)).toEqual(['1-0 cover', '1-0 pinned']);
+  });
+
+  it('and he digs in again at the end of the next round he holds still', () => {
+    const start = game(field(8, 1), [u('0-0', 'rifleman', 0, 0, { dugIn: true }), u('1-0', 'rifleman', 7)]);
+    const out = run(start, [move('0-0', h(1))]).state;
+    expect(unitIn(out, '0-0').dugIn).toBe(false);
+    const again = run(out, []);
+    expect(ofType(again.events, 'dig')).toContainEqual({ t: 'dig', unit: '0-0' });
+    expect(unitIn(again.state, '0-0').dugIn).toBe(true);
+  });
+
+  it('a move that never takes a step (a pinned man, a blocked one) keeps the foxhole', () => {
+    const pinned = game(field(8, 1), [u('0-0', 'rifleman', 0, 0, { dugIn: true, status: 'pinned', pinnedRound: 3 }), u('1-0', 'rifleman', 7)]);
+    expect(unitIn(run(pinned, [move('0-0', h(1))]).state, '0-0')).toMatchObject({ dugIn: true, pos: h(0) });
+    // Two enemies mean to enter the same hex at once: neither steps.
+    const blocked = game(field(8, 1), [u('0-0', 'rifleman', 2, 0, { dugIn: true }), u('1-0', 'rifleman', 4)]);
+    const r = run(blocked, [move('0-0', h(3)), move('1-0', h(3))]);
+    expect(ofType(r.events, 'blocked').length).toBe(2);
+    expect(unitIn(r.state, '0-0')).toMatchObject({ dugIn: true, pos: h(2) });
+  });
+
+  it('a man who goes down is no longer dug in; one who is back this round is not dug in either', () => {
+    const start = game(field(8, 3), [...squad, u('1-0', 'rifleman', 3, 1, { dugIn: true })]);
+    const r = run(start, volley(3));
+    expect(hits(r.events)).toEqual(['1-0 cover', '1-0 pinned', '1-0 down']);
+    expect(unitIn(r.state, '1-0')).toMatchObject({ status: 'down', dugIn: false });
+    expect(ofType(r.events, 'dig').map((e) => e.unit)).not.toContain('1-0');
+
+    const strip = field(12, 1, {}, {
+      objectives: [obj('W', 1, [h(0), h(1)], { kind: 'hq', zone: 0 }), obj('X', 1, [h(10), h(11)], { kind: 'hq', zone: 1 })],
+      spawns: [[h(2), h(3)], [h(9), h(8)]], seatSpawns: { 2: [0, 1] }, maxRounds: 20,
+    });
+    const back = run(game(strip, [u('0-0', 'rifleman', 5), u('0-1', 'rifleman', 5, 0, { status: 'down', returnRound: 3 }), u('1-0', 'rifleman', 9)], { flags: { W: 0, X: 1 } }), []);
+    expect(ofType(back.events, 'return').length).toBe(1);
+    expect(ofType(back.events, 'dig').map((e) => e.unit)).not.toContain('0-1');
+    expect(unitIn(back.state, '0-1')).toMatchObject({ status: 'ready', dugIn: false });
+    expect(unitIn(run(back.state, []).state, '0-1').dugIn).toBe(true);   // he digs in at the end of the next round, if he stays
+  });
+
+  it('comes in the score phase after the captures and returns, before the recoveries; Supply Line and Last Stand alike', () => {
+    for (const mode of ['supply-line', 'last-stand']) {
+      const start = game(field(10, 1), [u('0-0', 'rifleman', 0), u('0-1', 'rifleman', 1, 0, { status: 'pinned', pinnedRound: 2 }), u('1-0', 'rifleman', 9)], { mode });
+      const r = run(start, []);
+      const after = r.events.slice(r.events.findIndex((e) => e.t === 'phase' && e.phase === 'score') + 1).map((e) => (e.t === 'dig' ? `dig ${e.unit}` : e.t));
+      expect(after).toEqual(['dig 0-0', 'dig 0-1', 'dig 1-0', 'recover']);
+      expect(unitIn(r.state, '0-1')).toMatchObject({ status: 'ready', dugIn: true });
+    }
+  });
+
+  it('is part of what a player sees: viewFor shows `dugIn` of every unit it shows', () => {
+    const start = game(field(10, 1), [u('0-0', 'rifleman', 0), u('1-0', 'rifleman', 3, 0, { dugIn: true })]);
+    expect(viewFor(start, 0).units.map((x) => [x.id, x.dugIn])).toEqual([['0-0', false], ['1-0', true]]);
   });
 });

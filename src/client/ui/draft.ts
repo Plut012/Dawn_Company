@@ -2,10 +2,10 @@
 // planned, before the lever sends it. Plain data and pure functions; the play
 // screen draws it and the server judges it.
 
-import { UNITS } from '../../content';
-import { actionOf, findPath, followUpOptions, hideRange } from '../../rules';
-import { distance, eq, key, label, within } from '../../shared/hex';
-import type { FollowUp, GameMap, Hex, Order, OrderKind, PlayerView, Unit, UnitId } from '../../shared/types';
+import { UNITS, WORKS } from '../../content';
+import { actionOf, findPath, followUpOptions, hideRange, moveOf, sightOf, useProblem } from '../../rules';
+import { distance, eq, key, label, parseKey, within } from '../../shared/hex';
+import type { FollowUp, GameMap, Hex, HexKey, Order, OrderKind, PlayerView, Unit, UnitId, WorkId } from '../../shared/types';
 
 /** At most one order per unit. A unit with no entry holds. */
 export type Draft = Record<UnitId, Order>;
@@ -43,9 +43,9 @@ export function prune(view: PlayerView, draft: Draft): Draft {
   return out;
 }
 
-/** How many hexes a unit may be sent with this kind of order. */
-export function allowance(unit: Unit, kind: OrderKind): number {
-  const move = UNITS[unit.type]?.move ?? 0;
+/** How many hexes a unit may be sent with this kind of order: `moveOf`, twice for a dash (21: a crossroads adds). */
+export function allowance(view: PlayerView, unit: Unit, kind: OrderKind): number {
+  const move = moveOf(view, unit);
   return kind === 'dash' ? move * 2 : kind === 'move' ? move : 0;
 }
 
@@ -73,6 +73,23 @@ export function layRoute(map: GameMap, from: Hex, current: Hex[], tapped: Hex, m
 export function plannedEnd(unit: Unit, draft: Draft): Hex {
   const o = draft[unit.id];
   return o && (o.kind === 'move' || o.kind === 'dash') && o.path.length > 0 ? o.path[o.path.length - 1] : unit.pos;
+}
+
+/**
+ * Of the hexes a move's follow-up may legally be aimed at (`legal`, from
+ * `followUpOptions`), those where it would run as things stand: the action's
+ * sight and needs judged from the end of the path, with the squad where its
+ * drafted moves leave it. The rest are legal but come to nothing unless the
+ * ground changes, so the play screen does not offer them.
+ */
+export function likelyFollowUps(view: PlayerView, draft: Draft, unit: Unit, kind: 'fire' | 'special', legal: HexKey[]): HexKey[] {
+  const action = actionOf(unit.type, kind);
+  if (!action) return [];
+  const units = view.units.map((u) => (u.owner === view.player ? { ...u, pos: plannedEnd(u, draft) } : u));
+  const there = { ...unit, pos: plannedEnd(unit, draft) };
+  const visible = new Set(view.visible);
+  const sight = sightOf(view, unit);
+  return legal.filter((k) => useProblem(view.map, units, there, action, parseKey(k), () => visible, sight) === null);
 }
 
 /** The follow-up of a unit's drafted move, if it has one. */
@@ -157,10 +174,14 @@ export function orderLabel(order: Order | undefined, type: string): string {
   switch (order.kind) {
     case 'move': {
       const walk = `Move ${label(order.path[order.path.length - 1] ?? { q: 0, r: 0 })}`;
-      return order.then ? `${walk} · ${actionName(type, order.then.kind)} ${label(order.then.target)}` : walk;
+      const w = workOf(order);
+      return order.then ? `${walk} · ${actionName(type, order.then.kind)}${w ? ` ${workWord(w)}` : ''} ${label(order.then.target)}` : walk;
     }
     case 'dash': return `Dash ${label(order.path[order.path.length - 1] ?? { q: 0, r: 0 })}`;
-    case 'fire': case 'special': return `${actionName(type, order.kind)} ${label(order.target)}`;
+    case 'fire': case 'special': {
+      const w = workOf(order);   // (25) "Build sandbags G5"
+      return `${actionName(type, order.kind)}${w ? ` ${workWord(w)}` : ''} ${label(order.target)}`;
+    }
     case 'ambush': return 'Ambush';
   }
 }
@@ -191,8 +212,33 @@ export function actionIcon(type: string, kind: 'fire' | 'special'): 'fire' | 'sp
 
 /** Which chit drawing (see ICONS in components) each action icon key uses. */
 export const ACTION_ICONS: Record<string, 'fire' | 'special'> = {
-  rifle: 'fire', burst: 'fire', snipe: 'fire', shell: 'fire', aid: 'special',
+  rifle: 'fire', burst: 'fire', snipe: 'fire', shell: 'fire', aid: 'special', build: 'special',
 };
+
+// ---- works (25)
+
+/** The work an order (or its follow-up) puts up, if any. */
+export function workOf(order: Order | undefined): WorkId | null {
+  if (!order) return null;
+  const w = order.kind === 'special' ? order.work : order.kind === 'move' && order.then?.kind === 'special' ? order.then.work : undefined;
+  return typeof w === 'string' && Object.hasOwn(WORKS, w) ? w : null;
+}
+
+/** What the works in the draft cost, all of them but `except`'s: what is spoken for before a build is chosen. */
+export function workSpend(draft: Draft, except: UnitId | null = null): number {
+  let total = 0;
+  for (const [id, o] of Object.entries(draft)) {
+    const w = id === except ? null : workOf(o);
+    if (w) total += WORKS[w].cost;
+  }
+  return total;
+}
+
+/** "sandbags", "wire", "MG nest": a work's name inside a sentence. */
+export function workWord(work: WorkId): string {
+  const name = Object.hasOwn(WORKS, work) ? WORKS[work].name : work;
+  return name.replace(/^[A-Z][a-z]/, (c) => c.toLowerCase());
+}
 
 // ---- keeping the draft across a reload
 
@@ -235,9 +281,11 @@ function wellFormed(o: Order): boolean {
   switch (o.kind) {
     case 'move':
       if (o.then !== undefined && !(typeof o.then === 'object' && o.then !== null && (o.then.kind === 'fire' || o.then.kind === 'special') && isHex(o.then.target))) return false;
+      if (o.then?.kind === 'special' && o.then.work !== undefined && typeof o.then.work !== 'string') return false;
       return Array.isArray(o.path) && o.path.length > 0 && o.path.every(isHex);
     case 'dash': return Array.isArray(o.path) && o.path.length > 0 && o.path.every(isHex);
-    case 'fire': case 'special': return isHex(o.target);
+    case 'fire': return isHex(o.target);
+    case 'special': return isHex(o.target) && (o.work === undefined || typeof o.work === 'string');
     case 'ambush': return true;
     default: return false;
   }

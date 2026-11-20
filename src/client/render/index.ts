@@ -3,7 +3,8 @@
 // and decides nothing about the game. See kit.ts for the world convention.
 
 import * as THREE from 'three';
-import type { GameEvent, GameMap, Hex, HexKey, PlayerView, Unit, UnitId } from '../../shared/types';
+import { WORKS } from '../../content';
+import type { GameEvent, GameMap, Hex, HexKey, Objective, PlayerId, PlayerView, TerrainId, Unit, UnitId } from '../../shared/types';
 import { hexToPixel, key, parseKey } from '../../shared/hex';
 import type { KitCtx, UnitVisual, VisualKit } from './kit';
 import { createPlayback } from './playback';
@@ -18,6 +19,22 @@ export interface Board {
   focus(hex: Hex): void;                         // centre the camera
   resize(): void;
   dispose(): void;
+}
+
+/**
+ * (23) `at` itself if it is within `reach` of one of `points` (or there are none), else the point `reach` from the
+ * nearest of them on the way to `at`.
+ */
+export function keepOverMap(points: readonly { x: number; z: number }[], at: { x: number; z: number }, reach: number): { x: number; z: number } {
+  let best = Infinity;
+  let near: { x: number; z: number } | null = null;
+  for (const p of points) {
+    const d = Math.hypot(p.x - at.x, p.z - at.z);
+    if (d < best) { best = d; near = p; }
+  }
+  if (!near || best <= reach) return at;
+  const f = reach / best;
+  return { x: near.x + (at.x - near.x) * f, z: near.z + (at.z - near.z) * f };
 }
 
 export type Mark =
@@ -43,7 +60,7 @@ const TAP_SLOP = 8;                      // px a finger may wander and still be 
 export const START_SCALE = 28;
 const CLOSEST = 4;                       // world units across the short side at full zoom
 
-interface Tile { object: THREE.Object3D; veil: THREE.Object3D | null }
+interface Tile { object: THREE.Object3D; veil: THREE.Object3D | null; terrain: TerrainId }
 interface Piece { visual: UnitVisual; type: string; owner: number }
 
 export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
@@ -69,6 +86,7 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
   const tiles = new Map<HexKey, Tile>();
   const pieces = new Map<UnitId, Piece>();
   const units = new Map<UnitId, Unit>();   // the board's own copies: playback moves them
+  const flags = new Map<string, { object: THREE.Object3D; owner: PlayerId | null }>();   // objective id -> what is drawn
   let tapCb: ((hex: Hex, unit: Unit | null) => void) | null = null;
 
   // Camera state: the ground point at screen centre, and pixels per world unit.
@@ -77,6 +95,7 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
   let width = 1;
   let height = 1;
   const bounds = { minX: 0, maxX: 0, minZ: 0, maxZ: 0, top: 0 };
+  const centres: { x: number; z: number }[] = [];   // every hex centre on the ground, for `keepOverMap` (23)
 
   // ---- drawing on demand
 
@@ -90,6 +109,38 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
       renderer.render(scene, camera);
       if (playing) invalidate();
     });
+  }
+
+  // ---- the dawn (19): the kit's light follows the view's `dawn`, eased over about a second
+
+  const DAWN_EASE = 1000;                  // ms
+  let dawnShown: number | null = null;     // what the kit was last told; null = never
+  let dawnFrame = 0;
+  function setDawn(to: number): void {
+    if (!kit.light) return;
+    const goal = Math.min(1, Math.max(0, Number.isFinite(to) ? to : 1));
+    if (dawnFrame) { cancelAnimationFrame(dawnFrame); dawnFrame = 0; }
+    if (dawnShown === null || dawnShown === goal) {
+      // The first view sets the light at once; the same light again changes nothing.
+      if (dawnShown === null) kit.light(scene, goal);
+      dawnShown = goal;
+      invalidate();
+      return;
+    }
+    const from = dawnShown;
+    const start = performance.now();
+    const step = (now: number) => {
+      dawnFrame = 0;
+      if (disposed) return;
+      const k = Math.min(1, (now - start) / DAWN_EASE);
+      const eased = k * k * (3 - 2 * k);
+      dawnShown = from + (goal - from) * eased;
+      kit.light?.(scene, dawnShown);
+      invalidate();
+      if (k < 1) dawnFrame = requestAnimationFrame(step);
+      else dawnShown = goal;
+    };
+    dawnFrame = requestAnimationFrame(step);
   }
 
   // ---- geometry of the map
@@ -127,12 +178,22 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
   }
   /** Where the camera centres on a map that fits: a little up the screen, so raised ground at the far edge stays in frame. */
   const lift = (): number => ((bounds.top + 1.6) * COS_TILT) / SIN_TILT / 2;
-  function clampTarget(x: number, z: number): { x: number; z: number } {
+  function clampAxes(x: number, z: number): { x: number; z: number } {
     return {
       x: clampAxis(x, bounds.minX, bounds.maxX, width / 2 / scale, (bounds.minX + bounds.maxX) / 2),
       // Room above the top row for what stands up on it: woods and men on raised ground reach up the screen.
       z: clampAxis(z, bounds.minZ - lift(), bounds.maxZ, height / 2 / (scale * SIN_TILT), (bounds.minZ + bounds.maxZ) / 2 - lift()),
     };
+  }
+  /**
+   * The axes' limits, and then (23) the middle of the screen kept over the map: a map that is not a rectangle (the
+   * triangle) leaves corners of its bounds with no hex in them, where the axes alone would let a zoomed-in camera
+   * look at nothing but slate.
+   */
+  function clampTarget(x: number, z: number): { x: number; z: number } {
+    const at = clampAxes(x, z);
+    const over = keepOverMap(centres, at, EDGE);
+    return over === at ? at : clampAxes(over.x, over.z);
   }
 
   function applyCamera(): void {
@@ -209,9 +270,11 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
 
   // ---- tiles and fog
 
+  /** What makes a map a different board: its hexes, their heights and the objectives. Not the terrain: a work (25)
+   *  changes a hex's terrain mid-match, and that hex is drawn again on its own (`retile`), the camera left alone. */
   function signature(m: GameMap): string {
-    const cells = Object.keys(m.cells).map((k) => `${k}:${m.cells[k].terrain}${m.cells[k].elevation}`);
-    const objectives = m.objectives.map((o) => `${o.id}@${key(o.hex)}=${o.value}`);
+    const cells = Object.keys(m.cells).map((k) => `${k}:${m.cells[k].elevation}`);
+    const objectives = m.objectives.map((o) => `${o.id}:${o.kind}@${o.hexes.map(key).join('+')}=${o.value}`);
     return `${m.id}|${cells.join(' ')}|${objectives.join(' ')}`;
   }
 
@@ -220,6 +283,7 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
     veilLayer.clear();
     objectiveLayer.clear();
     tiles.clear();
+    centres.length = 0;
     map = m;
     let first = true;
     for (const k of Object.keys(m.cells)) {
@@ -230,7 +294,8 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
       object.position.set(p.x, 0, p.y);
       object.userData.hex = hex;
       tileLayer.add(object);
-      tiles.set(k, { object, veil: null });
+      tiles.set(k, { object, veil: null, terrain: cell.terrain });
+      centres.push({ x: p.x, z: p.y });
       if (first) {
         bounds.minX = bounds.maxX = p.x;
         bounds.minZ = bounds.maxZ = p.y;
@@ -243,12 +308,63 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
       bounds.maxZ = Math.max(bounds.maxZ, p.y);
       bounds.top = Math.max(bounds.top, cell.elevation * LEVEL);
     }
-    for (const objective of m.objectives) {
-      const object = kit.objective(objective);
-      object.position.copy(hexToWorld(objective.hex));
-      objectiveLayer.add(object);
-    }
+    flags.clear();
+    for (const objective of m.objectives) drawObjective(objective, null);
     frameMap();
+  }
+
+  /**
+   * (Re)draw an objective with its flag in the owner's colour. The kit's object stands at the top of the
+   * area's first hex; a part it tags with `userData.hex` is lifted to that hex's own height.
+   */
+  function drawObjective(objective: Objective, owner: PlayerId | null): void {
+    const old = flags.get(objective.id);
+    if (old) objectiveLayer.remove(old.object);
+    const object = kit.objective(objective, owner);
+    const origin = hexToWorld(objective.hexes[0]);
+    object.position.copy(origin);
+    object.traverse((part) => {
+      const h = part.userData.hex as Hex | undefined;
+      if (h && part !== object) part.position.y += hexToWorld(h).y - origin.y;
+    });
+    objectiveLayer.add(object);
+    flags.set(objective.id, { object, owner });
+    invalidate();
+  }
+
+  /** Show this owner's flag over the objective, if it is not already. */
+  function setFlag(id: string, owner: PlayerId | null): void {
+    const objective = map?.objectives.find((o) => o.id === id);
+    if (!objective || flags.get(id)?.owner === owner) return;
+    drawObjective(objective, owner);
+  }
+
+  /** (25) Ask the kit again for a hex whose terrain is not what was drawn there (a work went up). Keeps its veil's state. */
+  function retile(k: HexKey, terrain: TerrainId): void {
+    const tile = tiles.get(k);
+    const cell = map?.cells[k];
+    if (!tile || !cell || tile.terrain === terrain) return;
+    const hex = parseKey(k);
+    const object = kit.tile(terrain, cell.elevation, hex);
+    const p = hexToPixel(hex, 1);
+    object.position.set(p.x, 0, p.y);
+    object.userData.hex = hex;
+    tile.object.removeFromParent();
+    tileLayer.add(object);
+    const hidden = tile.veil?.visible ?? false;
+    tile.veil?.removeFromParent();
+    const veil = tile.veil ? makeVeil(object) : null;
+    if (veil) { veil.visible = hidden; veilLayer.add(veil); }
+    tiles.set(k, { object, veil, terrain });
+    invalidate();
+  }
+
+  /** (25) Every hex of this map whose terrain differs from what was drawn there, drawn again. */
+  function retileAll(m: GameMap): void {
+    for (const [k, tile] of tiles) {
+      const cell = m.cells[k];
+      if (cell && cell.terrain !== tile.terrain) retile(k, cell.terrain);
+    }
   }
 
   /** A copy of a tile's solid parts, wearing the kit's fog material. */
@@ -302,6 +418,7 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
     }
     piece.visual.object.position.copy(hexToWorld(unit.pos));
     piece.visual.setStatus(unit.status);
+    piece.visual.setDugIn?.(unit.dugIn === true && unit.status !== 'down');   // (24)
     invalidate();
   }
 
@@ -329,6 +446,8 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
     units,
     show: showUnit,
     hide: hideUnit,
+    flag: setFlag,
+    work: (at, work) => retile(key(at), WORKS[work]?.terrain ?? work),
     skip: () => disposed || (typeof document !== 'undefined' && document.hidden),
   });
   let rounds: Promise<void> = Promise.resolve();
@@ -444,10 +563,13 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
         buildMap(next.map);
       }
       map = next.map;
+      retileAll(next.map);
       view = next;
       applyFog(new Set(next.visible));
       applyUnits(next.units);
+      for (const o of next.map.objectives) setFlag(o.id, next.flags?.[o.id] ?? null);
       applyMarks();   // marks sit on the ground, which may be a new map's
+      setDawn(next.dawn ?? 1);
     },
     setMarks(next) {
       marks = next;
@@ -480,6 +602,7 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
     dispose() {
       disposed = true;
       if (frame) cancelAnimationFrame(frame);
+      if (dawnFrame) cancelAnimationFrame(dawnFrame);
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerup', onUp);

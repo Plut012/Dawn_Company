@@ -129,7 +129,7 @@ out to the whole map. The hex labels were made taller (0.26 to 0.44) so that the
   import { key } from '/src/client/ui/components.ts';
   import { createBoard } from '/src/client/render/index.ts';
   import { lowpolyKit, loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
-  import { MAPS, DEFAULT_MAP, PRESETS, RULES, TERRAIN, UNITS, NAMES, validateSquad } from '/src/content/index.ts';
+  import { MAPS, mapFor, PRESETS, RULES, TERRAIN, UNITS, NAMES, validateSquad } from '/src/content/index.ts';
   import { canSee } from '/src/rules/index.ts';
   import * as H from '/src/shared/hex.ts';
 
@@ -214,7 +214,7 @@ out to the whole map. The hex labels were made taller (0.26 to 0.44) so that the
   // =====================================================================================
   // Part 2: the map, from the real content
   // =====================================================================================
-  const map = MAPS[DEFAULT_MAP];
+  const map = mapFor(4);
   const hk = H.key;
   const ZONE = ['var(--p-blue)', 'var(--p-plum)', 'var(--p-teal)', 'var(--p-bone)'];
   const ZONE_NAME = ['north-west', 'north-east', 'south-east', 'south-west'];

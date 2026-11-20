@@ -4,7 +4,8 @@
 //
 // Pure: no three.js, no DOM.
 
-import { actionOf, validateOrders, viewFor, visibleEnemies } from '../rules';
+import { MODES } from '../content';
+import { actionOf, dawnOf, sunOf, validateOrders, viewFor, visibleEnemies } from '../rules';
 import { label } from '../shared/hex';
 import type { GameEvent, GameState, Hex, Order, Phase, PlayerId, PlayerView } from '../shared/types';
 import type { Lesson, LessonRun } from './lesson';
@@ -42,14 +43,26 @@ export function viewOf(state: GameState, viewpoint: Viewpoint): PlayerView {
     visible: Object.keys(state.map.cells),
     scores: [...state.scores],
     eliminated: [...state.eliminated],
+    flags: { ...state.flags },
+    mode: state.mode,
+    works: { ...state.works },
     over: state.over,
     winners: [...state.winners],
+    sun: sunOf(state.round),
+    dawn: dawnOf(state.round),
   };
 }
 
 /** The events a viewpoint is shown for one round: a side's own, or all of them. */
 export function eventsOf(result: LessonRun['results'][number], viewpoint: Viewpoint): GameEvent[] {
-  return viewpoint === 'umpire' ? result.events : result.playerEvents[viewpoint] ?? [];
+  if (viewpoint !== 'umpire') return result.playerEvents[viewpoint] ?? [];
+  // The umpire's board holds no unit that is down, so a man who comes back (18) is brought into
+  // view as he arrives, the way a side that sees him is told of him. Nothing moves after a return.
+  if (!result.events.some((e) => e.t === 'return')) return result.events;
+  return result.events.flatMap((e): GameEvent[] => {
+    const u = e.t === 'return' ? result.state.units.find((x) => x.id === e.unit) : undefined;
+    return u ? [e, { t: 'spotted', unit: { ...u, pos: { ...u.pos } } }] : [e];
+  });
 }
 
 export interface PhaseChunk { phase: Phase; events: GameEvent[] }
@@ -67,7 +80,7 @@ export function phaseChunks(events: GameEvent[]): PhaseChunk[] {
 
 /** Is there anything to stop for in this chunk: something happens, or the lesson has a word to say. */
 export function worthAStop(lesson: Lesson, chunk: PhaseChunk): boolean {
-  return lesson.notes?.[chunk.phase] !== undefined || chunk.events.some((e) => e.t !== 'phase' && e.t !== 'over' && e.t !== 'eliminated');
+  return lesson.notes?.[chunk.phase] !== undefined || chunk.events.some((e) => e.t !== 'phase' && e.t !== 'over' && e.t !== 'eliminated' && e.t !== 'dig');   // a foxhole dug is shown, but is no reason to stop
 }
 
 /** The board's planning marks, as the board takes them (see `Mark` in src/client/render). */
@@ -116,11 +129,13 @@ export function outcome(lesson: Lesson, run: LessonRun): string {
     return e;
   };
   let score = false;
+  let winners = false;
   for (const e of lesson.expect) {
     if ('status' in e) entry(e.unit).status = true;
     else if ('at' in e) entry(e.unit).at = true;
-    else if ('seenBy' in e) entry(e.unit).seenBy.push(e.seenBy);
+    else if ('seenBy' in e) { if (e.after === undefined && !entry(e.unit).seenBy.includes(e.seenBy)) entry(e.unit).seenBy.push(e.seenBy); }   // the end only: the line says how things stand
     else if ('score' in e) score = true;
+    else if ('winners' in e) winners = true;
   }
   const parts: string[] = [];
   for (const [id, what] of about) {
@@ -136,7 +151,10 @@ export function outcome(lesson: Lesson, run: LessonRun): string {
     }
     parts.push(`${u.name}: ${said.join(', ')}.`);
   }
-  if (score) parts.push(`Score: ${end.scores.map((s, p) => `${sideName(p)} ${s}`).join(', ')}.`);
+  // The score is supply, or in Last Stand (20) the men standing.
+  const survival = Object.hasOwn(MODES, end.mode) && MODES[end.mode].win === 'survival';
+  if (score) parts.push(`${survival ? 'Standing' : 'Supply'}: ${end.scores.map((s, p) => `${sideName(p)} ${s}`).join(', ')}.`);
+  if (winners) parts.push(end.over ? `Won by ${end.winners.map(sideName).join(' and ') || 'nobody'}.` : 'Not over.');
   return parts.join(' ') || 'Done.';
 }
 

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createPlayback } from '../client/render/playback';
 import type { Stage } from '../client/render/playback';
-import { ACTIONS, TERRAIN, UNITS } from '../content';
-import { canSee, resolve, validateOrders, visibleEnemies } from '../rules';
+import { ACTIONS, OBJECTIVE_KINDS, SUN, TERRAIN, UNITS } from '../content';
+import { canSee, resolve, sightOf, validateOrders, validatePurchases, visibleEnemies } from '../rules';
 import { distance, key, label } from '../shared/hex';
 import type { GameEvent, Order, OrderKind, Phase, Unit, UnitId } from '../shared/types';
 import {
@@ -42,10 +42,11 @@ const standing = (units: Iterable<Unit>): string[] =>
   [...units].map((u) => `${u.id} ${label(u.pos)} ${u.status}`).sort();
 
 describe('the lessons', () => {
-  it('are the nineteen of the tasks, in order, with unique url-safe ids', () => {
+  it('are the thirty-two of the tasks, in order, with unique url-safe ids', () => {
     expect(LESSONS.map((l) => l.id)).toEqual([
-      'sight', 'stealth', 'creep', 'reveal', 'move-dash', 'collide', 'pass', 'hit', 'cover', 'dash-risk', 'move-fire',
-      'gunner', 'sniper', 'mortar', 'medic', 'ambush', 'pinned', 'phases', 'score',
+      'sight', 'stealth', 'creep', 'reveal', 'dawn', 'move-dash', 'collide', 'pass', 'hit', 'cover', 'dig-in', 'dash-risk', 'move-fire',
+      'gunner', 'sniper', 'mortar', 'medic', 'works', 'ambush', 'pinned', 'phases', 'score', 'flags',
+      'supply', 'coming-back', 'buy-back', 'cut-off', 'hill', 'crossroads', 'depot', 'last-stand', 'last-stand-tie',
     ]);
     for (const l of LESSONS) expect(l.id).toMatch(/^[a-z0-9-]+$/);
     // Grouped as the list shows them: each group's lessons sit together, groups in order.
@@ -62,6 +63,7 @@ describe('the lessons', () => {
         lesson.rounds.forEach((orders, r) => {
           for (let p = 0; p < run.states[r].playerCount; p++) {
             expect(validateOrders(run.states[r], p, orders[p] ?? []), `round ${r + 1}, player ${p}`).toEqual([]);
+            expect(validatePurchases(run.states[r], p, lesson.purchases?.[r]?.[p] ?? []), `round ${r + 1}, player ${p}'s purchases`).toEqual([]);
           }
         });
       });
@@ -205,7 +207,7 @@ describe('each lesson shows its rule, not something beside it', () => {
     expect(sees(run.states[0], 0, '1-0')).toBe(false);
     expect(sees(run.states[0], 0, '1-1')).toBe(false);
     const blue = run.results[0].playerEvents[0];
-    const names = blue.map((e) => (e.t === 'phase' ? e.phase : e.t === 'spotted' ? `spotted ${e.unit.id}` : e.t === 'move' ? `move ${e.unit}` : e.t));
+    const names = blue.filter((e) => e.t !== 'dig').map((e) => (e.t === 'phase' ? e.phase : e.t === 'spotted' ? `spotted ${e.unit.id}` : e.t === 'move' ? `move ${e.unit}` : e.t));
     // Seen as he breaks cover, then watched all the way; of the other man, nothing at all.
     expect(names).toEqual(['treat', 'fire', 'spotted 1-0', 'dash', 'move', 'move 1-0', 'move 1-0', 'assault', 'mortar', 'score']);
     expect(JSON.stringify(blue)).not.toContain('"1-1"');
@@ -288,11 +290,52 @@ describe('each lesson shows its rule, not something beside it', () => {
     for (const c of chunks) expect(c.events.length, c.phase).toBeGreaterThan(1);
   });
 
-  it('score: the text quotes the objective the unit ends on', () => {
+  it('score: the text quotes the area\'s value; the flag earns it in both rounds, the second after Blue has left', () => {
     const l = byId('score');
     const a = l.map.objectives.find((o) => o.id === 'A')!;
+    expect(a.hexes.length).toBeGreaterThan(1);
     expect(l.text).toContain(`worth ${a.value}`);
-    expect(runLesson(l).states[1].scores).toEqual([a.value, 0]);
+    const run = runLesson(l);
+    expect(run.states[1].scores).toEqual([a.value, 1]);
+    expect(run.states[2].scores).toEqual([2 * a.value, 2]);
+    expect(a.hexes.map(label)).not.toContain(label(run.states[2].units[0].pos));
+  });
+
+  // Ground (21): each lesson's gift is what makes the difference. Played without it (nobody's flag), it does not happen.
+  it('hill: the man at G2 is beyond first-light sight, within it plus the hill\'s; without the flag he stays unseen', () => {
+    const l = byId('hill');
+    const run = runLesson(l);
+    const [blue, plum] = run.states[1].units;
+    const d = distance(blue.pos, plum.pos);
+    expect(d).toBeGreaterThan(sightOf(run.states[0], run.states[0].units[0]));
+    expect(sightOf(run.states[1], blue)).toBe(sightOf({ ...run.states[1], flags: { H: null } }, blue) + OBJECTIVE_KINDS.hill.sight);
+    expect(d).toBeLessThanOrEqual(sightOf(run.states[1], blue));
+    // On the same ground with no gift (the kind changed to one that gives nothing), he is not seen.
+    const flat = { ...run.states[1], map: { ...l.map, objectives: l.map.objectives.map((o) => ({ ...o, kind: 'hq' })) } };
+    expect(visibleEnemies(flat, 0)).toEqual([]);
+  });
+
+  it('crossroads: the man beside it could not have gone as far', () => {
+    const l = byId('crossroads');
+    const start = runLesson(l).states[0];
+    expect(validateOrders(start, 0, [move('0-1', 'B3', 'C3', 'D3')])).toHaveLength(1);
+    expect(validateOrders({ ...start, flags: { X: null } }, 0, [move('0-0', 'B1', 'C1', 'D1')])).toHaveLength(1);
+  });
+
+  it('depot: on nobody\'s depot both men stay pinned, and the depot earns nothing', () => {
+    const l = byId('depot');
+    const run = runLesson({ ...l, flags: { D: null } });
+    expect(run.states[1].units.filter((u) => u.owner === 0).map((u) => u.status)).toEqual(['pinned', 'pinned']);
+    expect(run.states[1].scores).toEqual([0, 0]);
+  });
+
+  it('flags: taken in the first round, kept after leaving, unchanged when both sides stand in the area', () => {
+    const run = runLesson(byId('flags'));
+    expect(run.states.map((s) => s.flags.A)).toEqual([null, 0, 0, 0]);
+    expect(run.results.map((r) => r.events.filter((e) => e.t === 'capture').length)).toEqual([1, 0, 0]);
+    const area = new Set(byId('flags').map.objectives[0].hexes.map(label));
+    expect(run.states[2].units.filter((u) => area.has(label(u.pos)))).toEqual([]);
+    expect(run.states[3].units.filter((u) => area.has(label(u.pos))).map((u) => u.owner).sort()).toEqual([0, 1]);
   });
 
   it('texts quote the numbers in src/content', () => {
@@ -315,7 +358,8 @@ describe('staging and checking', () => {
     expect(state.units.map((u) => u.id)).toEqual(['0-0', '0-1', '1-0']);
     expect(state.units.map((u) => u.name)).toEqual(['Pvt. Hale', 'Pvt. Barlow', 'Pvt. Archer']);
     expect(state.units[1]).toMatchObject({ status: 'pinned', pinnedRound: 0 });
-    expect(state.round).toBe(1);
+    expect(state.round).toBe(SUN.length);                  // a lesson is played in full day unless it says otherwise (19)
+    expect(stageLesson(byId('dawn')).round).toBe(1);
   });
 
   it('reports each expectation that fails, in words', () => {
@@ -344,14 +388,16 @@ describe('staging and checking', () => {
   });
 
   it('reads a tiny map in the map format, and says what is wrong with a bad one', () => {
-    const map = tinyMap({ id: 't', terrain: ['. w', ' b .'], elevation: ['. 1', ' 2 .'], marks: ['. .', ' . A'], objectiveValues: { A: 3 } });
+    const map = tinyMap({ id: 't', terrain: ['. w', ' b .'], elevation: ['. 1', ' 2 .'], marks: ['. A', ' . A'], objectives: { A: { kind: 'hill', value: 3 } } });
     expect(map.cells[key(hex('B1'))]).toEqual({ terrain: 'woods', elevation: 1 });
     expect(map.cells[key(hex('A2'))]).toEqual({ terrain: 'building', elevation: 2 });
-    expect(map.objectives).toEqual([{ id: 'A', hex: hex('B2'), value: 3 }]);
+    expect(map.objectives).toEqual([{ id: 'A', kind: 'hill', hexes: [hex('B1'), hex('B2')], value: 3, zone: null }]);
     expect(label(hex('B2'))).toBe('B2');
-    expect(() => tinyMap({ id: 't', terrain: ['. x'] })).toThrow(/unknown terrain "x" at B1/);
+    expect(Object.keys(tinyMap({ id: 't', terrain: ['. x'] }).cells)).toEqual([key(hex('A1'))]);
+    expect(() => tinyMap({ id: 't', terrain: ['. q'] })).toThrow(/unknown terrain "q" at B1/);
     expect(() => tinyMap({ id: 't', terrain: ['. .', ' .'] })).toThrow(/row 2 has 1 hexes/);
-    expect(() => tinyMap({ id: 't', terrain: ['. .'], marks: ['. A'] })).toThrow(/not an objective with a value/);
+    expect(() => tinyMap({ id: 't', terrain: ['. .'], marks: ['. A'] })).toThrow(/not an objective with an entry/);
+    expect(() => tinyMap({ id: 't', terrain: ['. . .'], marks: ['A . A'], objectives: { A: { kind: 'depot', value: 1 } } })).toThrow(/more than one piece/);
     expect(() => stageLesson({ ...lesson, units: [{ owner: 0, type: 'rifleman', at: 'Z9' }] })).toThrow(/no hex Z9/);
   });
 });
@@ -393,7 +439,7 @@ describe('what the screen shows', () => {
 
   it('the closing line is read from the state', () => {
     expect(outcome(byId('ambush'), runLesson(byId('ambush')))).toBe('Pvt. Archer: pinned at E2.');
-    expect(outcome(byId('score'), runLesson(byId('score')))).toBe('Pvt. Hale: at C2. Score: Blue 2, Plum 0.');
+    expect(outcome(byId('score'), runLesson(byId('score')))).toBe('Pvt. Hale: at A2. Supply: Blue 4, Plum 2.');
     expect(outcome(byId('reveal'), runLesson(byId('reveal')))).toBe('Pvt. Archer: not seen by Blue.');
   });
 
@@ -404,5 +450,69 @@ describe('what the screen shows', () => {
     expect(manualSearch('?manual=cover', null)).toBe('');
     expect(manualSearch('?slot=dev1&manual=cover', null)).toBe('?slot=dev1');
     expect(new URLSearchParams(manualSearch('', '')).get('manual')).toBe('');
+  });
+});
+
+describe('the Dawn lesson shows its rule (19)', () => {
+  it('the same watcher and the same man, 5 hexes apart: unseen from round 1, seen in round 7, and nothing else changes', () => {
+    const l = byId('dawn');
+    const run = runLesson(l);
+    expect(run.states.map((s) => s.round)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+    const [watcher, man] = run.states[0].units;
+    expect(distance(watcher.pos, man.pos)).toBe(5);
+    expect(canSee(l.map, watcher.pos, man.pos)).toBe(true);
+    const seen = run.states.map((s) => visibleEnemies(s, 0).some((u) => u.id === man.id));
+    expect(seen).toEqual([false, false, false, false, false, false, true]);
+    // Nobody moved: only the light changed.
+    for (const s of run.states) expect(s.units.map((u) => label(u.pos))).toEqual(['A2', 'F2']);
+    // Blue is told when he comes into sight: at the end of round 6, as the light of round 7 comes up.
+    expect(run.results[5].playerEvents[0].filter((e) => e.t === 'spotted').map((e) => e.t === 'spotted' && e.unit.id)).toEqual([man.id]);
+    expect(viewOf(run.states[0], 0).dawn).toBe(0);
+    expect(viewOf(run.states[6], 0)).toMatchObject({ dawn: 1, sun: 0 });
+  });
+});
+
+describe('the Supply lessons show their rule (18)', () => {
+  const statusOf = (l: Lesson, after: number, id: string) => runLesson(l).states[after].units.find((u) => u.id === id)?.status;
+  it('coming back: down until the round he is due, then up at the HQ', () => {
+    const l = byId('coming-back');
+    for (let r = 1; r < l.rounds.length; r++) expect(statusOf(l, r, '0-0'), `after round ${r}`).toBe('down');
+    expect(statusOf(l, l.rounds.length, '0-0')).toBe('ready');
+  });
+  it('buying back: without the purchase he would still be down', () => {
+    const l = byId('buy-back');
+    expect(statusOf({ ...l, purchases: undefined }, l.rounds.length, '0-0')).toBe('down');
+  });
+  it('cut off: due back after round 4 but waits while the HQ is lost, and without the retake waits on', () => {
+    const l = byId('cut-off');
+    const run = runLesson(l);
+    expect(run.states[1].flags.W).toBe(1);
+    expect(run.states[4].units.find((u) => u.id === '0-0')).toMatchObject({ status: 'down', returnRound: run.states[0].round + 3 });
+    const noRetake = { ...l, rounds: [...l.rounds.slice(0, -1), [[], []]] };
+    expect(statusOf(noRetake, l.rounds.length, '0-0')).toBe('down');
+  });
+});
+
+describe('the Last Stand lessons show their rule (20)', () => {
+  it('last-stand: the same board in Supply Line pays the flag, and brings the man back', () => {
+    const l = byId('last-stand');
+    const run = runLesson(l);
+    expect(run.states.every((s) => s.mode === 'last-stand')).toBe(true);
+    expect(run.states[l.rounds.length].units.find((u) => u.id === '1-0')).toMatchObject({ status: 'down', returnRound: null });
+    const elsewhere = runLesson({ ...l, mode: undefined });
+    expect(elsewhere.results.flatMap((r) => r.events).some((e) => e.t === 'score')).toBe(true);
+    expect(elsewhere.states[l.rounds.length].scores[0]).toBeGreaterThan(2);
+  });
+  it('last-stand-tie: level on men, and the gunner decides; with a second rifleman for him it is a shared win', () => {
+    const l = byId('last-stand-tie');
+    const end = runLesson(l).states[1];
+    expect(end).toMatchObject({ over: true, scores: [2, 2], winners: [1] });
+    expect(viewOf(end, 0).worth).toEqual([2 * UNITS.rifleman.cost, UNITS.gunner.cost + UNITS.rifleman.cost]);
+    const same = { ...l, units: l.units.map((u) => (u.type === 'gunner' ? { ...u, type: 'rifleman' } : u)) };
+    expect(runLesson(same).states[1]).toMatchObject({ over: true, scores: [2, 2], winners: [0, 1] });
+  });
+  it('the closing line says the standing, and who won', () => {
+    const l = byId('last-stand-tie');
+    expect(outcome(l, runLesson(l))).toMatch(/Standing: Blue 2, Plum 2\. Won by Plum\./);
   });
 });

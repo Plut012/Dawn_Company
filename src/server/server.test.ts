@@ -128,7 +128,7 @@ describe('server over real sockets', () => {
     expect(files).toHaveLength(1);
     const lines = readFileSync(join(dir, files[0]), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
     expect(lines).toHaveLength(2);
-    expect(lines[0]).toMatchObject({ t: 'start', map: 'crossroads' });
+    expect(lines[0]).toMatchObject({ t: 'start', map: 'ford' });
     expect(lines[1]).toMatchObject({ t: 'round', round: 1 });
   }, 20000);
 

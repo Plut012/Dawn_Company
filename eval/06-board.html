@@ -65,7 +65,7 @@
   import * as THREE from 'three';
   import { createBoard } from '/src/client/render/index.ts';
   import { lowpolyKit, loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
-  import { MAPS, DEFAULT_MAP, PRESETS, NAMES, UNITS } from '/src/content/index.ts';
+  import { MAPS, mapFor, PRESETS, NAMES, UNITS } from '/src/content/index.ts';
   import { key, parseKey, label, within, offsetToAxial, distance } from '/src/shared/hex.ts';
 
   const $ = (id) => document.getElementById(id);
@@ -74,7 +74,7 @@
   window.addEventListener('unhandledrejection', (e) => showError(String(e.reason)));
 
   const params = new URLSearchParams(location.search);
-  const map = MAPS[DEFAULT_MAP];
+  const map = mapFor(4);
   const allHexes = Object.keys(map.cells);
   const at = (col, row) => offsetToAxial(col, row);
 

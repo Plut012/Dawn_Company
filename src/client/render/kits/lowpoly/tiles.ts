@@ -1,4 +1,5 @@
-// Tiles: stepped hex prisms, bare or with trees, a house, crops, a low wall or water on top.
+// Tiles: stepped hex prisms, bare or with trees, a house, crops, a low wall or water on top; and (25) the works an
+// engineer puts up: sandbags, wire, an MG nest. Existing palette only: paper bags and ink lines, as the wall is.
 
 import * as THREE from 'three';
 import type { Hex, TerrainId } from '../../../../shared/types';
@@ -166,6 +167,81 @@ function water(elevation: number, hex: Hex): THREE.Group {
   return tile;
 }
 
+// ---- works (25)
+
+// Sandbags: two courses of paper bags in front of where a unit stands, drawn as the wall is, a gap left at one end.
+const bagGeo = new THREE.BoxGeometry(0.3, 0.13, 0.17);
+function bag(x: number, y: number, z: number, turn: number): THREE.Mesh {
+  const b = outline(solid(bagGeo, TOKENS.paper), 0.02);
+  b.position.set(x, y + 0.065, z);
+  b.rotation.y = turn;
+  return b;
+}
+function sandbags(elevation: number, hex: Hex): THREE.Group {
+  const tile = ground(elevation, groundTint(elevation));
+  const rnd = stream(hex);
+  const y = elevation * LEVEL;
+  for (let i = 0; i < 4; i++) tile.add(bag(-0.5 + i * 0.32, y, 0.42, (rnd() - 0.5) * 0.12));
+  for (let i = 0; i < 3; i++) tile.add(bag(-0.34 + i * 0.32, y + 0.13, 0.42, (rnd() - 0.5) * 0.12));
+  return tile;
+}
+
+// Wire: ink crosses on posts across the hex, a strand between them. Nothing to hide behind.
+const postGeo = new THREE.BoxGeometry(0.035, 0.34, 0.035);
+const crossGeo = new THREE.BufferGeometry().setFromPoints([
+  new THREE.Vector3(-0.12, 0, 0), new THREE.Vector3(0.12, 0.28, 0),
+  new THREE.Vector3(-0.12, 0.28, 0), new THREE.Vector3(0.12, 0, 0),
+]);
+const WIRE_POSTS: [number, number][] = [[-0.62, 0.05], [-0.2, -0.12], [0.2, 0.12], [0.62, -0.05]];
+function wire(elevation: number, hex: Hex): THREE.Group {
+  const tile = ground(elevation, groundTint(elevation));
+  const rnd = stream(hex);
+  const y = elevation * LEVEL;
+  const strand: THREE.Vector3[] = [];
+  for (const [x, z] of WIRE_POSTS) {
+    const post = solid(postGeo, TOKENS.ink);
+    post.position.set(x, y + 0.17, z);
+    const cross = new THREE.LineSegments(crossGeo, inkLine);
+    cross.position.set(x, y, z);
+    cross.rotation.y = (rnd() - 0.5) * 0.6;
+    tile.add(post, cross);
+    strand.push(new THREE.Vector3(x, y + 0.22, z), new THREE.Vector3(x, y + 0.1, z));
+  }
+  const strands: THREE.Vector3[] = [];
+  for (let i = 0; i + 2 < strand.length; i += 2) strands.push(strand[i], strand[i + 2], strand[i + 1], strand[i + 3]);
+  tile.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(strands), inkLine));
+  return tile;
+}
+
+// An MG nest: a ring of sandbags round where a unit stands, with a low roof line over the back of it.
+const NEST_BAGS = 9;
+const NEST_RING = 0.6;
+const slabGeo = new THREE.BoxGeometry(0.95, 0.05, 0.42);
+const slabEdges = new THREE.EdgesGeometry(slabGeo);
+function nest(elevation: number, hex: Hex): THREE.Group {
+  const tile = ground(elevation, groundTint(elevation));
+  const rnd = stream(hex);
+  const y = elevation * LEVEL;
+  for (let i = 0; i < NEST_BAGS; i++) {
+    // Most of a ring, open at the back where the roof is propped.
+    const a = Math.PI * 0.2 + (i / (NEST_BAGS - 1)) * Math.PI * 1.6;
+    const b = bag(Math.sin(a) * NEST_RING, y, Math.cos(a) * NEST_RING, a + Math.PI / 2 + (rnd() - 0.5) * 0.1);
+    tile.add(b);
+    if (i % 2 === 0) tile.add(bag(Math.sin(a) * NEST_RING, y + 0.13, Math.cos(a) * NEST_RING, a + Math.PI / 2));
+  }
+  const roof = outline(solid(slabGeo, TOKENS.khaki), 0.02);
+  roof.position.set(0, y + 0.36, -0.42);
+  roof.rotation.x = 0.12;
+  roof.add(new THREE.LineSegments(slabEdges, inkLine));
+  for (const x of [-0.42, 0.42]) {
+    const post = solid(postGeo, TOKENS.ink);
+    post.position.set(x, y + 0.17, -0.3);
+    tile.add(post);
+  }
+  tile.add(roof);
+  return tile;
+}
+
 function open(elevation: number, hex: Hex): THREE.Group {
   const tile = ground(elevation, groundTint(elevation));
   // Tall enough to read at the board's framed zoom (28 px a unit, the tilt taking a fifth off): the capitals
@@ -189,6 +265,9 @@ export function tile(terrain: TerrainId, elevation: number, hex: Hex): THREE.Obj
   if (terrain === 'crops') return crops(level, hex);
   if (terrain === 'wall') return wall(level, hex);
   if (terrain === 'water') return water(level, hex);
+  if (terrain === 'sandbags') return sandbags(level, hex);
+  if (terrain === 'wire') return wire(level, hex);
+  if (terrain === 'nest') return nest(level, hex);
   const plain = new THREE.Group();
   const mesh = new THREE.Mesh(prism(level).body, lit(TOKENS.khaki));
   mesh.receiveShadow = true;

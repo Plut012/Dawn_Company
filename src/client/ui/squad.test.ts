@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PRESETS, RULES, validateSquad } from '../../content';
-import { add, move, remove, rosterRow, spent } from './squad';
+import { add, barredReason, move, remove, rosterRow, spent } from './squad';
 
 describe('squad builder arithmetic', () => {
   const line = PRESETS[0].units;
@@ -61,6 +61,28 @@ describe('squad builder arithmetic', () => {
     for (const id of ['rifleman', 'medic', 'sniper'] as const) {
       const row = rosterRow(squad, id);
       if (row.canInc) expect(validateSquad(add(squad, id)).cost).toBeLessThanOrEqual(RULES.budget);
+    }
+  });
+
+  it('greys out a unit the mode does not allow, with the reason, but lets one already there be taken out', () => {
+    expect(barredReason('mortar', 'last-stand')).toBe('Last Stand has no mortar.');
+    expect(barredReason('mortar')).toBeNull();
+    expect(barredReason('medic', 'last-stand')).toBeNull();
+    const row = rosterRow(['rifleman', 'rifleman'], 'mortar', 'last-stand');
+    expect(row.state).toBe('barred');
+    expect(row.canInc).toBe(false);
+    expect(row.canDec).toBe(false);
+    expect(row.caption).toContain('BARRED');
+    expect(rosterRow(line, 'mortar', 'last-stand').canDec).toBe(true);        // a mortar is in the line section
+    expect(rosterRow(['rifleman'], 'mortar').state).toBe('idle');           // supply-line by default
+    expect(rosterRow(['rifleman'], 'medic', 'last-stand').state).toBe('idle');
+  });
+
+  it('never offers an add the mode would refuse', () => {
+    for (const id of ['rifleman', 'gunner', 'sniper', 'mortar', 'medic']) {
+      const row = rosterRow(['rifleman', 'rifleman'], id, 'last-stand');
+      if (row.canInc) expect(validateSquad(add(['rifleman', 'rifleman'], id), 'last-stand').errors.filter((e) => /has no/.test(e))).toEqual([]);
+      else expect(id).toBe('mortar');
     }
   });
 });

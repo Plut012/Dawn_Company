@@ -9,15 +9,15 @@ import { TOKENS, box, flat, layFlat, lit, outline, solid } from './parts';
 
 // ---- player marks: colour and shape, always together
 
-type MarkShape = 'bar' | 'chevron' | 'diamond' | 'disc';
-const PLAYERS: { color: string; shape: MarkShape }[] = [
+export type MarkShape = 'bar' | 'chevron' | 'diamond' | 'disc';
+export const PLAYERS: { color: string; shape: MarkShape }[] = [
   { color: TOKENS.blue, shape: 'bar' },
   { color: TOKENS.plum, shape: 'chevron' },
   { color: TOKENS.teal, shape: 'diamond' },
   { color: TOKENS.bone, shape: 'disc' },
 ];
 
-function outlineOf(shape: MarkShape, grow: number): THREE.Shape {
+export function outlineOf(shape: MarkShape, grow: number): THREE.Shape {
   const s = new THREE.Shape();
   if (shape === 'bar') {
     const w = 0.3 + grow, h = 0.085 + grow;
@@ -197,6 +197,26 @@ function burst(): THREE.Group {
   return g;
 }
 
+// ---- the foxhole (24): a low ring of sandbags round the base, paper with an ink outline, as the wall tile is
+
+const BAGS = 11;
+const BAG_RING = 0.7;      // the hex is 0.866 across from its middle to a side: the ring fits inside it
+const bagGeo = new THREE.BoxGeometry(0.36, 0.15, 0.17);
+
+/** Eleven bags round the figure, each tangent to the ring, the gaps left alone; it grows from the ground. */
+function sandbags(): THREE.Group {
+  const ring = new THREE.Group();
+  for (let i = 0; i < BAGS; i++) {
+    const a = (i / BAGS) * Math.PI * 2 + 0.2;
+    const bag = outline(solid(bagGeo, TOKENS.paper), 0.02);
+    bag.position.set(Math.sin(a) * BAG_RING, 0.075, Math.cos(a) * BAG_RING);
+    bag.rotation.y = a + (i % 2 ? 0.06 : -0.05);
+    ring.add(bag);
+  }
+  ring.visible = false;
+  return ring;
+}
+
 const FACING = 0.45;   // a quarter turn off the camera, so props show in silhouette
 
 /**
@@ -209,6 +229,7 @@ export interface Rig {
   mark: THREE.Object3D;                                    // the rust burst under a pinned unit
   lean(dx: number, dz: number, angle: number): void;       // tip a standing figure towards (dx, dz)
   dashes(step: number): boolean;                           // is this step of a move beyond a walk?
+  dig(k: number): void;                                    // (24) the sandbags part-way up, k in 0..1 (1 is as `setDugIn(true)` leaves them)
 }
 const rigs = new WeakMap<THREE.Object3D, Rig>();
 export const rigOf = (object: THREE.Object3D | null): Rig | null => (object && rigs.get(object)) || null;
@@ -228,7 +249,8 @@ export function unit(type: UnitTypeId, owner: PlayerId): UnitVisual {
   pose.add(turn);
   const stand = base(owner);
   const pinnedMark = burst();
-  object.add(stand, pose, pinnedMark);
+  const bags = sandbags();
+  object.add(stand, pose, pinnedMark, bags);
   if (standing) object.add(standing);
 
   // Remember each part's own material, so "down" can grey it and undo it.
@@ -283,7 +305,17 @@ export function unit(type: UnitTypeId, owner: PlayerId): UnitVisual {
     blend(status, status, 1);
   }
 
+  function dig(k: number): void {
+    bags.visible = k > 0.01;
+    bags.scale.set(1, Math.max(k, 0.01), 1);
+  }
+
+  function setDugIn(dug: boolean): void {
+    dig(dug ? 1 : 0);
+  }
+
   rigs.set(object, {
+    dig,
     status: () => current,
     blend,
     mark: pinnedMark,
@@ -294,5 +326,5 @@ export function unit(type: UnitTypeId, owner: PlayerId): UnitVisual {
   });
 
   setStatus('ready');
-  return { object, setStatus };
+  return { object, setStatus, setDugIn };
 }

@@ -4,14 +4,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { BEAT, GUARD, JUMP, createPlayback, moments, type Stage } from './playback';
-import { DEFAULT_MAP, MAPS, PRESETS } from '../../content';
+import { mapFor, MAPS, PRESETS } from '../../content';
 import { createMatch, findPath, orderOptions, resolve, viewFor } from '../../rules';
 import { distance, parseKey } from '../../shared/hex';
 import type { GameEvent, Hex, Order, Unit, UnitId } from '../../shared/types';
 
 const hex = (q: number, r: number): Hex => ({ q, r });
 const unit = (id: UnitId, owner: number, pos: Hex, status: Unit['status'] = 'ready'): Unit => ({
-  id, owner, type: 'rifleman', name: id, pos, status, pinnedRound: null, revealed: false, posture: 'still',
+  id, owner, type: 'rifleman', name: id, pos, status, pinnedRound: null, revealed: false, posture: 'still', returnRound: null, dugIn: false,
 });
 
 function stageOf(units: Unit[], effect?: Stage['effect'], viewer = 0) {
@@ -24,6 +24,7 @@ function stageOf(units: Unit[], effect?: Stage['effect'], viewer = 0) {
     units: new Map(units.map((u) => [u.id, { ...u }])),
     show: (u) => log.push(`show ${u.id} ${u.pos.q},${u.pos.r} ${u.status}`),
     hide: (id) => log.push(`hide ${id}`),
+    flag: (id, owner) => log.push(`flag ${id} ${owner}`),
     skip: () => skipping,
   };
   return { stage, log, play: createPlayback(stage), skip: (on: boolean) => { skipping = on; } };
@@ -75,6 +76,8 @@ describe('moments', () => {
       { t: 'impact', target: hex(4, 4), blast: 1, action: 'shell' },
       { t: 'hit', unit: '0-0', at: hex(4, 4), result: 'pinned' },
       { t: 'phase', phase: 'score' },
+      { t: 'capture', objective: 'A', player: 0, from: null },
+      { t: 'capture', objective: 'C', player: 1, from: 0 },
       { t: 'score', objective: 'A', player: 0, value: 1 },
       { t: 'score', objective: 'B', player: 1, value: 1 },
       { t: 'recover', unit: '0-1' },
@@ -82,7 +85,7 @@ describe('moments', () => {
       { t: 'over', scores: [1, 1], winners: [0, 1] },
     ])).toEqual([
       'beat:phase', 'sight:lost', 'beat:phase', 'impact:impact', 'impact:impact', 'hits:hit',
-      'beat:phase', 'score:score+score', 'stand:recover', 'none:eliminated+over',
+      'beat:phase', 'capture:capture+capture', 'score:score+score', 'stand:recover', 'none:eliminated+over',
     ]);
   });
 });
@@ -178,6 +181,14 @@ describe('playback', () => {
     expect(stage.units.get('0-0')?.pos).toEqual(hex(1, 0));
   });
 
+  it('raises the new owner\'s flag once a capture has played, after the kit\'s effect', async () => {
+    const seen: string[] = [];
+    const s = stageOf([], async (e) => { seen.push(`effect ${e.t}`); });
+    s.stage.flag = (id, owner) => seen.push(`flag ${id} ${owner}`);
+    await s.play([{ t: 'phase', phase: 'score' }, { t: 'capture', objective: 'C', player: 1, from: 0 }]);
+    expect(seen).toEqual(['effect capture', 'flag C 1']);
+  });
+
   it('applies the rest at once when told to skip (hidden tab)', async () => {
     vi.useFakeTimers();
     let calls = 0;
@@ -219,9 +230,9 @@ describe('playback', () => {
 
   it('ends every real round on exactly the view the rules give next', async () => {
     // Real squads, real orders: everyone fires at whatever they can see, or walks to the middle.
-    const map = MAPS[DEFAULT_MAP];
+    const map = mapFor(4);
     let state = createMatch(map, [0, 1, 2, 3].map((player) => ({ player, units: PRESETS[player % PRESETS.length].units })));
-    const middle = map.objectives.find((o) => o.id === 'D')!.hex;
+    const middle = map.objectives.find((o) => o.id === 'D')!.hexes[0];
     let checked = 0;
     for (let round = 0; round < 8 && !state.over; round++) {
       const orders = [0, 1, 2, 3].map((p) => {
@@ -254,5 +265,72 @@ describe('playback', () => {
       state = result.state;
     }
     expect(checked).toBeGreaterThanOrEqual(8);
+  });
+});
+
+describe('a return (18)', () => {
+  it('puts an own man back on his feet at the HQ; an enemy one waits for its `spotted`', async () => {
+    const { play, log, stage } = stageOf([unit('0-0', 0, hex(5, 5), 'down')]);
+    await play([
+      { t: 'phase', phase: 'score' },
+      { t: 'return', unit: '0-0', at: hex(0, 0) },
+      { t: 'return', unit: '1-0', at: hex(9, 9) },
+      { t: 'spotted', unit: unit('1-0', 1, hex(9, 9)) },
+    ]);
+    expect(stage.units.get('0-0')).toMatchObject({ pos: hex(0, 0), status: 'ready' });
+    expect(stage.units.get('1-0')).toMatchObject({ pos: hex(9, 9), status: 'ready' });
+    expect(log).toContain('show 0-0 0,0 ready');
+    expect(moments([{ t: 'return', unit: '0-0', at: hex(0, 0) }, { t: 'spotted', unit: unit('1-0', 1, hex(9, 9)) }]).map((m) => m.kind)).toEqual(['stand']);
+  });
+});
+
+describe('digging in (24)', () => {
+  const dug = (id: UnitId, owner: number, pos: Hex): Unit => ({ ...unit(id, owner, pos), dugIn: true });
+
+  it('a `dig` digs the piece in once its effect has played; the first step, a dash, a fall and a return undo it', async () => {
+    const { play, stage } = stageOf([unit('0-0', 0, hex(0, 0)), dug('0-1', 0, hex(0, 1)), dug('0-2', 0, hex(0, 2)), dug('0-3', 0, hex(0, 3)), unit('0-4', 0, hex(0, 4), 'down')]);
+    await play([
+      { t: 'phase', phase: 'move' },
+      { t: 'dash', unit: '0-1' },
+      { t: 'move', step: 1, unit: '0-2', from: hex(0, 2), to: hex(1, 2) },
+      { t: 'phase', phase: 'score' },
+      { t: 'dig', unit: '0-0' },
+    ]);
+    const dugIn = Object.fromEntries([...stage.units.values()].map((u) => [u.id, u.dugIn]));
+    expect(dugIn).toEqual({ '0-0': true, '0-1': false, '0-2': false, '0-3': true, '0-4': false });
+    await play([{ t: 'hit', unit: '0-3', at: hex(0, 3), result: 'cover' }]);
+    expect(stage.units.get('0-3')!.dugIn).toBe(true);
+    await play([{ t: 'hit', unit: '0-3', at: hex(0, 3), result: 'pinned' }]);
+    expect(stage.units.get('0-3')).toMatchObject({ status: 'pinned', dugIn: true });
+    await play([{ t: 'hit', unit: '0-3', at: hex(0, 3), result: 'down' }, { t: 'return', unit: '0-0', at: hex(9, 9) }]);
+    expect(stage.units.get('0-3')).toMatchObject({ status: 'down', dugIn: false });
+    expect(stage.units.get('0-0')).toMatchObject({ dugIn: false, pos: hex(9, 9) });
+  });
+
+  it('the sandbags are left behind before the step begins, not after it', async () => {
+    const order: string[] = [];
+    const effect: Stage['effect'] = async (e) => { order.push(`effect ${e.t}`); };
+    const { play, log } = stageOf([dug('0-0', 0, hex(0, 0))], effect);
+    const shown = log;
+    await play([{ t: 'move', step: 1, unit: '0-0', from: hex(0, 0), to: hex(1, 0) }]);
+    expect(shown[0]).toBe('show 0-0 0,0 ready');       // the first show is the undigging, at the old hex, before the effect
+    expect(order).toEqual(['effect move']);
+  });
+
+  it('a dig is a `stand` moment, with the recoveries and the returns, and takes no longer than they do', () => {
+    expect(moments([{ t: 'recover', unit: '0-0' }, { t: 'dig', unit: '0-1' }, { t: 'dig', unit: '0-2' }]).map((m) => m.kind)).toEqual(['stand']);
+  });
+});
+
+describe('works (25)', () => {
+  it('a `build` is a `stand` moment; the hex is drawn again with the work once the kit\'s effect has played', async () => {
+    expect(moments([{ t: 'phase', phase: 'score' }, { t: 'build', unit: '0-0', at: hex(2, 0), work: 'sandbags' }, { t: 'dig', unit: '0-1' }])
+      .map((m) => m.kind)).toEqual(['beat', 'stand']);
+    const seen: string[] = [];
+    const s = stageOf([], async (e) => { seen.push(`effect ${e.t}`); });
+    s.stage.work = (at, work) => seen.push(`work ${at.q},${at.r} ${work}`);
+    // An engineer the viewer does not see: the build is told because the hex is in sight, and still drawn.
+    await s.play([{ t: 'phase', phase: 'score' }, { t: 'build', unit: '1-4', at: hex(2, 0), work: 'wire' }]);
+    expect(seen).toEqual(['effect build', 'work 2,0 wire']);
   });
 });

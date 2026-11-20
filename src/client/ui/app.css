@@ -41,6 +41,13 @@ main > .report { margin-bottom: var(--s-3); max-width: none; }
 .ready-text { margin: 0; }
 .ready-side .key { min-width: 120px; }
 
+/* the mode: two keys with their blurbs for the host, a name and a blurb for the rest */
+.mode-list { display: flex; flex-wrap: wrap; gap: var(--s-3); }
+.mode-option { flex: 1 1 200px; min-width: 0; display: flex; flex-direction: column; gap: var(--s-1); align-items: flex-start; }
+.mode-option .key { min-width: 140px; }
+.mode-option .note, .mode-read .note { margin: 0; max-width: none; }
+.mode-name { font-family: var(--font-display); font-size: var(--t-3); letter-spacing: 0.06em; text-transform: uppercase; }
+
 .builder-top { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: center; }
 .preset-keys { display: flex; flex-wrap: wrap; gap: var(--s-3) var(--s-2); flex: 1 1 200px; padding-bottom: 4px; }
 .preset-keys .key { min-width: 0; padding: 0 var(--s-2); font-size: var(--t-1); }
@@ -53,6 +60,10 @@ main > .report { margin-bottom: var(--s-3); max-width: none; }
 .roster-info b span { font-size: var(--t-1); letter-spacing: 0.1em; opacity: 0.8; }
 .roster-info .blurb { margin: 0; font-size: var(--t-1); max-width: none; opacity: 0.9; }
 .roster-row .stepper { flex: none; }
+.roster-row.barred .roster-info > :not(.barred-why) { opacity: 0.45; }
+.roster-row .barred-why { color: var(--rust); font-weight: 700; opacity: 1; }
+.stepper.barred { border-color: var(--rust); }
+.stepper.barred .cost { color: var(--rust); }
 
 .panel > h3 { margin-top: var(--s-4); }
 .panel > .note { max-width: none; }
@@ -83,6 +94,8 @@ main > .report { margin-bottom: var(--s-3); max-width: none; }
 .play-readouts { display: flex; gap: var(--s-1); flex: 1 1 100%; }
 .play .readout { min-width: 64px; padding: 2px var(--s-2); flex-direction: row; align-items: baseline; gap: var(--s-2); }
 .play .readout b { font-size: var(--t-4); }
+.play .readout .play-light { font-style: normal; font-family: var(--font-display); font-size: var(--t-1); letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }   /* (19) the light of the round */
+.play-mode { align-self: center; margin-left: auto; padding-left: var(--s-2); font-family: var(--font-display); font-size: var(--t-2); letter-spacing: 0.1em; text-transform: uppercase; color: var(--paper); white-space: nowrap; }
 .play-lamps { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); flex: 1 1 100%; min-width: 0; min-height: 24px; align-items: center; }
 .play-lamp { display: flex; align-items: center; gap: var(--s-1); min-width: 0; }
 .play-lamp .lamp { min-width: 0; gap: var(--s-1); }
@@ -177,6 +190,7 @@ main > .report { margin-bottom: var(--s-3); max-width: none; }
 /* ---------- results ---------- */
 .results-head { margin: var(--s-2) 0 var(--s-1); border-bottom: 0; padding: 0; }
 .results-sub { margin-bottom: var(--s-3); }
+.results-why { margin: calc(-1 * var(--s-1)) 0 var(--s-3); font-weight: 600; }
 .results-table { display: flex; flex-direction: column; gap: var(--s-2); margin-bottom: var(--s-3); }
 .results-row {
   display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: var(--s-3); align-items: center;
@@ -389,3 +403,8 @@ main > .report { margin-bottom: var(--s-3); max-width: none; }
     .play .chit svg { width: 24px; height: 24px; }
   }
 }
+
+/* Buying back a downed man (18): a small key on his card. */
+.play .unit .play-buy { display: block; margin-top: 4px; padding: 3px 6px; font-size: 11px; min-height: 0; white-space: nowrap; box-shadow: 0 2px 0 var(--ink); }
+.play .unit .play-buy.pressed { transform: translateY(2px); }
+.play .unit.down:has(.play-buy) { opacity: 0.9; }     /* a man who can be bought back: the key must read */

@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 23 — Three-player triangle</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the map, the board and the rules are the real modules */
+  body { padding: var(--s-3); }
+  main { max-width: 1200px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 90ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; }
+  .bad { border-left-color: var(--rust, #9A4B32); }
+  .pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--s-3); align-items: start; }
+  .stage { position: relative; width: 100%; height: 560px; border: var(--w-frame) solid var(--ink); background: var(--slate); }
+  .stage.small { width: 390px; max-width: 100%; height: 500px; }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  svg.chart { width: 100%; height: auto; background: var(--slate); border: var(--w-frame) solid var(--ink); }
+  svg.chart text { font-family: inherit; }
+  svg.chart .turning { transition: transform 1.6s ease-in-out; }
+  table.t { border-collapse: collapse; margin: 0 0 var(--s-3); font-size: var(--t-1); }
+  table.t caption { text-align: left; padding: var(--s-1) 0; max-width: 100ch; }
+  table.t th, table.t td { border: var(--w-divider) solid rgba(233,223,198,0.35); padding: 2px 8px; text-align: left; vertical-align: top; }
+  table.t thead th { background: rgba(30,36,32,0.6); }
+  .wrap { overflow-x: auto; max-width: 100%; }
+  .ok { color: var(--amber); }
+  .buttons { display: flex; flex-wrap: wrap; gap: var(--s-2); margin: var(--s-2) 0; }
+  .buttons button { font: inherit; padding: var(--s-1) var(--s-3); cursor: pointer; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--s-3); }
+  .shots figure { margin: 0; }
+  .shots img { width: 100%; height: auto; border: var(--w-frame) solid var(--ink); }
+  .shots figcaption { font-size: var(--t-1); }
+  .legend span { display: inline-block; margin-right: var(--s-3); }
+  .sw { display: inline-block; width: 14px; height: 10px; border: 1px solid var(--ink); vertical-align: middle; margin-right: 4px; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 23 — Three-player triangle</h1>
+<p>Sections 1, 2 and the sight count in 4 are computed when the page loads, from the real modules through Vite (no game
+server): <code>MAPS</code> and <code>mapFor</code> from <code>src/content</code>, <code>createMatch</code>, <code>viewFor</code> and
+<code>canSee</code> from <code>src/rules</code>, <code>rotate</code> from <code>src/shared/hex.ts</code>, the real board and low-poly kit.
+The chart beside the board is drawn by this page from the same <code>GameMap</code>; the lanes on it are the shortest walks the
+page works out. Section 3's screenshots and section 4's match figures were taken by the implementer and are dated.</p>
+
+<h2>1. Tripoint, for three (<code>mapFor(3)</code>)</h2>
+<p id="intro"></p>
+<div class="buttons">
+  <button id="turn">Turn a third of a turn (clockwise)</button>
+  <button id="back">Back to the start</button>
+  <span id="turned" class="observed" style="padding:2px 8px">not turned</span>
+</div>
+<div class="pair">
+  <div class="stage" id="board"></div>
+  <div id="chart"></div>
+</div>
+<div class="wrap" id="check"></div>
+<div class="wrap" id="tables"></div>
+
+<h2>2. The camera on a triangle</h2>
+<p>The camera's limits were made for rectangles: the screen's edge may go a hex beyond the outermost hexes, along each
+axis. A triangle fills only half of its bounding box, so zoomed in, a player could drag the camera into an empty corner
+of the box and see nothing but slate. The board now also keeps the middle of the screen within a hex of the map
+(<code>keepOverMap</code> in <code>src/client/render/index.ts</code>). The stage below is the real board, 390 wide; the
+first button zooms in all the way and drags far towards the top-left corner with synthetic pointer and wheel events, as a
+finger would.</p>
+<div class="buttons">
+  <button id="corner">Zoom in fully and drag to the top-left corner</button>
+  <button id="corner2">…and to the top-right</button>
+  <button id="reframe">Frame the map again</button>
+</div>
+<div class="pair">
+  <div class="stage small" id="cam"></div>
+  <div class="shots">
+    <figure><img src="assets/23/corner-before.png" alt="before: slate only" /><figcaption><b>Before</b> the change (taken 2026-11-19 with the
+    same synthetic zoom and drag, headless Chromium): only slate.</figcaption></figure>
+    <figure><img src="assets/23/corner-after.png" alt="after: the map's edge" /><figcaption><b>After</b>: the camera stops with the map's
+    left edge through the middle of the screen.</figcaption></figure>
+  </div>
+</div>
+
+<h2>3. Tripoint framed on the real play screen</h2>
+<p>Taken 2026-11-19 in headless Chromium (software WebGL, SwiftShader) at three window sizes, from
+<a href="22-play-frame.html?map=tripoint&umpire=1"><code>eval/22-play-frame.html?map=tripoint&amp;umpire=1</code></a>: the real play
+screen on the first plan of a real <code>createMatch</code> on <code>tripoint</code>, seat 0's squad, the fog lifted so the whole drawing
+shows. At 1280 × 800 the whole triangle is in frame; on a phone the play screen opens zoomed in, as on the other maps.
+No real phone was used.</p>
+<div class="shots" id="shots"></div>
+
+<h2>4. Figures (seeded scripted matches, 2026-11-19)</h2>
+<div class="wrap" id="figures"></div>
+
+<h2>What to check</h2>
+<ul>
+  <li>Section 1: press <b>Turn</b>. The chart turns a third of a turn about the hill and lands on itself: every hex on a hex of the
+  same ground and height, every area outlined where an area of the same kind was. Only the letters (and on the board, the squads)
+  have moved round one corner: W's gate J now stands where K was, and so on. The table under it says the same from the data.</li>
+  <li>The step table: every row reads <span class="ok">same</span>.</li>
+  <li>Section 2: after the button, part of the map is on the screen, never only slate.</li>
+</ul>
+
+<h2>Not working, or not shown</h2>
+<ul>
+  <li>Sight is not exactly the same after the turn: <code>line</code> breaks a tie (a line along hex edges) with a fixed nudge, so
+  172 of the 9180 hex pairs see differently from the pair a third of a turn on (section 4). <code>line</code> was not changed (out of
+  scope).</li>
+  <li>Seat fairness is measured with the scripted players only (section 4): every seat within two standard errors of the
+  others, and which seat is ahead changes with the squads dealt, but nobody has played the map.</li>
+  <li>The lanes, areas and letters are labelled on the page's chart, not on the 3D board (the board has no labels of that kind).</li>
+  <li>The board's turn (section 1) builds a turned copy of the map and redraws it: the real board drawing it, not a turn of the
+  camera. The play screen has no such button.</li>
+  <li>Nothing here was tried on a real phone or by people playing.</li>
+</ul>
+</main>
+
+<script type="module">
+  import { createBoard } from '/src/client/render/index.ts';
+  import { lowpolyKit, loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
+  import { MAPS, OBJECTIVE_KINDS, PRESETS, TERRAIN, UNITS, mapFor } from '/src/content/index.ts';
+  import { canSee, createMatch, viewFor } from '/src/rules/index.ts';
+  import * as H from '/src/shared/hex.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const table = (caption, head, rows) => `<table class="t"><caption>${caption}</caption><thead><tr>${head.map((h) => `<th>${h}</th>`).join('')}</tr></thead>`
+    + `<tbody>${rows.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  const map = MAPS.tripoint;
+  const cells = Object.keys(map.cells).map(H.parseKey);
+  // The centre hex: the mean of the cells (a set that a third of a turn takes onto itself has its mean there).
+  const C = { q: cells.reduce((a, h) => a + h.q, 0) / cells.length, r: cells.reduce((a, h) => a + h.r, 0) / cells.length };
+  const third = (h, n = 1) => H.rotate(h, C, 2 * n);
+  const walk = (h) => TERRAIN[map.cells[H.key(h)]?.terrain]?.passable ?? false;
+  function steps(from) {
+    const d = new Map(from.map((h) => [H.key(h), 0]));
+    for (let f = [...from]; f.length > 0;) {
+      const next = [];
+      for (const h of f) for (const n of H.neighbors(h)) if (walk(n) && !d.has(H.key(n))) { d.set(H.key(n), d.get(H.key(h)) + 1); next.push(n); }
+      f = next;
+    }
+    return d;
+  }
+  function path(a, b) {
+    const d = steps([b]);
+    const out = [a];
+    let h = a;
+    while (H.key(h) !== H.key(b)) { h = H.neighbors(h).find((n) => d.get(H.key(n)) === d.get(H.key(h)) - 1); out.push(h); }
+    return out;
+  }
+  const into = (d, o) => Math.min(...o.hexes.map((h) => d.get(H.key(h)) ?? Infinity));
+  const sameArea = (a, b) => a.map(H.key).sort().join(' ') === b.map(H.key).sort().join(' ');
+  const byId = (id) => map.objectives.find((o) => o.id === id);
+  const hqs = map.objectives.filter((o) => o.kind === 'hq');
+
+  const TERRAIN_FILL = { open: '#B8A57A', woods: '#4E5B3A', building: '#8C7B66', crops: '#C9B36A', wall: '#A39A88', water: '#2E3A40' };
+  const SEAT = ['#3F6E8C', '#6B4E7A', '#2F7F78'];
+  const LANE = ['#E0A030', '#D9534F', '#7FB3D5', '#B4E080', '#F0E0B0', '#E080C0'];
+
+  // ---- the lanes: each edge (HQ to HQ through its village) and each spoke (HQ to the hill)
+  const corner = (z) => hqs.find((o) => o.zone === z).hexes[0];
+  const via = (name, ...pts) => ({ name, hexes: pts.slice(1).reduce((acc, p, i) => acc.concat(path(pts[i], p).slice(1)), [pts[0]]) });
+  const village = (a, b) => map.objectives.filter((o) => o.kind === 'village').find((o) => {
+    const da = into(steps([corner(a)]), o), db = into(steps([corner(b)]), o);
+    return da === db && da < into(steps([corner(3 - a - b)]), o);
+  });
+  const lanes = [
+    via(`Edge lane W–X, through village ${village(0, 1).id}`, corner(0), village(0, 1).hexes[0], corner(1)),
+    via(`Edge lane X–Y, through village ${village(1, 2).id}`, corner(1), village(1, 2).hexes[0], corner(2)),
+    via(`Edge lane Y–W, through village ${village(2, 0).id}`, corner(2), village(2, 0).hexes[0], corner(0)),
+    via('Spoke W to the hill, through gate J', corner(0), C),
+    via('Spoke X to the hill, through gate K', corner(1), C),
+    via('Spoke Y to the hill, through gate L', corner(2), C),
+  ];
+
+  // ---- the chart
+  const R = 10, W = Math.sqrt(3) * R;
+  const xy = (h) => [W * (h.q + h.r / 2), 1.5 * R * h.r];
+  function chart() {
+    const xs = cells.map((h) => xy(h)[0]), ys = cells.map((h) => xy(h)[1]);
+    const [x0, y0, x1, y1] = [Math.min(...xs) - 2 * W, Math.min(...ys) - 3 * R, Math.max(...xs) + 2 * W, Math.max(...ys) + 3 * R];
+    const hexPath = (h, r = R) => { const [cx, cy] = xy(h); return Array.from({ length: 6 }, (_, i) => { const a = Math.PI / 180 * (60 * i - 30); return `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`; }).join(' '); };
+    const area = new Map(map.objectives.flatMap((o) => o.hexes.map((h) => [H.key(h), o])));
+    const [cx, cy] = xy(C);
+    let svg = `<svg class="chart" viewBox="${x0} ${y0} ${x1 - x0} ${y1 - y0}" role="img" aria-label="Tripoint chart">`;
+    // The faint outline stays put: the turned drawing must land on it.
+    for (const h of cells) svg += `<polygon points="${hexPath(h, R * 1.0)}" fill="none" stroke="#E9DFC6" stroke-opacity="0.25" stroke-width="0.6"/>`;
+    svg += `<g id="turning" class="turning" style="transform-origin:${cx}px ${cy}px">`;
+    for (const h of cells) {
+      const c = map.cells[H.key(h)];
+      const o = area.get(H.key(h));
+      const stroke = o ? (o.kind === 'hq' ? SEAT[o.zone] : '#F2C14E') : '#1E2420';
+      svg += `<polygon points="${hexPath(h, R * 0.96)}" fill="${TERRAIN_FILL[c.terrain]}" stroke="${stroke}" stroke-width="${o ? 1.8 : 0.4}"/>`;
+      if (c.elevation > 0) svg += `<text x="${xy(h)[0] + 3}" y="${xy(h)[1] + 8}" font-size="5" fill="#1E2420">▲${c.elevation}</text>`;
+    }
+    lanes.forEach((lane, i) => {
+      const pts = lane.hexes.map((h) => xy(h).map((v) => v.toFixed(1)).join(',')).join(' ');
+      svg += `<polyline points="${pts}" fill="none" stroke="${LANE[i % LANE.length]}" stroke-width="2" stroke-opacity="0.85" stroke-linejoin="round" ${i >= 3 ? 'stroke-dasharray="4 2"' : ''}/>`;
+    });
+    for (const o of map.objectives) {
+      const [ox, oy] = xy(o.hexes[0]);
+      svg += `<text x="${ox}" y="${oy + 1}" font-size="9" font-weight="700" text-anchor="middle" fill="#FFFFFF" stroke="#1E2420" stroke-width="2" paint-order="stroke">${o.id}</text>`
+        + `<text x="${ox}" y="${oy + 8}" font-size="4.5" text-anchor="middle" fill="#FFFFFF" stroke="#1E2420" stroke-width="1.2" paint-order="stroke">${o.kind}</text>`;
+    }
+    map.spawns.forEach((zone, z) => zone.forEach((h, i) => {
+      const [sx, sy] = xy(h);
+      svg += `<circle cx="${sx}" cy="${sy}" r="4" fill="${SEAT[z]}" stroke="#E9DFC6" stroke-width="0.6"/><text x="${sx}" y="${sy + 2}" font-size="5" text-anchor="middle" fill="#FFFFFF">${i + 1}</text>`;
+    }));
+    svg += '</g></svg>';
+    const legend = `<p class="legend">${Object.entries(TERRAIN_FILL).map(([t, c]) => `<span><i class="sw" style="background:${c}"></i>${t}</span>`).join('')}`
+      + `<span>amber outline: an objective's area (HQs in the seat's colour); ▲ elevation; numbered dots: spawn hexes in placement order, in the seat's colour; faint outline: where the board is (it does not turn)</span></p>`
+      + `<p class="legend">${lanes.map((l, i) => `<span><i class="sw" style="background:${LANE[i % LANE.length]}"></i>${esc(l.name)} (${l.hexes.length - 1} steps)</span>`).join('')}</p>`;
+    return svg + legend;
+  }
+  $('chart').innerHTML = chart();
+  $('intro').innerHTML = `<code>mapFor(3).id</code> is <b>${mapFor(3).id}</b> (<code>mapFor(2)</code> ${mapFor(2).id}, <code>mapFor(4)</code> ${mapFor(4).id};
+    <code>crossroads</code> seats <code>${JSON.stringify(MAPS.crossroads.seatSpawns)}</code> now). A triangle of 16 hexes a side (3 × 5 + 1, so
+    its centre ${H.label(C)} is a hex), ${cells.length} hexes on the board in a ${map.cols} × ${map.rows} drawing, ${map.objectives.length} objectives,
+    ${map.maxRounds} rounds, seats <code>${JSON.stringify(map.seatSpawns)}</code>. The board shows a fresh three-player match with every hex in sight.`;
+
+  // ---- the check: the map against itself turned, from the data
+  {
+    let cellsSame = 0;
+    for (const h of cells) if (JSON.stringify(map.cells[H.key(third(h))]) === JSON.stringify(map.cells[H.key(h)])) cellsSame++;
+    const objRows = map.objectives.map((o) => {
+      const t = map.objectives.find((p) => sameArea(p.hexes, o.hexes.map((h) => third(h))));
+      const ok = t && t.kind === o.kind && t.value === o.value;
+      return [`<b>${o.id}</b>`, o.kind, o.value, o.hexes.map(H.label).join(' '), t ? `<b>${t.id}</b>` : '<b>none</b>', ok ? '<span class="ok">same kind and value</span>' : '<b>DIFFERENT</b>'];
+    });
+    const zones = map.spawns.map((zone, z) => {
+      const same = JSON.stringify(zone.map((h) => third(h))) === JSON.stringify(map.spawns[(z + 1) % 3]);
+      return [`zone ${z} (HQ ${hqs[z].id})`, zone.map(H.label).join(' '), `zone ${(z + 1) % 3}`, same ? '<span class="ok">hex for hex, in placement order</span>' : '<b>DIFFERENT</b>'];
+    });
+    let html = `<p class="observed">Turned a third of a turn about ${H.label(C)} (<code>rotate(h, centre, 2)</code>, (q, r) → (−q − r, q) about it):
+      <b>${cellsSame} of ${cells.length}</b> hexes land on a hex of the same terrain and elevation;
+      <b>${objRows.filter((r) => r[5].includes('same')).length} of ${map.objectives.length}</b> objectives on one of the same kind and value;
+      <b>${zones.filter((r) => r[3].includes('hex for hex')).length} of 3</b> spawn zones on the next zone.</p>`;
+    html += table('Each objective and the one its turned area is.', ['Objective', 'Kind', 'Value', 'Area', 'Turned, it is', ''], objRows);
+    html += table('Each spawn zone and the zone it turns into.', ['Zone', 'Spawn hexes 1 to 8', 'Turned, it is', ''], zones);
+    $('check').innerHTML = html;
+  }
+
+  // ---- the step table
+  {
+    const from = hqs.map((o) => steps(o.hexes));
+    const rows = map.objectives.map((o) => {
+      const t = map.objectives.find((p) => sameArea(p.hexes, o.hexes.map((h) => third(h))));
+      const same = hqs.every((hq, z) => into(from[z], o) === into(from[(z + 1) % 3], t));
+      return [`<b>${o.id}</b>`, OBJECTIVE_KINDS[o.kind].name, `${o.value}${OBJECTIVE_KINDS[o.kind].supply ? ` + ${OBJECTIVE_KINDS[o.kind].supply}` : ''}`,
+        o.hexes.map(H.label).join(' '), ...hqs.map((_, z) => into(from[z], o)), t.id, same ? '<span class="ok">same</span>' : '<b>DIFFERENT</b>'];
+    });
+    let html = table(`Walking steps from each HQ to the nearest hex of every objective. The last column checks "each HQ is as many steps from
+      every objective as the next HQ round is from the turned objective".`,
+      ['Objective', 'Kind', 'Value (+ kind supply)', 'Area', ...hqs.map((o) => `from HQ ${o.id} (zone ${o.zone})`), 'Turned', 'Same'], rows);
+    const move = UNITS.rifleman.move;
+    html += table(`Each start hex to the centre ${H.label(C)}: walking steps, and rounds of plain rifleman moves (${move} a round).`,
+      ['Zone', ...Array.from({ length: 8 }, (_, i) => `hex ${i + 1}`)],
+      map.spawns.map((zone, z) => [`${z} (${hqs[z].id})`, ...zone.map((h) => { const s = steps([h]).get(H.key(C)); return `${H.label(h)}: ${s} steps, ${Math.ceil(s / move)} rounds`; })]));
+    $('tables').innerHTML = html;
+  }
+
+  // ---- the board, and the turn
+  await loadKitFonts();
+  const squads = [0, 1, 2].map((player) => ({ player, units: PRESETS[player % PRESETS.length].units }));
+  const state = createMatch(map, squads);
+  function turnedMap(n) {
+    if (n % 3 === 0) return map;
+    const cellsT = {};
+    for (const [k, c] of Object.entries(map.cells)) cellsT[H.key(third(H.parseKey(k), n))] = c;
+    return { ...map, cells: cellsT, objectives: map.objectives.map((o) => ({ ...o, hexes: o.hexes.map((h) => third(h, n)) })), spawns: map.spawns.map((z) => z.map((h) => third(h, n))) };
+  }
+  function show(b, n) {
+    const m = turnedMap(n);
+    const units = state.units.map((u) => ({ ...u, pos: third(u.pos, n % 3) }));
+    b.setView({ ...viewFor(state, 0), map: m, units, visible: Object.keys(m.cells) });
+  }
+  function makeBoard(id) {
+    const canvas = document.createElement('canvas');
+    $(id).append(canvas);
+    try {
+      const b = createBoard(canvas, lowpolyKit());
+      addEventListener('resize', () => b.resize());
+      b.resize();
+      show(b, 0);
+      return { b, canvas };
+    } catch (err) {
+      $(id).insertAdjacentHTML('beforeend', `<p class="observed bad">The board could not start here: ${esc(err.message ?? err)}</p>`);
+      return null;
+    }
+  }
+  const main = makeBoard('board');
+  let turns = 0;
+  const setTurns = (n) => {
+    turns = n;
+    $('turning').style.transform = `rotate(${120 * n}deg)`;
+    if (main) show(main.b, n);
+    $('turned').textContent = n === 0 ? 'not turned' : `turned ${n} third${n > 1 ? 's' : ''} (${120 * n}°): the ground lands on itself; the letters and squads have gone round ${n} corner${n > 1 ? 's' : ''}`;
+  };
+  $('turn').onclick = () => setTurns(turns + 1);
+  $('back').onclick = () => { $('turning').style.transition = 'none'; setTurns(0); requestAnimationFrame(() => { $('turning').style.transition = ''; }); };
+
+  // ---- the camera stage
+  const cam = makeBoard('cam');
+  if (cam) {
+    const { b, canvas } = cam;
+    const fire = (t, x, y) => canvas.dispatchEvent(new PointerEvent(t, { pointerId: 7, clientX: x, clientY: y, bubbles: true }));
+    const push = (dx, dy) => {
+      const r = canvas.getBoundingClientRect();
+      const mx = r.left + r.width / 2, my = r.top + r.height / 2;
+      for (let i = 0; i < 40; i++) canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: -200, clientX: mx, clientY: my, cancelable: true }));
+      fire('pointerdown', mx, my);
+      for (let i = 1; i <= 50; i++) fire('pointermove', mx + i * dx, my + i * dy);
+      fire('pointerup', mx + 50 * dx, my + 50 * dy);
+    };
+    $('corner').onclick = () => push(40, 40);
+    $('corner2').onclick = () => push(-40, 40);
+    $('reframe').onclick = () => { cam.canvas.remove(); b.dispose(); $('cam').innerHTML = ''; location.hash = 'cam'; location.reload(); };
+  }
+
+  // ---- screenshots
+  {
+    const sizes = [['390x844', '390 × 844 (phone, portrait), device pixel ratio 2'], ['844x390', '844 × 390 (phone, landscape), device pixel ratio 2'], ['1280x800', '1280 × 800 (laptop), device pixel ratio 1']];
+    for (const [s, what] of sizes) {
+      const fig = document.createElement('figure');
+      fig.innerHTML = `<img src="assets/23/tripoint-${s}.png" alt="tripoint at ${s}" loading="lazy" /><figcaption><b>tripoint</b>, ${what}.</figcaption>`;
+      $('shots').append(fig);
+    }
+  }
+
+  // ---- figures (real runs, written in by hand from the commands in the captions), and the sight count (live)
+  {
+    let pairs = 0, differ = 0, clear = 0;
+    const byDistance = {};
+    for (const a of cells) for (const b of cells) {
+      if (H.key(a) >= H.key(b)) continue;
+      pairs++;
+      const s = canSee(map, a, b);
+      if (s) clear++;
+      if (s !== canSee(map, third(a), third(b))) { differ++; const d = H.distance(a, b); byDistance[d] = (byDistance[d] ?? 0) + 1; }
+    }
+    let html = table(`Seat fairness on <code>tripoint</code>. <code>npx tsx scripts/seeded.ts --figures 1800</code> (seeds 1001 to 2800; the 600 with three
+      players play <code>tripoint</code>), random preset per seat, and again with <code>--same line</code> (every seat the Line section), 2026-11-19,
+      Supply Line, <code>buyBack</code> 6. "Against the others": a seat's supply minus the other two seats' mean, ± one standard error.`,
+      ['Squads', 'Mean supply per seat (W / X / Y)', 'Against the others', 'Win share'],
+      [
+        ['random', '71.36 / 74.12 / 69.89', '−0.65 ± 1.81 / +3.50 ± 1.79 / −2.85 ± 1.84', '0.33 / 0.35 / 0.32'],
+        ['Line for all', '72.16 / 68.77 / 71.13', '+2.21 ± 1.86 / −2.88 ± 1.74 / +0.67 ± 1.83', '0.37 / 0.30 / 0.33'],
+        ['for comparison, task 22: <code>crossroads</code>, 3 players, random', '65.72 / 39.57 / 57.27', '+17.30 ± 2.29 / −21.93 ± 1.93 / +4.63 ± 2.34', '0.50 / 0.16 / 0.35'],
+      ]);
+    html += `<p class="observed"><b>A fair third each, within the noise of 600 matches.</b> Win shares 0.32–0.35 with random squads (a third is 0.33).
+      No seat is further than two standard errors from the other two, and the seat ahead is not the same seat in the two runs (X with random
+      squads, W with the Line section), as it would be if the board favoured one: the map is the same from every corner (section 1). On
+      <code>crossroads</code> the seat opposite the empty corner won 0.16 of the time.</p>`;
+    html += table('Per match, the same run (random squads; three players on <code>tripoint</code>; two and four from the same run for comparison).',
+      ['Map, players', 'Down at the end', 'Times down', 'Captures', 'Buy-backs', 'Supply earned per seat per round', 'Rifleman buy-back (2 × 6 = 12) in rounds of that income'],
+      [
+        ['tripoint, 3', 2.57, 13.87, 11.95, 5.18, 6.48, '<b>1.85</b>'],
+        ['tripoint, 3 (Line for all)', 2.69, 14.61, 11.79, '—', 6.39, '1.88'],
+        ['ford, 2', '—', '—', '—', '—', 5.79, '2.07'],
+        ['crossroads, 4', '—', '—', '—', '—', 4.47, '2.68'],
+      ]);
+    html += `<p class="observed"><b>Buy-back.</b> A seat on <code>tripoint</code> earns about 6.5 supply a round (more than the 4.9 three seats earned
+      on <code>crossroads</code>: three HQs, three gates and six farms for three seats), so a rifleman's buy-back of 12 is about <b>1.85 rounds</b> of
+      income, below the two to three rounds task 22 aimed for. <code>buyBack</code> was left at 6, as the task asks; a gunner, sniper or mortar costs 24,
+      3.7 rounds.</p>`;
+    html += table('By kind on <code>tripoint</code> (same run, random squads): share of flag-rounds held by somebody; at the end, held by nobody / by the seat whose HQ is nearest / by another seat.',
+      ['Kind', 'Flags', 'Held', 'At the end: nobody / nearest / other'],
+      [
+        ['hq', 3, '1.00', '0 / 1.00 / 0'],
+        ['crossroads (gates)', 3, '0.77', '0.05 / 0.95 / 0'],
+        ['depot (farms)', 6, '0.49', '0.22 / 0.72 / 0.06'],
+        ['village', 3, '0.40', '0.33 / — / 0.67 (two seats equally near)'],
+        ['hill', 1, '0.57', '0.10 / — / 0.90 (no nearest seat)'],
+      ]);
+    html += `<p class="observed"><b>Sight under the turn</b> (computed now, with <code>canSee</code>): of <b>${pairs}</b> pairs of hexes (${clear} with a clear line),
+      <b>${differ}</b> see differently from the same pair turned a third of a turn (${(100 * differ / pairs).toFixed(1)}%). By distance apart:
+      ${Object.entries(byDistance).map(([d, n]) => `${d}: ${n}`).join(', ')} — always an even distance, where a line can run along the edges between hexes
+      and <code>line</code>'s fixed nudge picks one side. Pinned in <code>src/rules/sight.test.ts</code> (172 on 2026-11-19).</p>`;
+    html += `<p>Commands: <code>npx tsx scripts/seeded.ts --figures 1800</code>, <code>npx tsx scripts/seeded.ts --figures 1800 --same line</code>.</p>`;
+    $('figures').innerHTML = html;
+  }
+  if (location.hash === '#cam') $('cam').scrollIntoView();
+</script>
+</body>
+</html>

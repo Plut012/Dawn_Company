@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_MAP, MAPS, PRESETS, UNITS } from '../content';
+import { mapFor, MAPS, PRESETS, UNITS } from '../content';
 import { distance, key, parseKey } from '../shared/hex';
 import type { GameMap, GameState, Hex, Order, Unit, UnitId, UnitTypeId } from '../shared/types';
 import { createMatch, findPath, followUpOptions, orderOptions, validateOrders, viewFor } from './index';
@@ -17,10 +17,11 @@ function field(cols: number, rows: number, spec: Record<string, string> = {}): G
 }
 const h = (q: number, r = 0): Hex => ({ q, r });
 function u(id: UnitId, type: UnitTypeId, q: number, r = 0, extra: Partial<Unit> = {}): Unit {
-  return { id, owner: Number(id.split('-')[0]), type, name: id, pos: h(q, r), status: 'ready', pinnedRound: null, revealed: false, posture: 'still', ...extra };
+  return { id, owner: Number(id.split('-')[0]), type, name: id, pos: h(q, r), status: 'ready', pinnedRound: null, revealed: false, posture: 'still', returnRound: null, dugIn: false, ...extra };
 }
 function game(map: GameMap, units: Unit[]): GameState {
-  return { map, playerCount: 2, units, round: 3, scores: [0, 0], eliminated: [false, false], over: false, winners: [] };
+  return { map, playerCount: 2, units, round: 7,   // full day (19): the rules below are the v1 ones, in full light
+    scores: [0, 0], eliminated: [false, false], flags: {}, mode: 'supply-line', works: {}, over: false, winners: [] };
 }
 const reasons = (state: GameState, player: number, orders: Order[]) => validateOrders(state, player, orders).map((e) => e.unit);
 
@@ -157,8 +158,8 @@ describe('findPath', () => {
 });
 
 describe('orderOptions', () => {
-  const map = MAPS[DEFAULT_MAP];
-  const state = createMatch(map, [{ player: 0, units: PRESETS[0].units }, { player: 1, units: PRESETS[1].units }]);
+  const map = mapFor(4);
+  const state = createMatch(map, [0, 1, 2, 3].map((player) => ({ player, units: PRESETS[player % PRESETS.length].units })));
   // Bring the squads into contact so there is something to see and treat.
   state.units.find((x) => x.id === '1-0')!.pos = { q: 3, r: 4 };
   state.units.find((x) => x.id === '0-1')!.status = 'pinned';
