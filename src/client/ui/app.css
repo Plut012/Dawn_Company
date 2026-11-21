@@ -77,67 +77,81 @@ main > .report { margin-bottom: var(--s-3); max-width: none; }
 .roster-row .stepper { width: min(284px, 100%); grid-template-columns: 40px 44px 40px 1fr; }
 
 /* ---------- play screen ----------
-   Placement only: kit components on kit tokens. The board has the middle; the kit sits at the edges.
-   Phone: a thin bar on top, the report strip and the tray below. Wide: the kit moves to a side panel. */
+   Placement only: kit components on kit tokens. (30) The board has the screen: a thin bar on top (round,
+   light, clock), the selected man's chits and the lever below. Standings, squad and lines fold into a rail
+   at the board's right edge and open as a drawer over the board; the board never resizes for it. */
 .play {
   position: fixed; inset: 0; z-index: 1;
-  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto auto;
-  grid-template-areas: "top" "board" "report" "tray";
+  display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "top" "board" "tray";
   padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l);
   background: var(--slate); overflow: hidden;
 }
 .play-top {
-  grid-area: top; display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-1) var(--s-2);
-  padding: var(--s-1) var(--s-2);
-  background: var(--ink); border-bottom: var(--w-frame) solid var(--ink);
+  grid-area: top; display: flex; align-items: center; gap: var(--s-2);
+  padding: 2px var(--s-2); background: var(--ink);
 }
-.play-readouts { display: flex; gap: var(--s-1); flex: 1 1 100%; }
+.play-readouts { display: flex; gap: var(--s-1); flex: 1; min-width: 0; justify-content: space-between; }
 .play .readout { min-width: 64px; padding: 2px var(--s-2); flex-direction: row; align-items: baseline; gap: var(--s-2); }
 .play .readout b { font-size: var(--t-4); }
 .play .readout .play-light { font-style: normal; font-family: var(--font-display); font-size: var(--t-1); letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }   /* (19) the light of the round */
-.play-mode { align-self: center; margin-left: auto; padding-left: var(--s-2); font-family: var(--font-display); font-size: var(--t-2); letter-spacing: 0.1em; text-transform: uppercase; color: var(--paper); white-space: nowrap; }
-.play-lamps { display: flex; flex-wrap: wrap; gap: var(--s-1) var(--s-3); flex: 1 1 100%; min-width: 0; min-height: 24px; align-items: center; }
-.play-lamp { display: flex; align-items: center; gap: var(--s-1); min-width: 0; }
-.play-lamp .lamp { min-width: 0; gap: var(--s-1); }
-.play-lamp .lamp .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 6ch; }
-.play-lamp.own .lamp .text { font-weight: 700; }
-.play-lamp .lamp b { font-family: var(--font-display); font-size: var(--t-3); letter-spacing: 0.04em; }
 
-.play-board { grid-area: board; position: relative; min-height: 0; min-width: 0; }
+.play-board { grid-area: board; position: relative; min-height: 0; min-width: 0; overflow: hidden; }
 .play-board canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 
-.play-report { grid-area: report; position: relative; min-width: 0; border-top: var(--w-frame) solid var(--ink); }
-.play-strip {
-  display: flex; align-items: stretch; width: 100%; height: 48px; padding: 0; border: 0;   /* fixed: the board must not shift as lines change */
-  background: var(--paper); color: var(--ink); text-align: left; cursor: pointer;
+/* the rail: the drawer folded to marks, quiet at the board's edge */
+.play-rail {
+  position: absolute; top: 0; right: 0; bottom: 0; z-index: 3; width: 40px;
+  display: flex; flex-direction: column; align-items: stretch;
+  background: rgba(30, 36, 32, 0.55); border-left: var(--w-divider) solid rgba(233, 223, 198, 0.14);
+  opacity: 0.7; transition: opacity 0.2s;
+  overflow-y: auto; scrollbar-width: none;
 }
-.play-strip .report { max-width: none; flex: 1; min-width: 0; padding: 6px var(--s-2); line-height: 18px; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; }
-.play-count {
-  flex: none; display: grid; place-items: center; padding: 0 var(--s-2);
-  font-family: var(--font-display); font-size: var(--t-1); letter-spacing: 0.1em; text-transform: uppercase;
-  border-left: var(--w-divider) solid var(--ink);
+.play-rail::-webkit-scrollbar { display: none; }
+.play-rail:hover, .play-rail:focus-within, .play-rail.open { opacity: 1; }
+.play-rail-key {
+  display: flex; flex-direction: column; align-items: center; gap: var(--s-1); padding: var(--s-2) 0 var(--s-1);
+  border: 0; background: none; color: var(--paper); cursor: pointer;
 }
-.play-count:empty { display: none; }
-.play-log {
-  position: absolute; left: 0; right: 0; bottom: 100%; max-height: 40vh; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 1px;
-  background: var(--ink); border-top: var(--w-frame) solid var(--ink);
-}
-.play-log .report { max-width: none; padding: var(--s-1) var(--s-3); }
+.play-rail-key::before { content: "‹"; font-family: var(--font-text); font-size: var(--t-3); line-height: 1; color: var(--khaki); }
+.play-rail.open .play-rail-key::before { content: "›"; }
+.play-rail-seats { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.play-rail-seat { width: 14px; height: 14px; opacity: 0.45; }
+.play-rail-seat.ready { opacity: 1; filter: drop-shadow(0 0 2px var(--amber)); }
+.play-rail-seat.gone { opacity: 0.2; }
+.play-rail-supply { font-family: var(--font-display); font-size: var(--t-2); letter-spacing: 0.04em; line-height: 1; }
+.play-rail-lines { min-width: 18px; padding: 1px 4px; border-radius: 9px; background: var(--paper); color: var(--ink); font-family: var(--font-display); font-size: 11px; line-height: 14px; text-align: center; }
+.play-rail-lines:empty { display: none; }
+.play-rail-pips { display: flex; flex-direction: column; align-items: center; padding: var(--s-1) 0 var(--s-2); border-top: var(--w-divider) solid rgba(233, 223, 198, 0.14); }
+.play-pip { width: 40px; height: 26px; padding: 0; border: 0; background: none; cursor: pointer; display: grid; place-items: center; }
+.play-pip::before { content: ""; width: 10px; height: 10px; border-radius: 50%; border: var(--w-outline) solid var(--paper); box-sizing: border-box; }
+.play-pip.ordered::before { background: var(--paper); }
+.play-pip.pinned::before { border-color: var(--rust); }
+.play-pip.danger::before { border-color: var(--rust); background: var(--rust); }
+.play-pip.down::before { opacity: 0.3; border-style: dotted; }
+.play-pip.selected::before { width: 14px; height: 14px; box-shadow: 0 0 0 2px var(--amber); }
 
-.play-tray {
-  grid-area: tray; min-width: 0; box-shadow: none; border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0;
-  padding: 26px var(--s-2) var(--s-2);
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "squad lever" "chits lever";
-  gap: var(--s-2);
+/* the drawer, over the board */
+.play-scrim { position: absolute; inset: 0; z-index: 2; background: rgba(30, 36, 32, 0.25); }
+.play-drawer {
+  position: absolute; top: 0; bottom: 0; right: 40px; z-index: 3; width: min(340px, calc(100% - 88px));
+  display: flex; flex-direction: column; gap: var(--s-3); padding: var(--s-3) var(--s-2) var(--s-2);
+  background: var(--ink); color: var(--paper); border-left: var(--w-frame) solid var(--ink);
+  box-shadow: -6px 0 18px rgba(0, 0, 0, 0.35);
+  overflow-y: auto; scrollbar-width: thin;
 }
-.play-squad {
-  grid-area: squad; display: flex; gap: var(--s-2); overflow-x: auto; min-width: 0;
-  padding: 3px; margin: -3px; scroll-padding: 3px;     /* room for the selection outline */
-  scrollbar-width: none;
-}
-.play-squad::-webkit-scrollbar { display: none; }
-.play .unit { flex: none; width: 176px; padding: var(--s-1); grid-template-columns: 40px minmax(0, 1fr); cursor: pointer; user-select: none; }
+.play-drawer-part { flex: none; display: flex; flex-direction: column; gap: var(--s-2); }
+.play-drawer-part > .label { color: var(--khaki); }
+.play-standing { display: flex; align-items: center; gap: var(--s-2); }
+.play-mode { margin-left: auto; font-family: var(--font-display); font-size: var(--t-2); letter-spacing: 0.1em; text-transform: uppercase; color: var(--paper); white-space: nowrap; }
+.play-lamps { display: flex; flex-direction: column; gap: var(--s-1); min-width: 0; }
+.play-lamp { display: flex; align-items: center; gap: var(--s-1); min-width: 0; }
+.play-lamp .lamp { flex: 1; min-width: 0; gap: var(--s-1); }
+.play-lamp .lamp .text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 22ch; }
+.play-lamp .lamp b { margin-left: auto; font-family: var(--font-display); font-size: var(--t-3); letter-spacing: 0.04em; }
+.play-lamp.own .lamp .text { font-weight: 700; }
+.play-squad { display: flex; flex-direction: column; gap: var(--s-2); padding: 3px; margin: -3px; }
+.play .unit { width: auto; padding: var(--s-1) var(--s-2); grid-template-columns: 40px minmax(0, 1fr); cursor: pointer; user-select: none; }
 .play .unit .face { width: 40px; height: 40px; }
 .play .unit .face svg { width: 30px; height: 30px; }
 .play .unit .mark { display: none; }     /* every card here is the player's own; the mark is on their lamp */
@@ -146,45 +160,53 @@ main > .report { margin-bottom: var(--s-3); max-width: none; }
 .play .unit .play-order.danger { color: var(--rust); }
 .play .unit.down { cursor: default; }
 .play .unit.selected { outline-offset: 0; }
+.play-strip { max-width: none; }
+.play-log { display: flex; flex-direction: column; gap: 1px; }
+.play-log .report { max-width: none; padding: var(--s-1) var(--s-2); }
+
+/* a warning, over the board for a moment */
+.play-toast {
+  position: absolute; top: var(--s-2); left: 50%; transform: translateX(-50%); z-index: 1;
+  width: max-content; max-width: min(520px, calc(100% - 64px)); pointer-events: none;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* the tray: who, his chits, the lever */
+.play-tray {
+  grid-area: tray; min-width: 0; box-shadow: none; border-left: 0; border-right: 0; border-bottom: 0; border-radius: 0;
+  padding: 22px var(--s-2) var(--s-2);
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "chits lever";
+  gap: var(--s-2); align-items: end;
+}
+.play-tray > .play-who { max-width: calc(100% - 96px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .play-chits { grid-area: chits; display: flex; gap: var(--s-1); min-width: 0; padding-bottom: 3px; }
 .play .chit { width: 56px; height: 56px; flex: none; font-size: 11px; letter-spacing: 0.04em; }
+@media (max-width: 480px) {
+  .play .chit { flex: 1 1 0; width: auto; min-width: 0; height: 52px; font-size: 0; }   /* icons carry it; the words stay for screen readers */
+  .play .chit.play-set { margin-left: 0; }
+}
 .play .chit svg { width: 24px; height: 24px; }
-.play .lever-box { grid-area: lever; align-self: end; }
-.play .lever-legends, .play-ready-text { display: none; }
-.play-lever-word { position: absolute; top: var(--s-1); right: var(--s-4); }
+.play .chit.play-set { margin-left: var(--s-2); background: var(--amber); }
+.play .lever-box { grid-area: lever; }
+/* the ready lever, a little shorter (56 x 92 rather than 64 x 112): the same part, travelling the same way */
+.play .lever { width: 56px; height: 92px; }
+.play .lever .handle { left: 6px; right: 6px; }
+.play .lever.down .handle, .play .lever.locked .handle { top: 48px; }
+.play .lever-legends { display: none; }
 .play-out { grid-column: 1 / -1; margin: 0; max-width: none; font-size: var(--t-2); }
 .play-tray.out { padding-bottom: var(--s-3); }
 
 @media (min-width: 900px) and (min-height: 501px) {
-  .play {
-    grid-template-columns: minmax(0, 1fr) 372px; grid-template-rows: auto minmax(0, 1fr) auto;
-    grid-template-areas: "board top" "board tray" "report tray";
-  }
-  .play-top { border-left: var(--w-frame) solid var(--ink); padding: var(--s-2); gap: var(--s-2); }
-  .play-lamps { flex-basis: 100%; flex-direction: column; align-items: stretch; gap: var(--s-1); }
-  .play-lamp .lamp .text { max-width: 22ch; }
-  .play-lamp .lamp { flex: 1; }
-  .play-lamp .lamp b { margin-left: auto; }
-  .play .readout { min-width: 88px; padding: var(--s-1) var(--s-2); flex-direction: column; align-items: center; gap: 0; }
-  .play-readouts { flex: none; }
-  .play .readout b { font-size: var(--t-5); }
-  .play-tray {
-    border-left: var(--w-frame) solid var(--ink); border-top: 0;
-    padding: var(--s-4) var(--s-3) var(--s-3);
-    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto auto;
-    grid-template-areas: "squad" "chits" "lever"; gap: var(--s-3);
-  }
-  .play-squad { flex-direction: column; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
-  .play .unit { width: auto; grid-template-columns: 40px minmax(0, 1fr) 20px; padding: var(--s-1) var(--s-2); }
-  .play .unit .mark { display: block; }
+  .play-top { padding: var(--s-1) var(--s-3); }
+  .play-readouts { justify-content: flex-start; gap: var(--s-3); }
+  .play-tray { padding: 22px var(--s-3) var(--s-2); }
   .play-chits { gap: var(--s-2); }
   .play .chit { width: 60px; height: 60px; }
   .play .chit svg { width: 28px; height: 28px; }
   .play .lever-legends { display: flex; }
-  .play-lever-word { display: none; }
-  .play-ready-text { display: block; margin: 0; align-self: center; padding-left: var(--s-2); }
-  .play-strip { height: 44px; }
-  .play-strip .report { padding: 13px var(--s-3); -webkit-line-clamp: 1; line-clamp: 1; }
+  .play-rail { width: 44px; }
+  .play-pip { width: 44px; }
+  .play-drawer { right: 44px; width: 360px; }
 }
 
 /* ---------- results ---------- */
@@ -328,46 +350,29 @@ main > .report { margin-bottom: var(--s-3); max-width: none; }
   .results-table { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-2) var(--s-3); margin-bottom: var(--s-2); }
   .results-row { padding: var(--s-2); gap: var(--s-2); }
 
-  /* ---- play */
+  /* ---- play: the board takes the left and the whole height; the bar and the tray are one column on the right */
   .play {
-    grid-template-columns: minmax(0, 1fr) var(--kit); grid-template-rows: auto auto minmax(0, 1fr);
-    grid-template-areas: "board top" "board report" "board tray";
+    grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas: "board top" "board tray";
   }
-  .play-top { border-bottom: 0; border-left: var(--w-frame) solid var(--ink); padding: var(--s-1) var(--s-2); gap: var(--s-1) var(--s-2); }
-  .play-readouts { flex: 1 1 100%; gap: var(--s-1); }
-  .play .readout { flex: 1 1 0; min-width: 0; flex-direction: column; align-items: center; gap: 0; padding: 2px var(--s-1); }
+  .play-top { border-left: var(--w-frame) solid var(--ink); padding: var(--s-1); }
+  .play-readouts { flex-direction: column; gap: 2px; }
+  .play .readout { min-width: 0; flex-direction: column; align-items: center; gap: 0; padding: 2px var(--s-1); }
   .play .readout b { font-size: var(--t-3); line-height: 1.2; }
   .play .readout span { line-height: 1.2; }
-  .play-lamps { gap: 0 var(--s-2); min-height: 0; }
-  .play-lamp .lamp .text { max-width: 5ch; }
-
-  .play-report { border-top: 0; border-left: var(--w-frame) solid var(--ink); background: var(--paper); }
-  .play-strip { flex-direction: column; height: 86px; }
-  .play-strip .report { flex: 1; -webkit-line-clamp: 3; line-clamp: 3; padding: 6px var(--s-2); }
-  .play-count { flex: none; height: 20px; padding: 0 var(--s-2); justify-content: end; border-left: 0; border-top: var(--w-divider) solid var(--ink); }
-  .play-log {
-    left: auto; right: 100%; bottom: 0; width: min(420px, 60vw); max-height: calc(100dvh - var(--safe-t) - var(--safe-b));
-    border-top: 0; border-left: 0; border-right: var(--w-frame) solid var(--ink);
-  }
-
+  .play .readout .play-light { max-width: 104px; }
   .play-tray {
-    border-top: var(--w-frame) solid var(--ink); border-left: var(--w-frame) solid var(--ink); border-right: 0; border-bottom: 0;
-    padding: 26px var(--s-2) var(--s-2);
-    grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: minmax(0, 1fr) auto;
-    grid-template-areas: "squad lever" "chits chits"; gap: var(--s-2);
+    border-top: 0; border-left: var(--w-frame) solid var(--ink);
+    padding: 22px var(--s-1) var(--s-1); width: 120px;
+    grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto;
+    grid-template-areas: "chits" "lever"; align-items: start;
   }
-  .play-squad { flex-direction: column; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
-  .play .unit { width: auto; grid-template-columns: 32px minmax(0, 1fr); padding: 2px var(--s-1); gap: var(--s-1); }
-  .play .unit .face { width: 32px; height: 32px; }
-  .play .unit .face svg { width: 24px; height: 24px; }
-  .play-chits { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--s-1); padding-bottom: 3px; }
-  .play .chit { width: auto; height: 48px; padding: 2px 1px; letter-spacing: -0.02em; }
-  .play .lever-box { align-self: start; }
-  /* the ready lever, a little shorter (56 x 92 rather than 64 x 112): the same part, travelling the same way */
-  .play .lever { width: 56px; height: 92px; }
-  .play .lever .handle { left: 6px; right: 6px; }
-  .play .lever.down .handle, .play .lever.locked .handle { top: 48px; }
-  .play-lever-word { display: none; }
+  .play-tray > .play-who { max-width: calc(100% - 16px); }
+  .play-chits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--s-1); }
+  .play .chit { width: auto; height: 44px; padding: 2px 1px; font-size: 0; }
+  .play .chit svg { width: 22px; height: 22px; }
+  .play .lever-box { justify-self: center; }
+  .play-tray > .play-who { font-size: 11px; letter-spacing: 0.04em; }
 
   /* ---- field manual: the keys and the playback on top, then what is being said, then the lesson */
   .manual {
@@ -397,11 +402,6 @@ main > .report { margin-bottom: var(--s-3); max-width: none; }
     .lobby-manual .note { display: block; }
   }
 
-  /* too narrow for the chit words: the icons carry it (the words stay in the page for screen readers) */
-  @media (max-width: 719px) {
-    .play .chit { font-size: 0; height: 44px; }
-    .play .chit svg { width: 24px; height: 24px; }
-  }
 }
 
 /* Buying back a downed man (18): a small key on his card. */

@@ -42,6 +42,7 @@ section *v2* below; each task folds what it changes into the v1 sections when it
 - [x] 27 Diorama woods and buildings — the diorama kit's own `woods` and `building` tiles (needs 26)
 - [x] 28 Diorama water, crops and walls — the kit's own `water`, `crops` and `wall` tiles; tiles learn their neighbours (needs 27)
 - [x] 29 Diorama units — the kit's own gunner, sniper, mortar, medic and engineer figures (needs 28)
+- [x] 30 Play screen: the rail and Set — standings, squad and lines fold into a rail and drawer over the board; Set ends aiming a route
 
 ## Dependencies
 

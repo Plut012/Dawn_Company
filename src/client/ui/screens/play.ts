@@ -51,8 +51,9 @@ const surnames = (units: Unit[]): string => units.map((u) => u.name.replace(/^\S
 
 const wait = (ms: number): Promise<void> => new Promise((done) => setTimeout(done, ms));
 
-/** The layout for a phone on its side; keep in step with the media query in app.css. */
-const sideways = window.matchMedia('(orientation: landscape) and (max-height: 500px)');
+// (30) The Set chit: done shaping a route.
+const SET_ICON = '<path d="M6 17l7 7L26 8"/>';
+const TOAST_MS = 4_000;
 
 export const playScreen: Screen = {
   mount(root: HTMLElement, app: App): () => void {
@@ -74,56 +75,88 @@ export const playScreen: Screen = {
     let rejected = new Map<UnitId, string>();
     let log: Line[] = [];                                   // the last round's report lines
     let note: Line | null = null;                           // a passing line: an answer to the last tap
-    let logOpen = false;
+    let read = 0;                                           // (30) how many of the round's lines have been seen in the drawer
+    let drawerOpen = false;                                 // (30) the rail opened into its drawer
+    let toasted = '';                                       // the warning last put over the board
+    let toastTimer: ReturnType<typeof setTimeout> | null = null;
     let deadline: number | null = null;
     let online = true;
     let board: Board | null = null;
     let framed = false;                                     // the camera has been put on the squad once
 
     // ---- parts
+    // (30) The board has the screen. Above it only the round and the clock; below it the selected man's
+    // chits and the lever. Standings, the squad and the lines sit in a rail at the board's right edge,
+    // quiet until it is opened into a drawer over the board (the board never resizes for it).
     const roundOut = readout('Round', '–');
     const lightOut = el('i', 'play-light');                 // the light of the round (19)
     roundOut.append(lightOut);
-    const scoreOut = readout('Supply', '0');
     const timeOut = readout('Time', '–');
     const readouts = el('div', 'play-readouts');
-    const modeOut = el('span', 'play-mode');                // the mode's name, in the header
-    readouts.append(roundOut, scoreOut, timeOut, modeOut);
-    const lamps = el('div', 'play-lamps');
+    readouts.append(roundOut, timeOut);
     const top = el('header', 'play-top');
-    top.append(readouts, lamps);
+    top.append(readouts);
+
+    // the drawer: standings, squad, lines
+    const modeOut = el('span', 'play-mode');                // the mode's name
+    const scoreOut = readout('Supply', '0');
+    const lamps = el('div', 'play-lamps');
+    const squadRow = el('div', 'play-squad');
+    const strip = report('');                               // what is going on now: the answer to the last tap, or the unit's state
+    strip.classList.add('play-strip');
+    const logList = el('div', 'play-log');
+    const section = (title: string, ...parts: HTMLElement[]): HTMLElement => {
+      const s = el('section', 'play-drawer-part');
+      s.append(el('span', 'label', title), ...parts);
+      return s;
+    };
+    const standing = el('div', 'play-standing');
+    standing.append(scoreOut, modeOut);
+    const drawer = el('aside', 'play-drawer');
+    drawer.id = 'play-drawer';
+    drawer.hidden = true;
+    drawer.append(section('Standing', standing, lamps), section('Squad', squadRow), section('Lines', strip, logList));
+    const scrim = el('div', 'play-scrim');                  // a tap on the board while the drawer is open closes it
+    scrim.hidden = true;
+    scrim.addEventListener('click', () => openDrawer(false));
+
+    // the rail: the drawer folded to marks
+    const railKey = el('button', 'play-rail-key');
+    railKey.type = 'button';
+    railKey.setAttribute('aria-controls', drawer.id);
+    railKey.setAttribute('aria-expanded', 'false');
+    railKey.title = 'Standings, squad and lines';
+    const railSeats = el('div', 'play-rail-seats');         // a mark per player, lit when ready
+    const railSupply = el('b', 'play-rail-supply');
+    const railPips = el('div', 'play-rail-pips');           // a pip per man: tap to pick him
+    const railLines = el('span', 'play-rail-lines');        // lines not read yet
+    railKey.append(railSeats, railSupply, railLines);
+    const rail = el('nav', 'play-rail');
+    rail.setAttribute('aria-label', 'Squad');
+    rail.append(railKey, railPips);
+    railKey.addEventListener('click', () => openDrawer(!drawerOpen));
+
+    const toast = report('');                               // a warning, over the board for a moment
+    toast.classList.add('play-toast');
+    toast.hidden = true;
 
     const canvas = el('canvas');
     const boardBox = el('div', 'play-board');
-    boardBox.append(canvas);
+    boardBox.append(canvas, toast, scrim, drawer, rail);
 
-    const strip = report('');
-    const stripCount = el('span', 'play-count');
-    const stripKey = el('button', 'play-strip');
-    stripKey.type = 'button';
-    stripKey.setAttribute('aria-expanded', 'false');
-    stripKey.append(strip, stripCount);
-    const logList = el('div', 'play-log');
-    logList.hidden = true;
-    const reportBox = el('div', 'play-report');
-    reportBox.append(logList, stripKey);
-    stripKey.addEventListener('click', () => { logOpen = !logOpen && log.length > 0; refresh(); });
-
-    const squadRow = el('div', 'play-squad');
+    const who = el('span', 'label play-who');               // the selected man, over his chits
     const chitRow = el('div', 'play-chits');
     const readyLever = lever({ label: 'Ready', onChange: (down) => throwLever(down) });
     const legend = el('div', 'lever-legend lever-legends');
     legend.append(el('span', '', 'Plan'), el('span', '', 'Ready'));
-    const leverWord = el('span', 'lever-legend play-lever-word');    // where there is no room for the legend
-    const leverText = el('p', 'play-ready-text');
     const leverBox = el('div', 'lever-box');
-    leverBox.append(readyLever, legend, leverWord, leverText);
+    leverBox.append(readyLever, legend);
     const outLine = el('p', 'play-out', 'Your squad is out. You see the whole field now. Your supply stands to the end.');
     const tray = el('section', 'panel play-tray');
-    tray.append(el('span', 'label', 'Squad'), squadRow, chitRow, leverBox, outLine);
+    tray.append(who, chitRow, leverBox, outLine);
 
     const screen = el('div', 'play');
-    screen.append(top, boardBox, reportBox, tray);
+    screen.append(top, boardBox, tray);
     root.replaceChildren(screen);
 
     // ---- small helpers
@@ -275,7 +308,7 @@ export const playScreen: Screen = {
         const max = allowance(view, sel, mode);
         return mode === 'dash'
           ? { text: `Dash, up to ${max}: tap a marked hex. No cover on the run; one hit puts him down.${dugIn(sel) ? ` ${FOXHOLE_LEAVES}` : ''}`, danger: false }
-          : { text: `Move, up to ${max}: tap a marked hex. Tap on from there to shape the route.${canFollow(sel) ? ' Then a chit for what he does there.' : ''}${dugIn(sel) ? ` ${FOXHOLE_LEAVES}` : ''}`, danger: false };
+          : { text: `Move, up to ${max}: tap a marked hex. Tap on from there to shape the route, then Set (or tap its end again).${canFollow(sel) ? ' Then a chit for what he does there.' : ''}${dugIn(sel) ? ` ${FOXHOLE_LEAVES}` : ''}`, danger: false };
       }
       if (mode === 'fire' || mode === 'special') {
         const follow = followTargets(sel, mode);
@@ -385,24 +418,43 @@ export const playScreen: Screen = {
         card.title = `${unitName(u)}, ${(def?.name ?? u.type).toLowerCase()}, at ${label(u.pos)}${u.status === 'down' ? '' : `, ${stance(v.map, u)}`}${dugIn(u) ? `, dug in: ${FOXHOLE_GIVES}` : ''}`;
         card.dataset.dug = String(dugIn(u));
         if (u.status !== 'down') card.dataset.stance = stance(v.map, u);
-        card.addEventListener('click', () => pressCard(u.id));
-        card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pressCard(u.id); } });
+        const pick = (): void => { pressCard(u.id); if (u.status !== 'down' && drawerOpen) openDrawer(false); };
+        card.addEventListener('click', pick);
+        card.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } });
         return card;
       }));
 
-      // a phone on its side lists the squad top to bottom in a short box: keep the selected card in it
-      if (sideways.matches && squadRow.scrollHeight > squadRow.clientHeight + 1) {
-        const card = squadRow.querySelector<HTMLElement>('.unit.selected');
-        if (card) {
-          const c = card.getBoundingClientRect();
-          const box = squadRow.getBoundingClientRect();
-          if (c.top < box.top) squadRow.scrollTop += c.top - box.top - 3;
-          else if (c.bottom > box.bottom) squadRow.scrollTop += c.bottom - box.bottom + 3;
-        }
-      }
+      // (30) the rail: a mark per player (lit when ready), the supply, a pip per man, the lines not yet read
+      railSeats.replaceChildren(...seats.map((s) => {
+        const m = playerMark(s.seat, 'play-rail-seat');
+        m.classList.toggle('ready', s.ready && !s.out);
+        m.classList.toggle('gone', s.out || !s.connected);
+        return m;
+      }));
+      railSupply.textContent = String(left);
+      railKey.setAttribute('aria-label', `${word} ${left}. ${seats.map((s) => `${s.name} ${s.out ? 'out' : s.ready ? 'ready' : 'planning'}`).join(', ')}. Open the standings, squad and lines.`);
+      const unread = Math.max(0, log.length - read);
+      railLines.textContent = unread > 0 ? String(unread) : '';
+      railPips.replaceChildren(...(out ? [] : ownUnits(v)).map((u) => {
+        const o = draft[u.id];
+        const pip = el('button', 'play-pip');
+        pip.type = 'button';
+        pip.classList.toggle('ordered', !!o && u.status !== 'down');
+        pip.classList.toggle('down', u.status === 'down');
+        pip.classList.toggle('pinned', u.status === 'pinned');
+        pip.classList.toggle('danger', rejected.has(u.id) || underFire.has(u.id));
+        pip.classList.toggle('selected', u.id === selected);
+        pip.setAttribute('aria-pressed', String(u.id === selected));
+        pip.dataset.unit = u.id;
+        pip.title = `${unitName(u)}: ${u.status === 'down' ? 'down' : orderLabel(o, u.type)}`;
+        pip.addEventListener('click', () => pressCard(u.id));
+        return pip;
+      }));
 
       // chits
       const sel = unit(selected);
+      const name = sel ? unitName(sel) : '';
+      who.textContent = sel ? `${name}${sel.status === 'ready' ? '' : ` · ${sel.status}`}` : 'Squad';
       const live = sel && sel.status !== 'down' ? sel : null;
       const options = live ? orderOptions(v, live.id) : null;
       const kinds: ChitKind[] = ['hold', ...(options?.kinds ?? (['move', 'dash', 'fire', 'ambush'] as OrderKind[]))];
@@ -430,31 +482,64 @@ export const playScreen: Screen = {
         c.dataset.kind = k;
         return c;
       }));
+      // (30) A move or dash being aimed stays open so the route can be shaped; Set closes it (so does a
+      // second tap on the route's end), and only then does a tap on a teammate pick him.
+      if (live && !locked && (mode === 'move' || mode === 'dash') && !(choosing && choosing.unit === live.id)) {
+        const set = chit({ label: 'Set', icon: SET_ICON, state: 'idle', onPress: () => setAim() });
+        set.classList.add('play-set');
+        set.dataset.kind = 'set';
+        set.title = 'Set: done shaping the route (Enter, or tap its end again)';
+        chitRow.append(set);
+      }
 
       // lever, and the line for a squad that is out
       readyLever.set(phase === 'playback' ? 'locked' : phase === 'sent' ? 'down' : 'up');
-      leverWord.textContent = phase === 'playback' ? 'Resolving' : phase === 'sent' ? 'Ready' : 'Pull when set';
-      const waiting = seats.filter((s) => !s.ready && !s.out && s.seat !== v.player).map((s) => s.name);
-      leverText.textContent =
-        phase === 'playback' ? 'The round is resolving. The lever is locked.'
-        : phase === 'sent' ? `Orders are in.${waiting.length > 0 ? ` Waiting on ${waiting.join(', ')}.` : ''} Lever up to change them.`
-        : `Pull the lever when every unit has its order. Units with none hold.${deadline !== null ? ' If the clock runs out first, your orders run as they stand.' : ''}`;
-      squadRow.hidden = chitRow.hidden = leverBox.hidden = out;
+      chitRow.hidden = leverBox.hidden = out;
       outLine.hidden = !out;
       tray.classList.toggle('out', out);
 
-      // report strip and the round's lines
+      // what is going on now, and the round's lines, in the drawer; a warning also over the board for a moment
       const line = note ?? standingLine();
       strip.set(line.text, line.danger);
-      stripCount.textContent = log.length > 0 ? (logOpen ? 'Close' : `Log ${log.length}`) : '';
-      stripKey.setAttribute('aria-expanded', String(logOpen));
-      logList.hidden = !logOpen;
-      if (logOpen) {
+      if (drawerOpen) {
         logList.replaceChildren(...log.map((l) => report(l.text, l.danger)));
         logList.scrollTop = logList.scrollHeight;
       }
+      flash(line);
 
       board?.setMarks(marks());
+    }
+
+    /** (30) A warning line goes over the board for a few seconds, once per line; anything else clears it. */
+    function flash(line: Line): void {
+      if (!line.danger || drawerOpen) {
+        toasted = line.danger ? line.text : '';
+        toast.hidden = true;
+        return;
+      }
+      if (line.text === toasted) return;
+      toasted = line.text;
+      toast.set(line.text, true);
+      toast.hidden = false;
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { toast.hidden = true; }, TOAST_MS);
+    }
+    off.push(() => { if (toastTimer) clearTimeout(toastTimer); });
+
+    function openDrawer(open: boolean): void {
+      drawerOpen = open;
+      drawer.hidden = scrim.hidden = !open;
+      railKey.setAttribute('aria-expanded', String(open));
+      rail.classList.toggle('open', open);
+      if (open) { read = log.length; toast.hidden = true; }
+      refresh();
+    }
+
+    /** (30) Done aiming a move or dash: the route stands as drawn. */
+    function setAim(): void {
+      mode = null;
+      note = null;
+      refresh();
     }
 
     /**
@@ -594,6 +679,7 @@ export const playScreen: Screen = {
           const o = draft[sel.id];
           const current = o && o.kind === kind ? o.path : [];
           const then = kind === 'move' ? followUpOf(draft, sel.id) : null;
+          if (current.length > 0 && eq(current[current.length - 1], hex)) { setAim(); return; }   // (30) its end again: set
           const route = layRoute(v.map, sel.pos, current, hex, allowance(v, sel, kind));
           if (route === null) say(`${label(hex)} is out of reach for ${unitName(sel)}.`);
           else if (route.length === 0) setOrder(null, sel.id);        // clearing the move clears its follow-up
@@ -701,12 +787,15 @@ export const playScreen: Screen = {
         e.preventDefault();
         select(next.id);
         refresh();
+      } else if (e.key === 'Enter' && (mode === 'move' || mode === 'dash') && !(e.target instanceof HTMLButtonElement)) {
+        e.preventDefault();
+        setAim();
       } else if (e.key === 'Escape') {
         mode = null;
         pending = null;
         choosing = null;
         note = null;
-        logOpen = false;
+        if (drawerOpen) openDrawer(false);
         refresh();
       }
     }
@@ -776,8 +865,8 @@ export const playScreen: Screen = {
       pending = null;
       choosing = null;
       note = null;
-      logOpen = false;
       log = [];
+      read = 0;
       const tell = teller(view, names());
       refresh();
       const list = moments(m.events);
