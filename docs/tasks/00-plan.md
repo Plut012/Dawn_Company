@@ -1,4 +1,4 @@
-# Dawn Squad — Master Plan
+# Dawn Company — Master Plan
 
 Source of truth for project state. Read with `docs/vision.md` (what and why)
 and `docs/design.md` (how it looks). Every cross-task interface is pinned
@@ -786,7 +786,7 @@ interface Net {
   on<T extends ServerMsg['t']>(t: T, cb: (msg: Extract<ServerMsg, { t: T }>) => void): () => void;
   onStatus(cb: (online: boolean) => void): void;
 }
-// The seat token is kept in localStorage under `dawn-squad-token-${slot}`.
+// The seat token is kept in localStorage under `dawn-company-token-${slot}`.
 // `slot` comes from the `?slot=` URL parameter, default "default".
 
 // ui/components.ts — each returns an HTMLElement; state is set by attribute or method

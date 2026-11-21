@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Dawn Squad — build the client and host a match on this machine.
+# Dawn Company — build the client and host a match on this machine.
 # Usage: ./run.sh [--port 8080] [--timer 90] [--resume matches/<file>.jsonl]
 # Any arguments are passed straight to the server.
 set -euo pipefail

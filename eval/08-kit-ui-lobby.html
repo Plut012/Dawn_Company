@@ -212,7 +212,7 @@ press the keys, step the stepper, type in the field, and press the lamp cycle ke
     box.append(head, iframe); frames.append(box); frameEls[slot] = iframe;
   }
   document.getElementById('forget').onclick = () => {
-    for (const slot of ['a', 'b', 'c']) for (const k of ['token', 'name']) localStorage.removeItem(`dawn-squad-${k}-${slot}`);
+    for (const slot of ['a', 'b', 'c']) for (const k of ['token', 'name']) localStorage.removeItem(`dawn-company-${k}-${slot}`);
     for (const f of Object.values(frameEls)) f.contentWindow.location.reload();
     say('Forgot the remembered seats and names; frames reloaded.');
   };

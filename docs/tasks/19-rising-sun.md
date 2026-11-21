@@ -1,7 +1,7 @@
 # 19 — The rising sun
 
 ## Overview
-*Dawn Squad*: the match begins in half-light and the sun comes up. Every
+*Dawn Company*: the match begins in half-light and the sun comes up. Every
 unit's sight grows round by round, so the opening favours infiltration and
 the end favours firepower, and nobody can hide forever. The board's light
 follows the dawn.

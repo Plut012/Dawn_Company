@@ -1,4 +1,4 @@
-# Dawn Squad
+# Dawn Company
 
 A simultaneous-turn tactical skirmish for 2–4 players in one room. One laptop
 hosts; everyone joins from a browser on a laptop or phone on the same wifi.

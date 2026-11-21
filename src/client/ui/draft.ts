@@ -244,7 +244,7 @@ export function workWord(work: WorkId): string {
 
 export interface DraftStore { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void }
 
-const storeKey = (slot: string): string => `dawn-squad-draft-${slot}`;
+const storeKey = (slot: string): string => `dawn-company-draft-${slot}`;
 
 /** What ties a saved draft to one round of one match for one seat: where every own unit stands. */
 export function draftSignature(token: string | null, view: PlayerView): string {

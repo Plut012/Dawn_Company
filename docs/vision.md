@@ -1,4 +1,4 @@
-# Dawn Squad — Vision & Architecture
+# Dawn Company — Vision & Architecture
 
 ## Vision
 

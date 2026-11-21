@@ -4,7 +4,7 @@
 The game as the player meets it. The play screen puts the 3D board in the
 middle of a field kit: pick a unit, pick an order chit, tap the map, pull
 the lever. When everyone is ready the round plays back, and it starts again.
-The results screen closes the match. After this task Dawn Squad is playable
+The results screen closes the match. After this task Dawn Company is playable
 end to end.
 
 Read first: `docs/vision.md` (Pillars, The match), `docs/design.md` (all;

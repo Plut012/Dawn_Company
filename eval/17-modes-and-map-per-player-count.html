@@ -199,8 +199,8 @@ Last Stand needs at least one, and the Scout section has no mortar.</p>
     key({ label: 'Run the walk-through', onPress: () => walk().catch((e) => say(`Walk-through stopped: ${e.message}`, true)) }),
     key({ label: 'Forget seats', onPress: () => {
       for (const [slot] of Object.values(slots)) {
-        localStorage.removeItem(`dawn-squad-token-${slot}`);
-        localStorage.removeItem(`dawn-squad-name-${slot}`);
+        localStorage.removeItem(`dawn-company-token-${slot}`);
+        localStorage.removeItem(`dawn-company-name-${slot}`);
       }
       for (const [id, [slot]] of Object.entries(slots)) frames[id].src = `/?slot=${slot}`;
       say('Seat tokens removed and the frames reloaded. After a server restart, use this first.');

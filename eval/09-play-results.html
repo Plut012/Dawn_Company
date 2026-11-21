@@ -120,13 +120,13 @@ Weapons section (Bo, plum chevron), 15-minute timer for the first ten rounds and
         // The UI only ever builds legal orders, so to see a rejection the saved draft is edited by hand,
         // as a stale page would have it: seat B's first living unit is told to move across the map in one step.
         const store = frames.b.contentWindow.sessionStorage;
-        const raw = store.getItem('dawn-squad-draft-b');
+        const raw = store.getItem('dawn-company-draft-b');
         if (!raw) { say('Seat B has no draft yet. Start a match first.'); return; }
         const saved = JSON.parse(raw);
         const live = [...saved.signature.matchAll(/(\d+-\d+):[a-z]+:-?\d+,-?\d+:(ready|pinned)/g)][0];
         if (!live) { say('Could not read seat B\'s units from its draft.'); return; }
         saved.draft[live[1]] = { unit: live[1], kind: 'move', path: [{ q: 0, r: 0 }] };
-        store.setItem('dawn-squad-draft-b', JSON.stringify(saved));
+        store.setItem('dawn-company-draft-b', JSON.stringify(saved));
         reload('b');
         say(`Unit ${live[1]} of seat B now has a move order with a gap in it, and the frame was reloaded. Pull seat B's lever: it comes back up and the strip says why.`);
       },
@@ -135,8 +135,8 @@ Weapons section (Bo, plum chevron), 15-minute timer for the first ten rounds and
       label: 'Forget seats',
       onPress: () => {
         for (const slot of ['a', 'b']) {
-          localStorage.removeItem(`dawn-squad-token-${slot}`);
-          sessionStorage.removeItem(`dawn-squad-draft-${slot}`);
+          localStorage.removeItem(`dawn-company-token-${slot}`);
+          sessionStorage.removeItem(`dawn-company-draft-${slot}`);
           reload(slot);
         }
         say('Seat tokens and drafts for A and B removed, frames reloaded. Use this after restarting the server.');

@@ -481,7 +481,7 @@ rework mentioned in section 3).</p>
   const frames = [...document.querySelectorAll('.frame iframe')];
   function load() {
     for (const f of frames) {
-      try { sessionStorage.removeItem(`dawn-squad-draft-${f.dataset.slot}`); } catch { /* nothing kept */ }
+      try { sessionStorage.removeItem(`dawn-company-draft-${f.dataset.slot}`); } catch { /* nothing kept */ }
       f.src = `/eval/14-play-frame.html?slot=${f.dataset.slot}&foe=${foe}&t=${Date.now()}`;
     }
     $('foe-hold').setAttribute('aria-pressed', String(foe === 'hold'));

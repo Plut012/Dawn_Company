@@ -302,8 +302,8 @@ next round the shot at him hits the sandbags (he walked, so he is not dug in). T
   $('bar').append(
     keyButton({ label: 'Take the seats', onPress: async () => {
       for (const [id, [slot, token, name]] of Object.entries(slots)) {
-        localStorage.setItem(`dawn-squad-token-${slot}`, token);
-        localStorage.setItem(`dawn-squad-name-${slot}`, name);
+        localStorage.setItem(`dawn-company-token-${slot}`, token);
+        localStorage.setItem(`dawn-company-name-${slot}`, name);
         await load(frames[id], `/?slot=${slot}`);
       }
       const ok = await until(() => doc('a').querySelector('.play-squad .unit') && doc('b').querySelector('.play-squad .unit'));

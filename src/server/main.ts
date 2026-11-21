@@ -274,7 +274,7 @@ server.on('error', (e: NodeJS.ErrnoException) => {
   process.exit(1);
 });
 server.listen(port, '0.0.0.0', () => {
-  console.log(`Dawn Squad server listening on port ${port} (timer ${timerSec > 0 ? `${timerSec}s` : 'off'})`);
+  console.log(`Dawn Company server listening on port ${port} (timer ${timerSec > 0 ? `${timerSec}s` : 'off'})`);
   const urls: string[] = [];
   for (const addrs of Object.values(networkInterfaces())) {
     for (const a of addrs ?? []) if (a.family === 'IPv4' && !a.internal) urls.push(`http://${a.address}:${port}`);

@@ -161,16 +161,16 @@ out to the whole map. The hex labels were made taller (0.26 to 0.44) so that the
     // The page also keeps a copy of the draft in the tab's sessionStorage (task 09). It is cleared here first,
     // so what comes back after the reload can only have come from the server.
     key({ label: 'Reload A', onPress: () => {
-      try { frames.a.contentWindow.sessionStorage.removeItem(`dawn-squad-draft-${slots.a[0]}`); } catch { /* none */ }
+      try { frames.a.contentWindow.sessionStorage.removeItem(`dawn-company-draft-${slots.a[0]}`); } catch { /* none */ }
       frames.a.contentWindow.location.reload();
       say('Reloaded seat A with its tab-local copy of the draft removed: a new page, the seat taken back by its token. Mid-round it shows the draft the server held.');
     } }),
     key({ label: 'Reload B', onPress: () => { frames.b.contentWindow.location.reload(); say('Reloaded seat B.'); } }),
     key({ label: 'Forget seats', onPress: () => {
       for (const [slot] of Object.values(slots)) {
-        localStorage.removeItem(`dawn-squad-token-${slot}`);
-        localStorage.removeItem(`dawn-squad-name-${slot}`);
-        sessionStorage.removeItem(`dawn-squad-draft-${slot}`);
+        localStorage.removeItem(`dawn-company-token-${slot}`);
+        localStorage.removeItem(`dawn-company-name-${slot}`);
+        sessionStorage.removeItem(`dawn-company-draft-${slot}`);
         // the frames keep their own sessionStorage: reloading them with a plain URL is enough
       }
       for (const [id, [slot]] of Object.entries(slots)) frames[id].src = `/?slot=${slot}`;

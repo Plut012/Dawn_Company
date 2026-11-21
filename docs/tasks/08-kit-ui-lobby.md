@@ -42,7 +42,7 @@ interface Net {
 ```
 - Connects to `/ws` on the page's own host.
 - Keeps the seat token from `welcome` in localStorage under
-  `dawn-squad-token-${slot}`; `slot` defaults to the `?slot=` URL parameter,
+  `dawn-company-token-${slot}`; `slot` defaults to the `?slot=` URL parameter,
   or `"default"`. Also remembers the player's name.
 - Reconnects by itself with a short back-off and re-sends `join` with the
   token. Messages sent while offline are dropped, not queued.

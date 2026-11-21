@@ -1,4 +1,4 @@
-# Dawn Squad — Design Direction
+# Dawn Company — Design Direction
 
 Source of truth for every screen. The live reference is
 `docs/design/stylesheet.html` (tokens as CSS custom properties, every

@@ -199,9 +199,9 @@ describe('keeping the draft', () => {
 
   it('survives junk in the store and a missing store', () => {
     const store = memoryStore();
-    store.data.set('dawn-squad-draft-a', '{not json');
+    store.data.set('dawn-company-draft-a', '{not json');
     expect(loadDraft(store, 'a', sig)).toEqual({});
-    store.data.set('dawn-squad-draft-a', JSON.stringify({ signature: sig, draft: { [rifle.id]: { unit: rifle.id, kind: 'move' }, x: 3, [gunner.id]: draft[gunner.id] } }));
+    store.data.set('dawn-company-draft-a', JSON.stringify({ signature: sig, draft: { [rifle.id]: { unit: rifle.id, kind: 'move' }, x: 3, [gunner.id]: draft[gunner.id] } }));
     expect(loadDraft(store, 'a', sig)).toEqual({ [gunner.id]: draft[gunner.id] });
     expect(loadDraft(null, 'a', sig)).toEqual({});
     expect(() => saveDraft(null, 'a', sig, draft)).not.toThrow();

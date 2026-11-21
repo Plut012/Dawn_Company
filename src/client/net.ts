@@ -23,8 +23,8 @@ function store(): Storage | null {
 export function connect(slot?: string): Net {
   const params = new URLSearchParams(location.search);
   const name = slot ?? params.get('slot') ?? 'default';
-  const tokenKey = `dawn-squad-token-${name}`;
-  const nameKey = `dawn-squad-name-${name}`;
+  const tokenKey = `dawn-company-token-${name}`;
+  const nameKey = `dawn-company-name-${name}`;
   const read = (k: string): string | null => { try { return store()?.getItem(k) ?? null; } catch { return null; } };
   const write = (k: string, v: string): void => { try { store()?.setItem(k, v); } catch { /* private mode */ } };
 
@@ -157,11 +157,11 @@ export function connect(slot?: string): Net {
 /** The name remembered for this slot, to pre-fill the join field. */
 export function rememberedName(slot?: string): string {
   const name = slot ?? new URLSearchParams(location.search).get('slot') ?? 'default';
-  try { return window.localStorage.getItem(`dawn-squad-name-${name}`) ?? ''; } catch { return ''; }
+  try { return window.localStorage.getItem(`dawn-company-name-${name}`) ?? ''; } catch { return ''; }
 }
 
 /** True if this slot holds a seat token: the page will try to take that seat back by itself. */
 export function hasRememberedSeat(slot?: string): boolean {
   const name = slot ?? new URLSearchParams(location.search).get('slot') ?? 'default';
-  try { return window.localStorage.getItem(`dawn-squad-token-${name}`) !== null; } catch { return false; }
+  try { return window.localStorage.getItem(`dawn-company-token-${name}`) !== null; } catch { return false; }
 }

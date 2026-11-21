@@ -790,8 +790,8 @@ async function playMatch(server: Server, bots: Bot[], seed: number, tally: Tally
 
 async function main(): Promise<number> {
   const plan = Array.from({ length: matchCount }, (_, i) => ({ seed: (baseSeed + i) >>> 0, players: playersOpt ?? 2 + (i % 3) }));
-  console.log(`Dawn Squad bots: ${matchCount} matches, ${MODES[modeOpt].name}, seed ${baseSeed}${playersOpt ? `, ${playersOpt} players` : ', players 2/3/4 in turn'}`);
-  const dir = mkdtempSync(join(tmpdir(), 'dawn-squad-bots-'));
+  console.log(`Dawn Company bots: ${matchCount} matches, ${MODES[modeOpt].name}, seed ${baseSeed}${playersOpt ? `, ${playersOpt} players` : ', players 2/3/4 in turn'}`);
+  const dir = mkdtempSync(join(tmpdir(), 'dawn-company-bots-'));
   const failures: string[] = [];
   let failedMatches = 0;
   const started = Date.now();

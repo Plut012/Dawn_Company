@@ -67,7 +67,7 @@ async function startServer(timerSec: number, matches: string): Promise<{ child: 
 }
 
 beforeAll(async () => {
-  dir = mkdtempSync(join(tmpdir(), 'dawn-squad-test-'));
+  dir = mkdtempSync(join(tmpdir(), 'dawn-company-test-'));
   ({ child, port } = await startServer(0, dir));
 }, 20000);
 
@@ -133,7 +133,7 @@ describe('server over real sockets', () => {
   }, 20000);
 
   it('runs a draft that was never sent with the lever at the bell, and hands it back on reconnect', async () => {
-    const own = mkdtempSync(join(tmpdir(), 'dawn-squad-test-'));
+    const own = mkdtempSync(join(tmpdir(), 'dawn-company-test-'));
     const srv = await startServer(4, own);               // a 4 second clock of its own
     const saved = port;
     port = srv.port;
@@ -189,7 +189,7 @@ describe('server over real sockets', () => {
     for (const path of ['/..%2f..%2fpackage.json', '/../package.json', '/%2e%2e/%2e%2e/package.json', '/src/server/main.ts']) {
       const res = await fetch(`http://127.0.0.1:${port}${path}`);
       const body = await res.text();
-      expect(body).not.toContain('"dawn-squad"');
+      expect(body).not.toContain('"dawn-company"');
       expect(body).not.toContain('createServer');
     }
   });
