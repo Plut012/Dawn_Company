@@ -94,6 +94,43 @@ A single client: <code>http://localhost:5173/?kit=diorama</code>.</p>
 
 <h2 id="notes">4. Notes: what was judged, what was not, what falls short</h2>
 <div id="notes-body">
+<p><b>Second pass: water that reads as water, straight wall runs, wheat ears.</b> The stills above are the second pass's; the first pass's are kept as
+<code>*-pass1.png</code> and shown last.</p>
+<ul>
+  <li><b>Water.</b> The surface now gives back the sky of the moment as a <i>sheen</i>, a colour keyed to the dawn like the rest of the air (blue-steel at 0,
+  grey at 0.5, grey-gold at 1) and added to the surface as its own light, so it shows whatever the sun does. The camera never turns and has no perspective,
+  so a true mirror would be one flat tone; the sheen is instead brighter towards the far (north) side of the board, as a sky's reflection is, which is what
+  makes it read as a plane. Ripples are two scales of long faint streaks from the noise texture, in world space, seeded and still. Shallows take about half
+  the sheen and mud none, so the banks still read. The values were set from the whole-board stills so that at each dawn the water is lighter than its banks
+  and no brighter than open grass.</li>
+  <li><b>Walls.</b> Each half of a wall hex's line is straight towards a side where the wall runs on to an east or west wall or house, and bowed towards a side
+  where it ends, the two blended across the middle. A hex inside a run is straight from corner to corner (0.03 of sag); the last hex of a run is straight
+  and then curls back behind the base; a lone hex is the bow. A straight wall stands across the back 0.15 of the base of a man in the hex, behind his feet.
+  Spurs, turns down a hex's side and the lengths carried to a house are as they were.</li>
+  <li><b>Wheat.</b> A stalk is now a leaf (one blade, seen from both sides), a stem and an <i>ear</i>: a lozenge a seventh of the stalk long, nodding,
+  paler and yellower than the leaf. Stem and ear face the camera and have one face. Ripeness comes from two slow waves over the map plus a little per stalk,
+  pushed to its ends, so there are green drifts and gold drifts across the field rather than one mixture. Stalks beside the clearing where a base goes lean
+  away from it. <b>Cost now:</b> five triangles a stalk where it was four; counted on a hex inside a field, 2,770 triangles on the desktop setting (2,280
+  before) and 1,510 on the phone's (1,250). <code>CROPS</code> is unchanged: <code>{ desktop: { along: 0.05 }, phone: { along: 0.09 } }</code>.</li>
+</ul>
+<p><b>Judged from the stills.</b> At board scale the stream now reads as water at dawn 0.5 and 1: a grey surface with streaks, darker banks and reeds, one
+run through the ford. At dawn 0 it is a dark blue surface with streaks under the mist; it reads as water where the mist is thin and is mostly mist where a
+bank lies on it. The north wall of the hamlet (F2, G2, H2) reads as one wall with a curl at each end. The field shows gold ears over green and a green
+drift through it (B3–C4 against A5–B6).</p>
+<p><b>Not judged, second pass:</b> a real phone and frame rate; the phone settings (counted only); a bigger stream or a pond (the sheen's north-south
+gradient is over the whole board, so a short east-west stream is one tone); a long wall run on a real map; whether the sheen is ever brighter than sunlit
+grass at other camera positions (it is set by eye from these stills, not measured).</p>
+<p><b>Still short, second pass.</b></p>
+<ul>
+  <li>The sheen is a painted gradient, not a reflection: nothing on the bank is mirrored in the water, and the kit's rendered sky still adds almost nothing.</li>
+  <li>At dawn 0 the water under a bank of mist is hard to tell from low ground under mist, except by the label and the banks.</li>
+  <li>A straight wall takes the back of the base of the man in its hex. His feet, mark and most of the base are clear, but the base is cut.</li>
+  <li>The comb is still there: the lengths that go down to each house between the wall hexes north of it.</li>
+  <li>Ears are flat lozenges; close in the field is still plainly triangles, now of three kinds.</li>
+</ul>
+<hr />
+<p><b>First pass.</b></p>
+
 <p><b>Neighbours.</b> <code>tile(terrain, elevation, hex, around?)</code>: <code>around</code> is the six neighbours in <code>neighbors()</code> order
 (E, NE, NW, W, SW, SE), each <code>{ terrain, elevation }</code> or null where there is no hex. The board now keeps what it has drawn on each hex in a small
 module, <code>src/client/render/tiling.ts</code> (<code>createTiling(kit)</code>), which asks the kit for every hex of a map with its neighbours and, when a
@@ -320,6 +357,7 @@ without WebGL; <code>index.ts</code> keeps the layers, veils and occupied state.
   // ---- the stills
   {
     const stills = [
+      ['dawn-05-stream-board.png', 'Second pass. Dawn 0.5 from near the board\'s usual height: the stream as water, steel-grey, with ripples and banks'],
       ['dawn-0-stream.png', 'Dawn 0, close: the stream and the ford at D4, the mist lying on the water'],
       ['dawn-1-field.png', 'Dawn 1, close: the field, the men standing in the corn at A4 and C5; the corn at B3 whole over an unseen enemy'],
       ['dawn-1-hamlet.png', 'Dawn 1, close: the two houses ringed by walls, the gaps at F4 and H4, a man behind the wall at G2'],
@@ -332,6 +370,16 @@ without WebGL; <code>index.ts</code> keeps the layers, veils and occupied state.
       ['dawn-1-stream.png', 'Dawn 1, close: the stream in the low sun'],
       ['dawn-1-played.png', 'Dawn 1, after the round: the walker out of the field, pinned behind the wall at C3'],
       ['lowpoly-dawn-1-desktop.png', 'For comparison: lowpoly at dawn 1, same view'],
+      // The first pass, for comparison: black water, a bow in every wall hex, corn as plain spikes.
+      ['dawn-1-desktop-pass1.png', 'First pass: dawn 1, 1280 × 720'],
+      ['dawn-05-desktop-pass1.png', 'First pass: dawn 0.5, 1280 × 720'],
+      ['dawn-0-desktop-pass1.png', 'First pass: dawn 0, 1280 × 720'],
+      ['dawn-1-stream-pass1.png', 'First pass: the stream at dawn 1, close'],
+      ['dawn-0-stream-pass1.png', 'First pass: the stream at dawn 0, close'],
+      ['dawn-1-field-pass1.png', 'First pass: the field at dawn 1, close'],
+      ['dawn-1-hamlet-pass1.png', 'First pass: the hamlet at dawn 1, close'],
+      ['dawn-1-phone-pass1.png', 'First pass: dawn 1, phone'],
+      ['dawn-0-phone-pass1.png', 'First pass: dawn 0, phone'],
     ];
     $('shots').innerHTML = stills.map(([file, text]) =>
       `<figure><a href="assets/28/${file}"><img src="assets/28/${file}" alt="${esc(text)}" loading="lazy" /></a><figcaption>${esc(text)}</figcaption></figure>`).join('');

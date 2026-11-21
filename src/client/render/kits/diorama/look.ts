@@ -30,6 +30,7 @@ interface Air {
   mist: string; thick: number; fall: number; patchy: number;   // the haze on surfaces: colour (before tone mapping), depth at level-0 ground, height it thins over, how broken
   fog: string; body: number; top: number; gaps: number;        // the mist in the air: colour, depth in a bank's heart, the height it reaches, how much of the ground is gaps (0..1)
   base: number;                                      // how bright the player bases are drawn (1 = the palette's colour)
+  sheen: string;                                     // (28) the sky of the moment as still water gives it back (before tone mapping)
   table: string;                                     // what the board stands on, seen through thin mist
 }
 
@@ -52,21 +53,21 @@ const AIR: Air[] = [
     sun: '#a9c0ee', sunPower: 2.3, sunDir: [-0.6, 0.75, 0.4], shade: 0.65,
     exposure: 0.92, env: 0.3,
     mist: '#3a4658', thick: 0.3, fall: 0.4, patchy: 1,
-    fog: '#66758d', body: 3.0, top: 0.84, gaps: 0.3, base: 0.5, table: '#0b0e12',
+    fog: '#66758d', body: 3.0, top: 0.84, gaps: 0.3, base: 0.5, sheen: '#26323f', table: '#0b0e12',
   },
   {
     at: 0.5, sky: '#93a0ad', skyGround: '#34352f', fill: 1.05,
     sun: '#cfd3d6', sunPower: 1.3, sunDir: [-0.9, 0.6, 0.1], shade: 0.5,
     exposure: 0.92, env: 0.5,
     mist: '#69737a', thick: 0.22, fall: 0.2, patchy: 1,
-    fog: '#a3abb0', body: 1.9, top: 0.46, gaps: 0.36, base: 0.8, table: '#15181a',
+    fog: '#a3abb0', body: 1.9, top: 0.46, gaps: 0.36, base: 0.8, sheen: '#414b52', table: '#15181a',
   },
   {
     at: 1, sky: '#6f8db3', skyGround: '#3d3a33', fill: 0.6,
     sun: '#ffcb98', sunPower: 4.4, sunDir: [-1, 0.4, -0.2], shade: 0.85,
     exposure: 0.95, env: 0.5,
     mist: '#7f7b74', thick: 0.12, fall: 0.15, patchy: 1,
-    fog: '#c4b6a2', body: 1.4, top: 0.28, gaps: 0.56, base: 1, table: '#1b1c1a',
+    fog: '#c4b6a2', body: 1.4, top: 0.28, gaps: 0.56, base: 1, sheen: '#55534a', table: '#1b1c1a',
   },
 ];
 
@@ -226,7 +227,7 @@ export const ROWS = { turn: 0.32, apart: 0.105 };
 
 // (28) Water: dark and still. `aEdge` is how near the bank is: there it is shallow, murky and, at the very edge, mud.
 const WATER_VERTEX_PARS = 'attribute float aEdge;\nvarying float vEdge;\n';
-const WATER_FRAGMENT_PARS = 'uniform vec3 uDeep;\nuniform vec3 uShallow;\nuniform vec3 uMud;\nvarying float vEdge;\n';
+const WATER_FRAGMENT_PARS = 'uniform vec3 uDeep;\nuniform vec3 uShallow;\nuniform vec3 uMud;\nuniform vec3 uSheen;\nuniform vec4 uFogBounds;\nvarying float vEdge;\n';
 const WATER_COLOR = `
 vec2 wp = vMistPos.xz;
 float wSoft = texture2D(uNoise, wp * 0.31 + vec2(0.2, 0.6)).r;
@@ -239,6 +240,17 @@ vec3 wCol = mix(uDeep * (0.7 + 0.6 * wSoft), uShallow * (0.8 + 0.4 * wGrain), wS
 wCol = mix(wCol, uShallow * 1.3, smoothstep(0.7, 0.86, wSoft * 0.6 + wGrain * 0.4) * 0.35);
 diffuseColor.rgb = mix(wCol, uMud * (0.7 + 0.6 * wFine), wMud);
 float wRough = mix(mix(0.07, 0.22, wShore), 0.85, wMud);
+// (28, second pass) The sheen: the sky of the moment given back by the surface, so that it reads as water from the
+// board's height. The camera never turns and has no perspective, so a true mirror would be one flat tone: the
+// sheen is instead brighter towards the far (north) side of the board, as a real reflection of a sky is, which
+// is what makes the surface read as a plane. Ripples: long faint streaks across it, from the noise, seeded.
+float wFar = 1.0 - clamp((vMistPos.z - uFogBounds.y - 5.0) / max(uFogBounds.w - uFogBounds.y - 10.0, 1.0), 0.0, 1.0);
+vec2 wAlong = vec2(wp.x * 0.94 + wp.y * 0.34, wp.y * 0.94 - wp.x * 0.34);
+float wRipple = texture2D(uNoise, wAlong * vec2(0.45, 3.6)).g;
+float wRipple2 = texture2D(uNoise, wAlong * vec2(1.1, 9.0) + vec2(0.37, 0.11)).b;
+float wStreak = smoothstep(0.52, 0.78, wRipple) * 0.55 + smoothstep(0.6, 0.85, wRipple2) * 0.3;
+float wDrift = 0.8 + 0.4 * wSoft;
+vec3 wSheen = uSheen * (0.62 + 0.62 * wFar) * wDrift * (0.82 + 0.5 * wStreak) * (1.0 - wMud) * (1.0 - 0.55 * wShore);
 `;
 const WATER_NORMAL = `
 {
@@ -415,15 +427,18 @@ export function createLook(): Look {
   const masonry = painted(0, THREE.FrontSide, 'masonry');
   const blades = painted(0, THREE.FrontSide);   // tiles.ts gives every blade both its faces, so both are lit from above
 
-  // (28) Water: smooth enough to carry the sky the kit already renders for reflections.
+  // (28) Water: smooth enough to carry the sky the kit already renders for reflections, and a sheen of the dawn's sky.
+  const waterSheen = { value: lin(AIR[2].sheen) };
+  const fogBounds = { value: new THREE.Vector4(-1, -1, 1, 1) };     // the board's ground, shared with the mist's sheets
   const water = new THREE.MeshStandardMaterial({ color: '#ffffff', roughness: 0.1, metalness: 0, envMapIntensity: 1.7 });
   water.onBeforeCompile = (shader) => {
     addMist(shader, uniforms, 0.3);
-    Object.assign(shader.uniforms, { uDeep: { value: lin('#1b2931') }, uShallow: { value: lin('#565a3c') }, uMud: { value: lin('#5a4a34') } });
+    Object.assign(shader.uniforms, { uDeep: { value: lin('#1b2931') }, uShallow: { value: lin('#565a3c') }, uMud: { value: lin('#5a4a34') }, uSheen: waterSheen, uFogBounds: fogBounds });
     shader.vertexShader = WATER_VERTEX_PARS + shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvEdge = aEdge;\n');
     shader.fragmentShader = WATER_FRAGMENT_PARS + shader.fragmentShader
       .replace('#include <color_fragment>', `#include <color_fragment>${WATER_COLOR}`)
       .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = wRough;\n')
+      .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance += wSheen;\n')
       .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>${WATER_NORMAL}`);
   };
   water.customProgramCacheKey = () => 'diorama-water';
@@ -479,7 +494,7 @@ export function createLook(): Look {
   const fogUniforms = {
     uFog: { value: lin(AIR[2].fog) },
     uFogShape: { value: new THREE.Vector4(AIR[2].body, AIR[2].top, AIR[2].gaps, Math.max(1, sheetCount)) },
-    uFogBounds: { value: new THREE.Vector4(-1, -1, 1, 1) },
+    uFogBounds: fogBounds,
     uFogSeed: { value: new THREE.Vector2() },
     uNoise: uniforms.uNoise,
   };
@@ -598,6 +613,7 @@ export function createLook(): Look {
       uniforms.uMist.value.copy(col(a.mist, b.mist));
       uniforms.uMistShape.value.set(num(a.thick, b.thick), 0, num(a.fall, b.fall), num(a.patchy, b.patchy));
       fogUniforms.uFog.value.copy(col(a.fog, b.fog));
+      waterSheen.value.copy(col(a.sheen, b.sheen));
       const top = num(a.top, b.top);
       fogUniforms.uFogShape.value.set(num(a.body, b.body), top, num(a.gaps, b.gaps), Math.max(1, sheets.length));
       for (const sheet of sheets) sheet.mesh.visible = sheet.height < top;    // a sheet over the mist's top costs nothing

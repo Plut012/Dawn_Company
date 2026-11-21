@@ -1,7 +1,8 @@
 // The diorama's low wall (28): a Normandy dry-stone wall, knee high, mossy, of uneven stones.
 //
-// A man stands in the hex, so the wall keeps to the north and the rim. Its line is a shallow bow across the
-// north of the hex, behind where his base goes, from near the hex's west corner to near its east corner. Walls
+// A man stands in the hex, so the wall keeps to the north and the rim. Its line crosses the north of the hex
+// from near its west corner to near its east corner: straight where the wall runs on both ways (second pass),
+// a shallow bow behind where his base goes where it ends or turns. Walls
 // join at the hexes' corners, which three hexes share:
 // - a wall or building to the east or west (`around`): the bow is carried out to that corner, where the
 //   neighbour's own bow begins, so a row of wall hexes is one wall with a slight wave in it;
@@ -24,6 +25,7 @@ import { LEVEL, TUFTS, groundTile, levelOf } from './tiles';
 
 const APEX = -0.76;          // how far north the bow reaches at the hex's middle: behind a unit's base (0.64 and its rim)
 const HALF = 0.866;          // from the middle of a hex to its east and west corners (they lie 0.5 north and south)
+const STRAIGHT = -0.53;      // the same in a straight run: all but level with the corners (0.5 north)
 const SHORT = 0.6;           // where the bow ends when nothing lies that way
 
 const E = 0, NE = 1, NW = 2, W = 3, SW = 4, SE = 5;       // `neighbors()` order
@@ -55,7 +57,19 @@ export function wallLines(around: Around | undefined): [number, number][][] {
   const runs = wallRuns(around);
   const lines: [number, number][][] = [];
   // The bow: a parabola through the two corners' height, north of the base in the middle.
-  const bowZ = (x: number): number => APEX + (-0.5 - APEX) * (x / HALF) * (x / HALF);
+  // Second pass: where the wall goes on into a wall or a house on both sides, east and west, it is a run and
+  // runs straight, from corner to corner, with only a hand's breadth of sag; it then stands across the back of
+  // the base of a man in the hex, behind him. The bow is for where a run ends or turns.
+  // Each half is straight towards a side the wall runs on to, bowed towards a side where it ends, the two
+  // blended across the middle: a wall hex in a run is straight, the last one of a run straight and then curling
+  // back behind the base, a lone one a bow.
+  const level = (joined: boolean): number => (joined ? STRAIGHT : APEX);
+  const apexAt = (x: number): number => {
+    const t = Math.min(1, Math.max(0, x / 0.9 + 0.5));
+    return level(runs.west !== null) + (level(runs.east !== null) - level(runs.west !== null)) * t * t * (3 - 2 * t);
+  };
+  const apex = apexAt(0);
+  const bowZ = (x: number): number => apexAt(x) + (-0.5 - apexAt(x)) * (x / HALF) * (x / HALF);
   const toEast = runs.east !== null || runs.downEast !== null;
   const toWest = runs.west !== null || runs.downWest !== null;
   const x0 = toWest ? -HALF : -SHORT;
@@ -70,9 +84,9 @@ export function wallLines(around: Around | undefined): [number, number][][] {
   if (runs.east === 'house') bow.push([HALF + 0.13, -0.5]);
   lines.push(bow);
   // North: to the corner where a wall's bow ends, or to the cut corner of a house.
-  if (runs.northEast === 'wall' || runs.northWest === 'wall') lines.push([[0, APEX], [0, -0.88], [0, -1]]);
-  if (runs.northEast === 'house') lines.push([[0.04, APEX], [0.16, -0.86], [0.27, -0.92]]);
-  if (runs.northWest === 'house') lines.push([[-0.04, APEX], [-0.16, -0.86], [-0.27, -0.92]]);
+  if (runs.northEast === 'wall' || runs.northWest === 'wall') lines.push([[0, apex], [0, -0.88], [0, -1]]);
+  if (runs.northEast === 'house') lines.push([[0.04, apex], [0.16, -0.86], [0.27, -0.92]]);
+  if (runs.northWest === 'house') lines.push([[-0.04, apex], [-0.16, -0.86], [-0.27, -0.92]]);
   // South: down the side to the lower corner, and on to a house's back wall.
   for (const [side, join] of [[1, runs.downEast], [-1, runs.downWest]] as const) {
     if (join === null) continue;

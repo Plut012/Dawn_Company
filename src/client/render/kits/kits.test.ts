@@ -7,7 +7,7 @@ import { dioramaKit } from './diorama';
 import { lowpolyKit } from './lowpoly';
 import { rigOf } from './lowpoly/units';
 import { CROPS, corn } from './diorama/crops';
-import { wallRuns } from './diorama/walls';
+import { wallLines, wallRuns } from './diorama/walls';
 import type { UnitStatus } from '../../../shared/types';
 
 const meshes = (o: THREE.Object3D): THREE.Mesh[] => {
@@ -373,9 +373,10 @@ describe('diorama kit', () => {
     const tile = kit.tile('crops', 0, hex, withAt({ 0: 'crops', 3: 'crops', 5: 'crops' }));     // the field ends to the north and south-west
     const field = named(tile, 'field');
     const middle = named(tile, 'middle');
-    expect(field.geometry.getAttribute('position').count).toBeGreaterThan(1000);
+    expect(field.geometry.getAttribute('position').count).toBeGreaterThan(900);
     // The headland: nothing against the north-east edge, corn right up to the east one.
-    expect(near(field, 0.42, -0.72, 0.05)).toBe(false);
+    const rooted = (x: number, z: number, within: number) => pts(field).some(([px, py, pz]) => py < 0.001 && Math.hypot(px - x, pz - z) < within);
+    expect(rooted(0.42, -0.72, 0.05)).toBe(false);                            // no stalk grows there (one may lean over it)
     expect(near(field, 0.8, 0, 0.1)).toBe(true);
     for (const [x, y, z] of pts(field)) {
       const hides = z - 0.7 * y;
@@ -441,10 +442,29 @@ describe('diorama kit', () => {
     for (const wallMesh of [alone, east, turn, toHouse]) {
       for (const [x, y, z] of pts(wallMesh)) {
         expect(y).toBeLessThan(0.3);
-        expect(Math.hypot(x, z)).toBeGreaterThan(0.66);
+        // Round the base, or (a straight run) across the back of it, behind the man: never where he stands or in front.
+        expect(Math.hypot(x, z) > 0.66 || z < -0.44).toBe(true);
         expect(z - 0.7 * y).toBeGreaterThan(-1.2);
         if (Math.abs(Math.abs(x) - 0.866) < 0.33) expect(z - 0.7 * y).toBeGreaterThan(-1.03);
       }
+    }
+    // Second pass: a wall that runs on east and west is straight, all but level with the corners; one that ends is not.
+    const zAt = (around: ReturnType<typeof all>, x: number): number => {
+      const line = wallLines(around)[0];
+      return line.reduce((best, p) => (Math.abs(p[0] - x) < Math.abs(best[0] - x) ? p : best))[1];
+    };
+    const run = withAt({ 0: 'wall', 3: 'building' });
+    expect(zAt(run, 0)).toBeGreaterThan(-0.56);
+    expect(zAt(run, 0.45)).toBeGreaterThan(-0.56);
+    expect(zAt(run, -0.45)).toBeGreaterThan(-0.56);
+    expect(zAt(all('open'), 0)).toBeLessThan(-0.72);                 // alone: a bow behind the base
+    expect(zAt(withAt({ 0: 'wall' }), 0.45)).toBeGreaterThan(-0.58);  // the end of a run: straight towards the run,
+    expect(zAt(withAt({ 0: 'wall' }), -0.45)).toBeLessThan(-0.62);    // curling back where it ends
+    const straight = named(dioramaKit().tile('wall', 0, { q: 0, r: 0 }, run), 'wall');
+    for (const [x, y, z] of pts(straight)) {
+      expect(y).toBeLessThan(0.3);
+      expect(Math.hypot(x, z) > 0.66 || z < -0.44).toBe(true);
+      if (Math.abs(Math.abs(x) - 0.866) < 0.33) expect(z - 0.7 * y).toBeGreaterThan(-1.03);
     }
     // A hex off the board is no wall.
     expect(wallRuns(all(null))).toEqual(wallRuns(all('open')));

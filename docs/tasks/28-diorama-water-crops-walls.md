@@ -95,6 +95,38 @@ Built on the real `createBoard`, like 26 and 27:
   and iterate.
 - An honest **notes** section.
 
+## Second pass (2026-11-21, after the first stills)
+
+Walls and the field work at board scale; water does not. Three fixes, nothing else.
+
+**1. Water you can see.** At board distance the stream reads as black holes,
+at dawn 0 and 1. Wanted: it reads as *water* from the camera's usual height:
+- lighter and steel-grey, cold, picking up the sky of the moment (blue-grey at
+  0, pale grey-gold at 1); a visible sheen, brighter towards the far (north)
+  side as a real reflection would be, so the surface reads as a plane;
+- faint ripples or a slow-current texture, seeded (still frame, no idle
+  animation), enough to say "liquid" without noise;
+- banks still read (earth side, mud, reeds), and a run of hexes is one stream;
+- still dark enough to be grim and to keep the hex label and grid readable;
+  never brighter than open grass at the same dawn.
+Check it at board scale (the whole-board stills), not only the close-up.
+
+**2. Straight walls along a row.** A row of wall hexes reads as a row of pens,
+because each hex bows. Where a wall continues into the next wall (or a
+building) on both sides, the run is straight or nearly so; bows or bends only
+where the run ends or turns. The rings still join and leave the map's gaps;
+the sight-line rule still holds.
+
+**3. Wheat, not grass.** Up close the field is one-colour spikes. Give the
+stalks ears (a heavier tip), and a green-to-gold mix across the field (seeded
+in world space, so it drifts across hexes rather than per hex). Keep the cost
+constant and its phone setting; say what it costs now.
+
+**Eval.** Update `eval/28-diorama-water-crops-walls.html` and the stills in
+`eval/assets/28/` (keep the first-pass stills as `*-pass1.png` and show both on
+the page). Add a board-scale still of the stream at dawn 0.5. Update the notes.
+`npm test` and `npm run typecheck` pass; lowpoly unchanged.
+
 ## Not this
 Works (sandbags, wire, nest), units other than the rifleman, effects, the UI,
 `docs/design.md`. No change to rules, server, content or protocol. Do not commit.

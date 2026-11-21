@@ -783,6 +783,9 @@ one's veil and occupied state. Lowpoly ignores `around`. The diorama kit makes `
 banks; `REEDS`), `crops` (`diorama/crops.ts`: stalks in the map's rows, `ROWS` in `look.ts`, a headland where the field ends; a field and a middle, the middle
 hidden by `occupied` while a shown unit stands there; `CROPS`) and `wall` (`diorama/walls.ts`: a bow across the north of the hex, joined to wall and building
 neighbours at the hexes' corners). Only the works and the units other than the rifleman still fall back to lowpoly.
+Second pass (28): water carries a sheen keyed to the dawn (`sheen` in the air's keys), brighter to the north of the board, with seeded ripples; a wall hex is
+straight towards each side where the wall runs on east or west and bowed only where it ends; a stalk of wheat is a leaf, a stem and an ear (five triangles),
+green or gold in drifts across the map.
 
 ### Client UI — `src/client/` (08, used by 09 and 10)
 

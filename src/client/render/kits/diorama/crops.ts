@@ -23,7 +23,7 @@ import { ROWS } from './look';
 import { LEVEL, inHex, levelOf, ringedPrism, rimFrom, tileOn } from './tiles';
 
 /**
- * The cost of a field: how far apart the stalks stand along a row (each a tuft of two crossed blades, four
+ * The cost of a field: how far apart the stalks stand along a row (each a leaf, a stem and an ear: five
  * triangles). A phone (a coarse pointer) gets the sparser setting; the rows are the same.
  */
 export const CROPS = { desktop: { along: 0.05 }, phone: { along: 0.09 } };
@@ -31,9 +31,11 @@ const TALL = 0.4;            // wheat to a man's waist (he is 1 tall)
 const HEADLAND = 0.14;       // bare ground left along an edge where the field ends
 const CLEAR = 0.7;           // the base of a unit, and a little: no stalk of the field stands inside it
 
-const ROOT = new THREE.Color('#3f4d27');
-const GREEN = new THREE.Color('#6f8440');
-const GOLD = new THREE.Color('#a59c58');
+const ROOT = new THREE.Color('#3a4a26');
+const LEAF = new THREE.Color('#5f7d3a');           // a green stalk's blade
+const STRAW = new THREE.Color('#a39a55');          // a ripe one's
+const EAR_GREEN = new THREE.Color('#8fa052');
+const EAR_GOLD = new THREE.Color('#d2b565');
 
 const isCrops = (n: Around[number]): boolean => n === null || n.terrain === 'crops';      // off the board, the field runs on
 
@@ -75,23 +77,38 @@ export function corn(hex: Hex, around: Around | undefined, cost = CROPS.desktop)
     return least;
   };
   const lists = { field: { position: [] as number[], color: [] as number[] }, middle: { position: [] as number[], color: [] as number[] } };
-  const tip = new THREE.Color();
+  const leaf = new THREE.Color();
+  const ear = new THREE.Color();
+  // A stalk of wheat: a leaf (one blade, seen from both sides) and a stem carrying an ear, the heavier tip that
+  // makes it wheat and not grass. The stem and ear face the camera, which never turns, so they have one face.
   const stalk = (into: { position: number[]; color: number[] }, x: number, z: number, h: number, gold: number, turn: number, lean: number) => {
     if (h < 0.025) return;
-    tip.copy(GREEN).lerp(GOLD, 0.35 + gold * 0.65).multiplyScalar(1.08);
-    for (let b = 0; b < 2; b++) {
-      const a = turn + b * 1.6;
-      const w = 0.024;
-      const dx = Math.cos(a) * w;
-      const dz = Math.sin(a) * w;
-      const tx = x + Math.cos(turn * 3) * lean;
-      const tz = z + Math.sin(turn * 3) * lean;
-      const A = [x - dx, 0, z - dz];
-      const B = [x + dx, 0, z + dz];
-      const T = [tx, h, tz];
-      into.position.push(...A, ...B, ...T, ...A, ...T, ...B);
-      for (const col of [ROOT, ROOT, tip, ROOT, tip, ROOT]) into.color.push(col.r * (0.9 + 0.2 * gold), col.g, col.b);
-    }
+    leaf.copy(LEAF).lerp(STRAW, gold * 0.85);
+    ear.copy(EAR_GREEN).lerp(EAR_GOLD, gold);
+    const paint = (...cols: THREE.Color[]) => { for (const col of cols) into.color.push(col.r, col.g, col.b); };
+    const w = 0.022;
+    const dx = Math.cos(turn) * w;
+    const dz = Math.sin(turn) * w;
+    // Which way it leans: any way; but beside the clearing where a man's base goes, away from it, its leaf sideways.
+    const r = Math.hypot(x, z);
+    const beside = r < CLEAR + 0.1 && r > 0.01;
+    const lx = beside ? (x / r) * lean : Math.cos(turn * 3) * lean;
+    const lz = beside ? (z / r) * lean : Math.sin(turn * 3) * lean;
+    const tx = x + lx;
+    const tz = z + lz;
+    const A = [x - dx, 0, z - dz];
+    const B = [x + dx, 0, z + dz];
+    const L = beside ? [x - lz * 0.8, h * 0.72, z + lx * 0.8] : [x - lx * 0.8, h * 0.72, z - lz * 0.8];       // the leaf leans the other way
+    into.position.push(...A, ...B, ...L, ...A, ...L, ...B);
+    paint(ROOT, ROOT, leaf, ROOT, leaf, ROOT);
+    if (h < 0.12) return;                                               // cut low: stubble, no ear
+    // The stem, then the ear: a lozenge a seventh of the stalk long, nodding.
+    into.position.push(x - 0.005, 0, z, x + 0.005, 0, z, tx, h * 0.78, tz);
+    paint(ROOT, ROOT, leaf);
+    const e = 0.014;
+    const nod = (tx - x) * 0.5;
+    into.position.push(tx, h * 0.7, tz, tx + e, h * 0.86, tz, tx + nod, h, tz, tx, h * 0.7, tz, tx + nod, h, tz, tx - e, h * 0.86, tz);
+    paint(leaf, ear, ear, leaf, ear, ear);
   };
 
   // Every stalk of the map's rows that falls in this hex.
@@ -109,8 +126,10 @@ export function corn(hex: Hex, around: Around | undefined, cost = CROPS.desktop)
       const edge = fromEnd(x, z);
       if (edge < HEADLAND * (0.6 + 0.8 * hash(row + 3, i))) continue;      // the headland, its edge ragged
       // Ripening in drifts across the field, and stalk by stalk.
-      const drift = 0.5 + 0.5 * Math.sin(wx * 0.83 + 1.3) * Math.cos(wz * 0.61 - 0.4);
-      const gold = Math.min(1, Math.max(0, drift * 0.7 + hash(row * 3 + 1, i * 5 + 2) * 0.4 - 0.25));
+      // From the stalk's place on the map, so the green and the gold lie across the field in broad drifts, not hex by hex.
+      const drift = 0.6 * (0.5 + 0.5 * Math.sin(wx * 0.47 + wz * 0.23 + 0.7)) + 0.4 * (0.5 + 0.5 * Math.sin(wz * 0.9 - wx * 0.31 + 2.1));
+      const mixed = (drift + (hash(row * 3 + 1, i * 5 + 2) - 0.5) * 0.3 - 0.3) / 0.4;
+      const gold = Math.min(1, Math.max(0, mixed * mixed * (3 - 2 * mixed) * (mixed > 0 ? 1 : 0)));
       const tall = TALL * (0.86 + 0.24 * hash(row + 11, i + 5)) * Math.min(1, 0.55 + edge * 2.2);   // shorter at the field's edge
       // 27's sight line: nothing so tall so far north that it hides the mark of a man in the hex behind.
       const cap = Math.max(0, (z - 0.08 + 1.02) / 0.7);      // less the little a stalk leans
