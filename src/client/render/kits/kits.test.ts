@@ -6,6 +6,8 @@ import { kitFromUrl, makeKit } from './index';
 import { dioramaKit } from './diorama';
 import { lowpolyKit } from './lowpoly';
 import { rigOf } from './lowpoly/units';
+import { FIGURE_TYPES } from './diorama/units';
+import { UNITS } from '../../../content';
 import { CROPS, corn } from './diorama/crops';
 import { wallLines, wallRuns } from './diorama/walls';
 import type { UnitStatus } from '../../../shared/types';
@@ -77,7 +79,7 @@ describe('diorama kit', () => {
     expect(() => kit.tile('open', Number.NaN, { q: 0, r: 0 })).not.toThrow();
   });
 
-  it('hands the works and the gunner to lowpoly: the same shapes', () => {
+  it('hands the works, and a unit type it has no figure for, to lowpoly: the same shapes', () => {
     const kit = dioramaKit();
     const low = lowpolyKit();
     const hex = { q: 3, r: 2 };
@@ -85,9 +87,9 @@ describe('diorama kit', () => {
     for (const terrain of ['sandbags', 'wire', 'nest']) {
       expect(shape(kit.tile(terrain, 0, hex))).toEqual(shape(low.tile(terrain, 0, hex)));
     }
-    // The gunner is lowpoly's man (every part after its base) on the diorama's base.
-    const theirs = low.unit('gunner', 1).object;
-    const ours = kit.unit('gunner', 1).object;
+    // A type nobody knows is lowpoly's placeholder (every part after its base) on the diorama's base.
+    const theirs = low.unit('tank', 1).object;
+    const ours = kit.unit('tank', 1).object;
     expect(ours.children.slice(0, -1).map(shape)).toEqual(theirs.children.slice(1).map(shape));
     // ...and makes open ground and the rifleman itself.
     expect(shape(kit.tile('open', 1, hex))).not.toEqual(shape(low.tile('open', 1, hex)));
@@ -155,6 +157,114 @@ describe('diorama kit', () => {
       expect(m.onBeforeCompile.toString()).toBe(new THREE.Material().onBeforeCompile.toString());
     }
     expect(meshes(low.object).map((m) => m.material)).toEqual(before);
+  });
+
+  // ---- (29) the rest of the squad
+
+  const SQUAD = ['rifleman', 'gunner', 'sniper', 'mortar', 'medic', 'engineer'];
+
+  it('has its own figure for every unit type of the game: none is lowpoly\'s', () => {
+    expect([...FIGURE_TYPES].sort()).toEqual([...SQUAD].sort());
+    expect(Object.keys(UNITS).sort()).toEqual([...SQUAD].sort());
+    const kit = dioramaKit();
+    const low = lowpolyKit();
+    const seen = new Set<string>();
+    for (const type of SQUAD) {
+      const unit = kit.unit(type, 0);
+      // None of lowpoly's flat-shaded parts, and no ink hulls: every solid part is the kit's own paint.
+      const lowParts = new Set(meshes(low.unit(type, 0).object).map((m) => m.geometry));
+      for (const m of meshes(unit.object.children[1])) expect(lowParts.has(m.geometry)).toBe(false);
+      expect(meshes(unit.object.children[1]).some((m) => (m.material as THREE.Material).side === THREE.BackSide)).toBe(false);
+      // Each type is its own shape.
+      const id = JSON.stringify(shape(unit.object).map((part) => part.length));
+      expect(seen.has(id)).toBe(false);
+      seen.add(id);
+    }
+  });
+
+  it('gives every type a base, three statuses, a foxhole and a rig, on its base and hiding nobody\'s mark', () => {
+    const kit = dioramaKit();
+    const scene = new THREE.Scene();
+    kit.environment(scene);
+    const rifleBase = meshes(kit.unit('rifleman', 1).object).filter((m) => m.geometry.type === 'CylinderGeometry' || m.geometry.type === 'CircleGeometry');
+    for (const type of SQUAD) {
+      const unit = kit.unit(type, 1);
+      const figureOf = () => unit.object.children[1];
+      // The same base as the rifleman's: the very same materials.
+      const discs = meshes(unit.object).filter((m) => m.geometry.type === 'CylinderGeometry' || m.geometry.type === 'CircleGeometry');
+      expect(discs.map((m) => m.material)).toEqual(rifleBase.map((m) => m.material));
+      const tops: Record<string, number> = {};
+      for (const status of ['ready', 'pinned', 'down'] as UnitStatus[]) {
+        unit.setStatus(status);
+        unit.object.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(figureOf());
+        tops[status] = box.max.y;
+        // On its base (0.64 across from its middle), give or take a muzzle or a boot.
+        // (A man lying behind a machine gun is longer than the base: his boots and its muzzle overhang it a little.)
+        expect(Math.max(-box.min.x, box.max.x)).toBeLessThan(type === 'gunner' ? 0.87 : 0.8);
+        expect(Math.max(-box.min.z, box.max.z)).toBeLessThan(0.8);
+        expect(box.min.y).toBeGreaterThan(-0.16);                     // a toe, a bipod's foot or a lowered muzzle may go into the base
+        // Nothing of it so high so far north that it hides the mark of a man in the hex behind (27's sight line).
+        figureOf().traverse((o) => {
+          const m = o as THREE.Mesh;
+          if (!m.isMesh) return;
+          const at = m.geometry.getAttribute('position');
+          const p = new THREE.Vector3();
+          for (let i = 0; i < at.count; i++) {
+            p.fromBufferAttribute(at, i).applyMatrix4(m.matrixWorld);
+            expect(p.z - 0.7 * p.y).toBeGreaterThan(-1.03);
+          }
+        });
+      }
+      expect(tops.ready).toBeGreaterThan(0.4);
+      expect(tops.ready).toBeLessThan(1.25);
+      expect(tops.pinned).toBeLessThanOrEqual(tops.ready + 0.02);       // pinned is no taller than ready
+      expect(tops.down).toBeLessThan(0.7);                              // down lies flat (the mortar's tube still stands; a fallen gun's bipod is in the air)
+      expect(tops.down).toBeLessThan(tops.ready + 0.2);
+      // The foxhole, and the rig lowpoly's effects drive.
+      unit.setStatus('ready');
+      const hidden = meshes(unit.object).filter((m) => !m.visible).length;
+      unit.setDugIn!(true);
+      expect(meshes(unit.object).filter((m) => !m.visible).length).toBe(hidden - 1);
+      unit.setDugIn!(false);
+      const rig = rigOf(unit.object)!;
+      expect(rig).not.toBeNull();
+      unit.setStatus('pinned');
+      expect(rig.status()).toBe('pinned');
+      expect(rig.mark.visible).toBe(true);
+      expect(() => { rig.blend('pinned', 'down', 0.4); rig.blend('down', 'ready', 0.7); rig.lean(0, 1, 0.3); rig.lean(1, 0, 0); rig.dig(0.5); }).not.toThrow();
+      expect(rig.dashes(1)).toBe(UNITS[type].move < 1);
+      expect(rig.dashes(UNITS[type].move + 1)).toBe(true);
+      // Few draw calls: seven a man, one for a prop, five for the base, the burst and the foxhole.
+      expect(meshes(unit.object).length).toBeLessThanOrEqual(type === 'mortar' ? 25 : 17);
+    }
+  });
+
+  it('keeps the medic\'s cross small: a few dull triangles, never Rust', () => {
+    const unit = dioramaKit().unit('medic', 0);
+    const rust = new THREE.Color('#9A4B32');
+    const cross = new THREE.Color('#8a4a3e');
+    let crossed = 0;
+    let all = 0;
+    for (const m of meshes(unit.object.children[1])) {
+      const color = m.geometry.getAttribute('color');
+      if (!color) continue;
+      for (let i = 0; i < color.count; i++) {
+        all++;
+        const c = new THREE.Color(color.getX(i), color.getY(i), color.getZ(i));
+        // The cross's paint, lit up or down by its facing: its colour, whatever its brightness.
+        const len = Math.hypot(c.r, c.g, c.b) || 1;
+        const want = Math.hypot(cross.r, cross.g, cross.b);
+        if (Math.hypot(c.r / len - cross.r / want, c.g / len - cross.g / want, c.b / len - cross.b / want) < 0.03) {
+          crossed++;
+          const hsl = c.getHSL({ h: 0, s: 0, l: 0 });
+          expect(hsl.s).toBeLessThan(rust.getHSL({ h: 0, s: 0, l: 0 }).s);
+        }
+      }
+    }
+    expect(crossed).toBeGreaterThan(0);
+    expect(crossed / all).toBeLessThan(0.03);
+    expect(cross.getHSL({ h: 0, s: 0, l: 0 }).s).toBeLessThan(rust.getHSL({ h: 0, s: 0, l: 0 }).s);
   });
 
   // ---- (27) woods and buildings

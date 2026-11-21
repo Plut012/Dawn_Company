@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 29 — Diorama: the rest of the squad</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the boards, both kits, the match and the views on this page are the real ones */
+  body { padding: var(--s-3); }
+  main { max-width: 1760px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 100ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  .bar { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; margin: var(--s-2) 0; }
+  .bar button { font: inherit; padding: var(--s-2) var(--s-3); background: var(--khaki); color: var(--ink); border: var(--w-outline) solid var(--ink); cursor: pointer; min-height: 40px; }
+  .bar button:disabled { opacity: 0.5; cursor: default; }
+  .bar button.on { background: var(--amber); }
+  .bar input[type=range] { width: 280px; }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; min-height: 1.5em; }
+  .bad { border-left-color: var(--rust); }
+  .pair { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  .side { flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: var(--s-1); }
+  .stage { position: relative; width: 100%; height: 520px; border: var(--w-frame) solid var(--ink); background: var(--slate); box-sizing: content-box; }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  body.phone .side { flex: none; }
+  body.phone .stage { width: 844px; height: 390px; max-width: none; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: var(--s-3); margin: var(--s-2) 0; }
+  .shots figure { margin: 0; }
+  .shots img { display: block; width: 100%; height: auto; border: var(--w-frame) solid var(--ink); }
+  .shots figcaption { font-size: var(--t-1); }
+  /* `?shot=diorama|lowpoly`: one board alone, filling the window, for a headless screenshot */
+  body.shot { padding: 0; margin: 0; overflow: hidden; }
+  body.shot main > *:not(#shot-stage) { display: none; }
+  body.shot #shot-stage { position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; }
+  #shot-stage { display: none; }
+  body.shot #shot-stage { display: block; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 29 — Diorama: the rest of the squad</h1>
+<p>Dawn Company's diorama kit gets the rest of the squad: its own <code>gunner</code>, <code>sniper</code>, <code>mortar</code>, <code>medic</code> and
+<code>engineer</code>, of one set with the rifleman (<code>src/client/render/kits/diorama/units.ts</code>). No unit type falls back to lowpoly any more.
+Both boards below are the real <code>createBoard</code>, each with its own kit, showing the same <code>PlayerView</code>. Runs on Vite alone
+(<code>npx vite --port 5198 --strictPort</code>, then <code>/eval/29-diorama-units.html</code>).</p>
+
+<h2 id="side-by-side">1. Side by side</h2>
+<p><b>The line-up.</b> A hand-made map, thirteen by five. Across each block the six types stand in the same order: <b>rifleman, gunner, sniper, mortar,
+medic, engineer</b>. Blue (bar), columns A to F, on open ground: row 1 <b>ready</b>, row 2 <b>pinned</b>, row 3 <b>down</b>, row 4 <b>dug in</b>.
+Plum (chevron), columns H to M: row 1 ready on open ground, row 2 ready <b>in the crops</b>, row 3 pinned <b>in the woods</b>, row 4 down.
+A Blue medic stands in the <b>house</b> at G2 (open round him). Row 5 is for the playback: a Blue rifleman (A5), gunner (C5), sniper (D5), mortar (E5),
+a pinned rifleman (F5) with a medic beside him (G5), an engineer (I5), and a Plum rifleman far off at M5. The state is <code>createMatch</code>'s and
+the view <code>viewFor</code>'s for Blue, then changed by hand (statuses set, every unit shown).
+Drag to pan, wheel or pinch to zoom: each board has its own camera.</p>
+<div class="bar">
+  <label for="dawn">Dawn <b id="dawn-out">0.00</b></label>
+  <input type="range" id="dawn" min="0" max="1" step="0.01" value="0" />
+  <button type="button" data-dawn="0">0 — first light</button>
+  <button type="button" data-dawn="0.5">0.5</button>
+  <button type="button" data-dawn="1">1 — full day</button>
+  <button type="button" id="phone">Phone frame (844 × 390)</button>
+  <button type="button" id="closer">Closer</button>
+  <button type="button" id="whole">Whole map</button>
+</div>
+<div class="bar">
+  <button type="button" id="play">Play a short round</button>
+  <button type="button" id="reset">Reset</button>
+</div>
+<div class="observed" id="log" role="status">Loading the boards.</div>
+<div class="pair">
+  <div class="side"><span class="cap">lowpoly</span><div class="stage" id="stage-lowpoly"></div></div>
+  <div class="side"><span class="cap">diorama</span><div class="stage" id="stage-diorama"></div></div>
+</div>
+<div class="stage" id="shot-stage"></div>
+<p><b>Playback.</b> Real <code>GameEvent</code>s given to <code>board.play</code> on both boards, each type doing its thing on row 5: the medic at G5
+treats the pinned rifleman at F5 (<code>treat</code>), who gets up; the gunner at C5 fires a burst and the sniper at D5 a shot at M5 (<code>fire</code>);
+the rifleman at A5 walks to B5 (<code>move</code>); the mortar at E5 launches and its rounds land at L5 (<code>launch</code>, <code>impact</code>); the
+engineer at I5 builds sandbags on J5 (<code>build</code>). The effects are lowpoly's, driving the new figures through their rigs.</p>
+
+<h2 id="stills">2. Stills of the diorama board</h2>
+<p>Taken with headless Chromium (software WebGL, SwiftShader) from this page's own shot mode
+(<code>?shot=diorama&amp;dawn=0</code>, the window being the board), at 1280 × 720 and at 844 × 390, device pixel ratio 1; and closer in
+(<code>&amp;zoom=3&amp;at=B1</code>).</p>
+<div class="shots" id="shots"></div>
+<h2 id="real-match">3. In a real match</h2>
+<p><code>npm run dev</code> and <code>npm run server</code>, then <code>http://localhost:5173/dev.html?kit=diorama</code>: the query reaches every
+frame (<code>/?slot=dev1&amp;kit=diorama</code>), and the play screen and the manual make their kit with <code>makeKit(kitFromUrl())</code>.
+Without <code>?kit=diorama</code> everything is lowpoly, and lowpoly looks as it did (the kit does not implement <code>renderer</code>).
+A single client: <code>http://localhost:5173/?kit=diorama</code>.</p>
+
+<h2 id="notes">4. Notes: what was judged, what was not, what falls short</h2>
+<div id="notes-body">
+<p><b>What was built.</b> One rig for every man of the kit (the rifleman's: hips, trunk with arms and what he carries, head, two thighs, two shins,
+each a merged, painted geometry), and a table of figures. A type is its <i>trunk</i> (built once per kind: the shared chest, arms bent to wherever the hands
+must be, and what he holds), its <i>head</i> (plain, scrimmed, or the medic's) and its three <i>poses</i>. Legs, hips, base, burst, foxhole and the rig
+lowpoly's effects drive are the same for all.</p>
+<ul>
+  <li><b>Gunner:</b> belly down behind a light machine gun, propped on his elbows, legs apart; the gun runs on past his head to a bipod, a magazine standing
+  on it. He lies across the base with the gun to the right of the picture, so its length shows. Pinned, his face goes into the dirt; down, he is on his back.</li>
+  <li><b>Sniper:</b> kneeling, a long scoped rifle levelled to the right; hessian scrim on his helmet, shoulders and back. Pinned, he doubles over it; down,
+  he lies on his side (the rig gained a sideways roll for this: on his back the rifle pointed at the sky).</li>
+  <li><b>Mortar:</b> two men on the one base, kneeling either side of the tube: number one with both hands up at the muzzle, number two with a round held ready.
+  The tube, baseplate and bipod are one more geometry. Pinned, both duck; down, both lie, and the tube stands.</li>
+  <li><b>Medic:</b> standing, no weapon; a satchel on each hip with crossed straps, an off-white helmet with a small dull cross on its crown, an armband.
+  The cross is <code>#8a4a3e</code>, less saturated than Rust, and a test keeps it under 3% of the figure's paint.</li>
+  <li><b>Engineer:</b> standing, no weapon; a shovel over the right shoulder with its blade behind his head, a coil of wire hung from the left shoulder, a
+  sandbag in his left hand.</li>
+</ul>
+<p><b>Cost per figure</b> (counted): a one-man figure is 7 draw calls for the man and 5 for the base (as the rifleman was), plus the burst (2) while pinned and
+the foxhole (1) while dug in; the mortar is 15 for its two men and tube, and the same base. Triangles, everything on the base included: rifleman 5,460,
+medic 5,440, gunner 5,650, engineer 5,680, sniper 6,830, mortar 8,890. There is no cost constant: nothing here scales with a setting, and a squad is at most
+eight units.</p>
+<p><b>Judged from the stills</b> (headless Chromium, software WebGL, device pixel ratio 1).</p>
+<ul>
+  <li>Close in at dawn 1 every type is plainly itself and of one set with the rifleman: same paint, same scale, same base.</li>
+  <li>At the whole line-up on a desktop (about 95 px a hex) each type reads by shape: the lying man with the long gun, the kneeling man with the long rifle,
+  the pair at the tube, the pale helmet, the shovel's blade over a shoulder.</li>
+  <li>At phone size at dawn 0 (about 60 px a hex) the medic (pale helmet), the engineer (blade above the head), the mortar (two men) and the sniper (kneeling,
+  rifle) read; the rifleman reads by not being any of them.</li>
+  <li>Playback: the frames caught mid-round show the paper rings of the medic's aid round him and the man getting up, the tracers of the burst and the shot, and
+  the puff at the mortar's muzzle; the still after the round shows the rifleman moved, the man at F5 on his feet and sandbags at J5.</li>
+  <li>Lowpoly boards of eval 26 and 28 taken now are byte for byte the committed stills.</li>
+</ul>
+<p><b>Where it falls short.</b></p>
+<ul>
+  <li><b>The gunner in the mist.</b> He lies low, so at dawn 0 the mist takes most of him: at phone size a ready gunner is a pale lying shape, close to a man who is
+  down (who is slate, and has no gun pointing out). The gun's dark line and the missing fade tell them apart close in; at phone size in a thick bank it is the
+  weakest read of the six.</li>
+  <li><b>He overhangs his base</b>: a man lying behind a machine gun is 1.6 long and the base 1.3 across; his boots and the muzzle are over the rim by about 0.1 each.</li>
+  <li><b>The mortar's base is crowded</b>: two men and a tube in 1.3; from the board's height they are one dark cluster with a tube in it, and when both are down
+  they lie on each other.</li>
+  <li><b>Medic and engineer are the rifleman's body with other things on it.</b> Their silhouettes differ from his by a helmet's colour and a blade over a
+  shoulder; the coil and the satchels only show close in.</li>
+  <li><b>The sniper is not low</b>: kneeling with scrim he is 0.95 tall against the rifleman's 1.1. Prone would have been lower but is the gunner's shape.</li>
+  <li>Men who move do not walk: a prone gunner slides along the ground as he is, a kneeling crew slides kneeling. The poses blend between statuses, not through a stride.</li>
+  <li>In woods the long figures (gunner, sniper) reach into the trunks at the sides of the hex.</li>
+  <li>The bipod's feet, a kneeling man's toe and a ducking sniper's muzzle go a little into the base.</li>
+</ul>
+<p><b>Not verified.</b> A real phone and frame rate; any motion (a hit, a stand, a dash's lean on the new figures were exercised through the rig in the tests,
+and seen only as stills before and after); a real match with a server; <code>spotted</code> and <code>lost</code> fades on the new figures; the figures on
+levels 1 and 2; device pixel ratio 2 and 3, where the small reads would be sharper.</p>
+<p><b>Deviations from the task doc.</b> (1) The pose table gained a sideways <code>roll</code> (used by the downed sniper). (2) The sniper kneels rather than lies,
+to keep him apart from the gunner. (3) The eval's line-up has Plum's four rows on four grounds (open, crops, woods, open) rather than every state on every ground.</p>
+<p>Stills: as on eval 26 to 28, on port 5198, e.g. <code>chrome-headless-shell --use-angle=swiftshader --enable-unsafe-swiftshader --hide-scrollbars
+--virtual-time-budget=6000 --window-size=1280,720 --screenshot=eval/assets/29/dawn-1-sniper-mortar.png
+"http://localhost:5198/eval/29-diorama-units.html?shot=diorama&amp;dawn=1&amp;zoom=4.4&amp;at=D2"</code>; the two mid-playback stills with <code>&amp;play=1</code> and
+budgets of 300 and 1500.</p>
+</div>
+</main>
+
+<script type="module">
+  import { createBoard } from '/src/client/render/index.ts';
+  import { makeKit } from '/src/client/render/kits/index.ts';
+  import { loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
+  import { createMatch } from '/src/rules/match.ts';
+  import { viewFor } from '/src/rules/sight.ts';
+  import { tinyMap, hex } from '/src/manual/lesson.ts';
+  import { key } from '/src/shared/hex.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const say = (text, bad = false) => { $('log').innerHTML = text; $('log').classList.toggle('bad', bad); };
+  addEventListener('error', (e) => say('Error: ' + esc(e.message), true));
+  addEventListener('unhandledrejection', (e) => say('Error: ' + esc(String(e.reason?.stack ?? e.reason)), true));
+  const params = new URLSearchParams(location.search);
+
+  // ---- the scene: a real match on a hand-made map, the view then changed by hand
+  const map = tinyMap({
+    id: 'eval-29',
+    terrain: [
+      '. . . . . . . . . . . . .',
+      ' . . . . . . b c c c c c c',
+      '. . . . . . . w w w w w w',
+      ' . . . . . . . . . . . . .',
+      '. . . . . . . . . . . . .',
+    ],
+  });
+  const TYPES = ['rifleman', 'gunner', 'sniper', 'mortar', 'medic', 'engineer'];
+  const cols = (letters, row) => letters.split('').map((c) => `${c}${row}`);
+  // Where each seat's men stand, in squad order: createMatch sets them down on its spawn zones.
+  const BLUE = [...cols('ABCDEF', 1), ...cols('ABCDEF', 2), ...cols('ABCDEF', 3), ...cols('ABCDEF', 4), 'G2', 'A5', 'C5', 'D5', 'E5', 'F5', 'G5', 'I5'];
+  const PLUM = [...cols('HIJKLM', 1), ...cols('HIJKLM', 2), ...cols('HIJKLM', 3), ...cols('HIJKLM', 4), 'M5'];
+  map.spawns = [BLUE.map(hex), PLUM.map(hex)];
+  map.seatSpawns = { 2: [0, 1] };
+  const match = createMatch(map, [
+    { player: 0, units: [...TYPES, ...TYPES, ...TYPES, ...TYPES, 'medic', 'rifleman', 'gunner', 'sniper', 'mortar', 'rifleman', 'medic', 'engineer'] },
+    { player: 1, units: [...TYPES, ...TYPES, ...TYPES, ...TYPES, 'rifleman'] },
+  ]);
+  const UNSEEN_MEN = [];
+  const UNSEEN = [];
+  const set = (state, id, change) => ({ ...state, units: state.units.map((u) => (u.id === id ? { ...u, ...change } : u)) });
+  let start = match;
+  for (let i = 0; i < 6; i++) {
+    start = set(start, `0-${6 + i}`, { status: 'pinned', pinnedRound: 1 });
+    start = set(start, `0-${12 + i}`, { status: 'down' });
+    start = set(start, `0-${18 + i}`, { dugIn: true });
+    start = set(start, `1-${12 + i}`, { status: 'pinned', pinnedRound: 1 });
+    start = set(start, `1-${18 + i}`, { status: 'down' });
+  }
+  // Row 5, for the playback: 0-25 rifleman A5, 0-26 gunner C5, 0-27 sniper D5, 0-28 mortar E5, 0-29 rifleman F5 (pinned), 0-30 medic G5, 0-31 engineer I5.
+  start = set(start, '0-29', { status: 'pinned', pinnedRound: 1 });
+  let after = set(start, '0-29', { status: 'ready', pinnedRound: null });
+  after = set(after, '0-25', { pos: hex('B5') });
+  after = { ...after, map: { ...map, cells: { ...map.cells, [key(hex('J5'))]: { ...map.cells[key(hex('J5'))], terrain: 'sandbags' } } } };
+  const EVENTS = [
+    { t: 'phase', phase: 'treat' },
+    { t: 'treat', unit: '0-30', target: '0-29', action: 'aid' },
+    { t: 'phase', phase: 'fire' },
+    { t: 'fire', unit: '0-26', from: hex('C5'), target: hex('M5'), blast: 1, ambush: false, action: 'burst' },
+    { t: 'fire', unit: '0-27', from: hex('D5'), target: hex('M5'), blast: 0, ambush: false, action: 'snipe' },
+    { t: 'launch', unit: '0-28', from: hex('E5'), action: 'shell' },
+    { t: 'phase', phase: 'move' },
+    { t: 'move', step: 1, unit: '0-25', from: hex('A5'), to: hex('B5') },
+    { t: 'phase', phase: 'mortar' },
+    { t: 'impact', target: hex('L5'), blast: 1, action: 'shell' },
+    { t: 'phase', phase: 'score' },
+    { t: 'build', unit: '0-31', at: hex('J5'), work: 'sandbags' },
+  ];
+  const MARKS = [
+    { kind: 'select', hex: hex('E5') },
+    { kind: 'target', from: hex('E5'), hex: hex('L5'), blast: 1 },
+  ];
+  /** Blue's real view of a state, then: every unit shown, four hexes unseen, and the dawn the slider asks for. */
+  function viewOf(state, dawn) {
+    const view = viewFor(state, 0);
+    return { ...view, units: state.units.filter((u) => !UNSEEN_MEN.includes(u.id)).map((u) => ({ ...u })), visible: Object.keys(map.cells).filter((k) => !UNSEEN.includes(k)), dawn };
+  }
+
+  // ---- boards
+  let dawn = Number(params.get('dawn') ?? 0);
+  let state = params.get('state') === 'after' ? after : start;
+  const boards = [];   // { kit, board, canvas }
+  function mount(kit, stage) {
+    const canvas = document.createElement('canvas');
+    stage.replaceChildren(canvas);
+    const board = createBoard(canvas, makeKit(kit));
+    board.resize();
+    boards.push({ kit, board, canvas });
+    return board;
+  }
+  const wheel = (canvas, factor) => canvas.dispatchEvent(new WheelEvent('wheel', {
+    clientX: canvas.getBoundingClientRect().left + canvas.clientWidth / 2, clientY: canvas.getBoundingClientRect().top + canvas.clientHeight / 2,
+    deltaY: -Math.log(factor) / 0.0015, bubbles: true, cancelable: true,
+  }));
+  function show() {
+    for (const { board } of boards) {
+      board.setView(viewOf(state, dawn));
+      board.setMarks(MARKS);
+    }
+    $('dawn').value = String(dawn);
+    $('dawn-out').textContent = dawn.toFixed(2);
+    for (const b of document.querySelectorAll('[data-dawn]')) b.classList.toggle('on', Number(b.dataset.dawn) === dawn);
+    document.body.dataset.dawn = String(dawn);
+  }
+  function frame(zoom, at) {
+    for (const { board, canvas } of boards) {
+      wheel(canvas, 0.001);                      // right out: the whole map
+      if (zoom > 1) { board.focus(at); wheel(canvas, zoom); board.focus(at); }
+    }
+  }
+
+  let playing = false;
+  async function play() {
+    if (playing) return;
+    playing = true;
+    $('play').disabled = true;
+    state = start;
+    show();
+    say(`Playing ${EVENTS.length} events on both boards...`);
+    const t0 = performance.now();
+    await Promise.all(boards.map(({ board }) => board.play(EVENTS)));
+    state = after;
+    show();
+    playing = false;
+    $('play').disabled = false;
+    say(`Played in ${((performance.now() - t0) / 1000).toFixed(1)} s; both boards then took the view that follows: the man from C5 is the rifleman at B5, the man at F5 on his feet, sandbags at J5. Press Reset to see the start again.`);
+    document.body.dataset.played = 'yes';
+  }
+
+  async function begin() {
+    await loadKitFonts();
+    const shot = params.get('shot');
+    if (shot) {
+      // One board alone, for a still.
+      document.body.classList.add('shot');
+      mount(shot === 'lowpoly' ? 'lowpoly' : 'diorama', $('shot-stage'));
+      show();
+      frame(Number(params.get('zoom')) || 1, hex(params.get('at') ?? 'G3'));
+      if (params.get('play')) await play();
+    } else {
+      mount('lowpoly', $('stage-lowpoly'));
+      mount('diorama', $('stage-diorama'));
+      show();
+      say('Ready: dawn 0, the first round\'s light. Move the slider (the boards ease to a new light over about a second), or play the round.');
+    }
+    addEventListener('resize', () => boards.forEach(({ board }) => board.resize()));
+    $('dawn').addEventListener('input', () => { dawn = Number($('dawn').value); show(); });
+    for (const b of document.querySelectorAll('[data-dawn]')) b.addEventListener('click', () => { dawn = Number(b.dataset.dawn); show(); });
+    $('phone').addEventListener('click', () => {
+      const on = document.body.classList.toggle('phone');
+      $('phone').classList.toggle('on', on);
+      boards.forEach(({ board }) => board.resize());
+      say(on ? 'Both boards at 844 × 390 CSS pixels, a phone on its side.' : 'Both boards at the page\'s width.');
+    });
+    $('closer').addEventListener('click', () => frame(3, hex('C2')));
+    $('whole').addEventListener('click', () => frame(1, hex('G3')));
+    $('play').addEventListener('click', play);
+    $('reset').addEventListener('click', () => { if (!playing) { state = start; show(); say('Back at the start.'); } });
+    window.dawnEval = { boards, play, show };
+    document.body.dataset.ready = 'yes';
+  }
+  begin().catch((e) => say('Error starting the boards: ' + esc(e.stack ?? e), true));
+
+  // ---- the stills
+  {
+    const stills = [
+      ['dawn-0-desktop.png', 'The line-up at dawn 0 (round 1), 1280 × 720'],
+      ['dawn-05-desktop.png', 'Dawn 0.5, 1280 × 720'],
+      ['dawn-1-desktop.png', 'Dawn 1 (full day), 1280 × 720'],
+      ['dawn-0-phone.png', 'Dawn 0, phone 844 × 390'],
+      ['dawn-05-phone.png', 'Dawn 0.5, phone 844 × 390'],
+      ['dawn-1-phone.png', 'Dawn 1, phone 844 × 390'],
+      ['dawn-1-rifleman-gunner.png', 'Dawn 1, close: rifleman and gunner, ready and pinned'],
+      ['dawn-1-sniper-mortar.png', 'Dawn 1, close: sniper and mortar, ready and pinned'],
+      ['dawn-1-medic-engineer.png', 'Dawn 1, close: medic and engineer, ready and pinned'],
+      ['dawn-1-down-dug.png', 'Dawn 1, close: down and dug in'],
+      ['dawn-0-ready-close.png', 'Dawn 0, close: the ready row in the mist'],
+      ['dawn-1-crops-woods.png', 'Dawn 1, close: Plum in the crops and pinned in the woods; the medic in the house'],
+      ['dawn-1-mortar-firing.png', 'Mid-playback, dawn 1: the mortar firing'],
+      ['dawn-1-medic-aiding.png', 'Mid-playback, dawn 1: the medic treating the pinned rifleman'],
+      ['dawn-1-played.png', 'Dawn 1, after the round: the rifleman at B5, the man at F5 up again, sandbags at J5'],
+      ['lowpoly-dawn-1-desktop.png', 'For comparison: lowpoly at dawn 1, same view'],
+    ];
+    $('shots').innerHTML = stills.map(([file, text]) =>
+      `<figure><a href="assets/29/${file}"><img src="assets/29/${file}" alt="${esc(text)}" loading="lazy" /></a><figcaption>${esc(text)}</figcaption></figure>`).join('');
+  }
+</script>
+</body>
+</html>

@@ -41,6 +41,7 @@ section *v2* below; each task folds what it changes into the v1 sections when it
 - [x] 26 Diorama trial — "the world is real, the information is drawn": one realistic rifleman, one grass tile, a dark foggy dawn; everything else falls back to lowpoly (needs 25)
 - [x] 27 Diorama woods and buildings — the diorama kit's own `woods` and `building` tiles (needs 26)
 - [x] 28 Diorama water, crops and walls — the kit's own `water`, `crops` and `wall` tiles; tiles learn their neighbours (needs 27)
+- [x] 29 Diorama units — the kit's own gunner, sniper, mortar, medic and engineer figures (needs 28)
 
 ## Dependencies
 
@@ -786,6 +787,10 @@ neighbours at the hexes' corners). Only the works and the units other than the r
 Second pass (28): water carries a sheen keyed to the dawn (`sheen` in the air's keys), brighter to the north of the board, with seeded ripples; a wall hex is
 straight towards each side where the wall runs on east or west and bowed only where it ends; a stalk of wheat is a leaf, a stem and an ear (five triangles),
 green or gold in drifts across the map.
+Units (29): the diorama kit has a figure for every unit type (`diorama/units.ts`: `figure(look, type, owner)`, `FIGURE_TYPES`); none falls back to lowpoly, and
+an unknown type is lowpoly's placeholder on the diorama's base. One rig (seven pieces a man) and a table: a type is its trunk, its head and its three poses.
+Gunner prone behind a machine gun; sniper kneeling with a long rifle and scrim; mortar two men kneeling at a tube; medic with satchels and a pale helmet with a
+small dull cross; engineer with a shovel, a coil of wire and a sandbag. All register a rig with lowpoly's `setRig`.
 
 ### Client UI — `src/client/` (08, used by 09 and 10)
 

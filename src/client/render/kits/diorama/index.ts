@@ -1,7 +1,8 @@
 // The diorama kit (26): a trial of another direction. "The world is real, the information is drawn."
 //
 // It makes these itself: the light and air (environment, light, renderer, fog), open ground, woods and
-// buildings (27), water, crops and low walls (28), and the rifleman. Everything else it asks of a lowpoly kit it holds, call by call, and then dresses for this
+// buildings (27), water, crops and low walls (28), and the squad: the rifleman (26) and
+// the gunner, sniper, mortar, medic and engineer (29). Everything else it asks of a lowpoly kit it holds, call by call, and then dresses for this
 // light (look.dress): lit parts sink into the mist, drawn parts keep the palette's colours.
 //
 // A kit is made per board, as lowpoly's is: its sun follows the tiles asked for, its air that board's dawn.
@@ -18,7 +19,7 @@ import { openTile } from './tiles';
 import { wallTile } from './walls';
 import { waterTile } from './water';
 import { woodsTile } from './woods';
-import { base, rifleman } from './units';
+import { FIGURE_TYPES, base, figure } from './units';
 
 /** Phones: the side of the sun's one shadow map, in texels (lowpoly's is 2048). */
 export const SHADOW_MAP = 2048;
@@ -139,7 +140,8 @@ export function dioramaKit(): VisualKit {
     },
 
     unit(type, owner) {
-      if (type === 'rifleman') return rifleman(look, owner);
+      if (FIGURE_TYPES.includes(type)) return figure(look, type, owner);
+      // A type the kit has no figure for: lowpoly's placeholder, on the diorama's base.
       const made = lowpoly.unit(type, owner);
       // One set of bases: lowpoly's lit base (the first thing in its unit) gives way to the diorama's drawn one.
       const lit = made.object.children[0];
