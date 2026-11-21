@@ -14,7 +14,7 @@ printf '%s' "$amber"
 cat <<'BANNER'
 
    ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·
-        D A W N   S Q U A D
+        D A W N   C O M P A N Y
         first light. stand to.
    ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·  ·
 

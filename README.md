@@ -36,6 +36,7 @@ npm run server -- --port 8091 --timer 30
 
 | Command | What it does |
 |---|---|
+| `./dev.sh` | Server (8081) and Vite (5199) in one terminal, restarting either if it is already up; prints the links and a phone QR. `DS_PORT`, `DS_VITE_PORT`, `DS_KIT`; any arguments go to the server. Ctrl+C stops both. |
 | `npm run dev` | Vite dev server on port 5173 (the port must be free: it does not fall back to another). Proxies `/ws` to the game server on 8080. |
 | `npm run server` | The game server on 8080. Run it next to `npm run dev`. |
 | `npm test` | Unit and integration tests (Vitest). |
