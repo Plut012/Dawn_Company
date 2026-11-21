@@ -25,6 +25,9 @@
 //   tile's shape. Lines and see-through parts are left as they are.
 // - renderer(): the board calls it once, right after it makes its renderer and
 //   before environment(). A kit without it gets the renderer as three makes it.
+// - occupied(): the board calls it with a tile it got from tile() when a unit it is drawing comes to stand on
+//   that hex (or sets off for it during playback), and again when the last one has gone; never twice the same.
+//   A tile starts unoccupied. The veil of an unseen hex is always a copy of the tile as unoccupied.
 // An id the kit does not know must give a plain placeholder, never an error.
 
 import type * as THREE from 'three';
@@ -44,6 +47,7 @@ export interface VisualKit {
   effect?(event: GameEvent, ctx: KitCtx): Promise<void>;   // added by task 07
   light?(scene: THREE.Scene, dawn: number): void;       // (19) 0 = first light, 1 = full day; the board eases it
   renderer?(r: THREE.WebGLRenderer): void;              // (26) called once by createBoard, before the first render: tone mapping, shadow type, exposure
+  occupied?(tile: THREE.Object3D, occupied: boolean): void;   // (27) a shown unit stands on this hex, or no longer does; the kit may change the tile
 }
 
 export interface UnitVisual {

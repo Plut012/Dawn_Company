@@ -1,4 +1,5 @@
-// The diorama's one tile: open ground. A hex prism of turf over earth (the detail is in the ground
+// The diorama's ground, and its open tile (woods.ts and buildings.ts stand their own things on the same ground).
+// Open ground: A hex prism of turf over earth (the detail is in the ground
 // material's shader, in world space, so it runs on from hex to hex without a seam), with tufts of grass and
 // a few stones scattered by the hex's own random stream. On it, drawn: the hex grid, the contour rings and
 // the stencilled label, in paper so that they read on dark ground.
@@ -10,7 +11,7 @@ import { TOKENS, layFlat, text } from '../lowpoly/parts';
 import type { Look } from './look';
 import { hexStream } from './noise';
 
-const LEVEL = 0.5;
+export const LEVEL = 0.5;
 const DEPTH = 0.6;     // how far every prism reaches below level-0 ground, as lowpoly's
 /** Phones: tufts of grass a hex (three blades each, one draw call a hex, no shadow cast). 0 turns them off. */
 export const TUFTS = 64;
@@ -21,10 +22,17 @@ const corner = (i: number, r = 1): [number, number] => [r * Math.sin((i * Math.P
 const gridLine = new THREE.LineBasicMaterial({ color: TOKENS.paper, transparent: true, opacity: 0.3, toneMapped: false });
 const contourLine = new THREE.LineBasicMaterial({ color: TOKENS.paper, transparent: true, opacity: 0.4, toneMapped: false });
 
-const prisms = new Map<number, { body: THREE.BufferGeometry; edges: THREE.BufferGeometry }>();
-function prism(elevation: number): { body: THREE.BufferGeometry; edges: THREE.BufferGeometry } {
-  let p = prisms.get(elevation);
+/** What lies on a hex's top: turf; a wood's floor (litter and moss, thinning to the rim); a yard of trodden earth. */
+export type Floor = 'turf' | 'wood' | 'yard';
+// The ground material's `aFloor` at the hex's middle and at its corners (look.ts reads it: above 0 a wood, below 0 a yard).
+const FLOORS: Record<Floor, [number, number]> = { turf: [0, 0], wood: [1, 0.5], yard: [-1, -0.3] };
+
+const prisms = new Map<string, { body: THREE.BufferGeometry; edges: THREE.BufferGeometry }>();
+function prism(elevation: number, kind: Floor): { body: THREE.BufferGeometry; edges: THREE.BufferGeometry } {
+  let p = prisms.get(`${elevation}/${kind}`);
   if (p) return p;
+  const [middle, rim] = FLOORS[kind];
+  const floor: number[] = [];
   const top = elevation * LEVEL;
   const position: number[] = [];
   const normal: number[] = [];
@@ -37,6 +45,7 @@ function prism(elevation: number): { body: THREE.BufferGeometry; edges: THREE.Bu
     position.push(0, top, 0, ax, top, az, bx, top, bz);
     normal.push(0, 1, 0, 0, 1, 0, 0, 1, 0);
     depth.push(0, 0, 0);
+    floor.push(middle, rim, rim, 0, 0, 0, 0, 0, 0);
     // One side: its own flat normal, and how far each corner is below the turf.
     const [nx, nz] = corner(i + 0.5);
     position.push(ax, top, az, ax, -DEPTH, az, bx, -DEPTH, bz, ax, top, az, bx, -DEPTH, bz, bx, top, bz);
@@ -50,10 +59,11 @@ function prism(elevation: number): { body: THREE.BufferGeometry; edges: THREE.Bu
   body.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
   body.setAttribute('normal', new THREE.Float32BufferAttribute(normal, 3));
   body.setAttribute('aDepth', new THREE.Float32BufferAttribute(depth, 1));
+  body.setAttribute('aFloor', new THREE.Float32BufferAttribute(floor, 1));
   const edges = new THREE.BufferGeometry();
   edges.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
   p = { body, edges };
-  prisms.set(elevation, p);
+  prisms.set(`${elevation}/${kind}`, p);
   return p;
 }
 
@@ -70,7 +80,7 @@ function contour(radius: number): THREE.BufferGeometry {
 }
 
 /** Is (x, z) inside a hex of this circumradius, corner along z? */
-function inHex(x: number, z: number, r: number): boolean {
+export function inHex(x: number, z: number, r: number): boolean {
   const ax = Math.abs(x);
   const az = Math.abs(z);
   return ax <= (Math.sqrt(3) / 2) * r && az <= r - ax / Math.sqrt(3);
@@ -163,19 +173,26 @@ export function scatter(hex: Hex, count = TUFTS): THREE.BufferGeometry {
   return g;
 }
 
-/** Open ground at a level. */
-export function openTile(look: Look, elevation: number, hex: Hex): THREE.Object3D {
-  const level = Number.isFinite(elevation) ? Math.max(0, elevation) : 0;
+/** A unit's level, from what the board hands a kit. */
+export const levelOf = (elevation: number): number => (Number.isFinite(elevation) ? Math.max(0, elevation) : 0);
+
+/**
+ * The ground of a hex and what is drawn on it: the prism with this floor, the grid, the contour rings, the
+ * tufts (`tufts` of them; 0 for none) and the stencilled label, `labelZ` from the middle (north is negative;
+ * null: no label on the ground, the tile puts its own elsewhere).
+ */
+export function groundTile(look: Look, elevation: number, hex: Hex, kind: Floor, tufts: number, labelZ: number | null): THREE.Group {
+  const level = levelOf(elevation);
   const top = level * LEVEL;
   const tile = new THREE.Group();
-  const { body, edges } = prism(level);
+  const { body, edges } = prism(level, kind);
   const mesh = new THREE.Mesh(body, look.ground);
   mesh.receiveShadow = true;
   mesh.castShadow = level > 0;
   tile.add(mesh, new THREE.LineSegments(edges, gridLine));
 
-  if (TUFTS > 0) {
-    const growth = new THREE.Mesh(scatter(hex), look.blades);
+  if (tufts > 0) {
+    const growth = new THREE.Mesh(scatter(hex, tufts), look.blades);
     growth.position.y = top;
     growth.receiveShadow = true;
     growth.name = 'growth';
@@ -189,13 +206,17 @@ export function openTile(look: Look, elevation: number, hex: Hex): THREE.Object3
     tile.add(loop);
   }
 
-  // The label, as lowpoly places it: at the far corner, where no hill in front can cover it.
-  const name = text(label(hex), 0.44, TOKENS.paper, 0.72);
-  if (name) {
+  const name = labelZ === null ? null : text(label(hex), 0.44, TOKENS.paper, 0.72);
+  if (name && labelZ !== null) {
     layFlat(name.geometry);
     (name.material as THREE.Material).toneMapped = false;
-    name.position.set(0, top + 0.008, -0.7);
+    name.position.set(0, top + 0.008, labelZ);
     tile.add(name);
   }
   return tile;
+}
+
+/** Open ground at a level. The label as lowpoly places it: at the far corner, where no hill in front can cover it. */
+export function openTile(look: Look, elevation: number, hex: Hex): THREE.Object3D {
+  return groundTile(look, elevation, hex, 'turf', TUFTS, -0.7);
 }

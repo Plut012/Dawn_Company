@@ -75,11 +75,14 @@ describe('diorama kit', () => {
     expect(() => kit.tile('open', Number.NaN, { q: 0, r: 0 })).not.toThrow();
   });
 
-  it('hands woods and the gunner to lowpoly: the same shapes', () => {
+  it('hands crops and the gunner to lowpoly: the same shapes', () => {
     const kit = dioramaKit();
     const low = lowpolyKit();
     const hex = { q: 3, r: 2 };
-    expect(shape(kit.tile('woods', 1, hex))).toEqual(shape(low.tile('woods', 1, hex)));
+    expect(shape(kit.tile('crops', 1, hex))).toEqual(shape(low.tile('crops', 1, hex)));
+    for (const terrain of ['wall', 'water', 'sandbags', 'wire', 'nest']) {
+      expect(shape(kit.tile(terrain, 0, hex))).toEqual(shape(low.tile(terrain, 0, hex)));
+    }
     // The gunner is lowpoly's man (every part after its base) on the diorama's base.
     const theirs = low.unit('gunner', 1).object;
     const ours = kit.unit('gunner', 1).object;
@@ -150,6 +153,152 @@ describe('diorama kit', () => {
       expect(m.onBeforeCompile.toString()).toBe(new THREE.Material().onBeforeCompile.toString());
     }
     expect(meshes(low.object).map((m) => m.material)).toEqual(before);
+  });
+
+  // ---- (27) woods and buildings
+
+  /** The meshes the board's veil would wear (`makeVeil` in ../index.ts): opaque and not drawn inside out. */
+  const veiled = (tile: THREE.Object3D): THREE.Mesh[] => meshes(tile).filter(
+    (m) => [m.material].flat().every((mat) => !mat.transparent && mat.side !== THREE.BackSide),
+  );
+  const named = (tile: THREE.Object3D, name: string): THREE.Mesh => meshes(tile).find((m) => m.name === name)!;
+
+  it('makes woods and buildings itself, the same hex the same way twice, at every level', () => {
+    const low = lowpolyKit();
+    for (const terrain of ['woods', 'building']) {
+      for (const level of [0, 1, 2]) {
+        const hex = { q: 4, r: -1 };
+        const a = dioramaKit().tile(terrain, level, hex);
+        expect(shape(a)).toEqual(shape(dioramaKit().tile(terrain, level, hex)));
+        expect(shape(a)).not.toEqual(shape(low.tile(terrain, level, hex)));
+        expect(shape(dioramaKit().tile(terrain, level, { q: 5, r: -1 }))).not.toEqual(shape(a));
+        // It stands on the ground at its level, and nothing of it goes below.
+        const thing = named(a, terrain === 'woods' ? 'wood' : 'house');
+        a.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(thing);
+        expect(box.min.y).toBeGreaterThan(level * 0.5 - 0.12);       // roots and the foot of a bush, in the ground
+        expect(box.min.y).toBeLessThan(level * 0.5 + 0.05);
+      }
+    }
+  });
+
+  it('gives the veil something to wear on a woods hex and on a building hex: every leaf and stone of it', () => {
+    const kit = dioramaKit();
+    for (const [terrain, name] of [['woods', 'wood'], ['building', 'house']]) {
+      const tile = kit.tile(terrain, 1, { q: 1, r: 2 });
+      const wears = veiled(tile);
+      expect(wears.length).toBeGreaterThanOrEqual(2);              // the ground, and what stands on it
+      expect(wears).toContain(named(tile, name));
+      expect(wears.length).toBeLessThanOrEqual(3);                 // few draw calls a hex
+    }
+  });
+
+  it('keeps a wood clear where a man stands and where his mark and the label are, and its trees in bounds', () => {
+    for (const hex of [{ q: 0, r: 0 }, { q: 3, r: 1 }, { q: -2, r: 4 }, { q: 7, r: 7 }]) {
+      const trees = named(dioramaKit().tile('woods', 0, hex), 'wood');
+      const at = trees.geometry.getAttribute('position');
+      let top = 0;
+      for (let i = 0; i < at.count; i++) {
+        const [x, y, z] = [at.getX(i), at.getY(i), at.getZ(i)];
+        top = Math.max(top, y);
+        // What a point hides from the camera (55 degrees down, from the south) is the ground 0.7 y to its north.
+        const hides = z - 0.7 * y;
+        // Nothing stands where the man does, or south of him in front of him.
+        if (Math.abs(x) < 0.16) expect(z < -0.14 || z > 0.5 || y < 0.02).toBe(true);
+        // His mark, at the front of his base (0.3 south of the middle), is not hidden.
+        if (Math.abs(x) < 0.36) expect(hides < 0.12 || hides > 0.5 || y < 0.02).toBe(true);
+        // Nor is the label, at the back, by anything south of it.
+        if (Math.abs(x) < 0.28 && z > -0.57) expect(hides < -0.83 || hides > -0.57).toBe(true);
+        // The mark of a man in the hex to the north-east or north-west (0.866 across, 1.5 up; the mark 0.3 south of his middle).
+        if (Math.abs(Math.abs(x) - 0.866) < 0.3) expect(hides).toBeGreaterThan(-1.5 + 0.45);
+        expect(Math.abs(x)).toBeLessThan(1.35);                   // a crown over the edge, not over the next hex's middle
+      }
+      expect(top).toBeGreaterThan(0.8);
+      expect(top).toBeLessThan(1.5);
+    }
+  });
+
+  it('gives neighbouring hexes houses of different kinds, each filling its hex and hiding no mark behind it', () => {
+    const kit = dioramaKit();
+    const tris = (hex: { q: number; r: number }) => {
+      const tile = kit.tile('building', 0, hex);
+      return named(tile, 'house').geometry.getAttribute('position').count + named(tile, 'lid').geometry.getAttribute('position').count;
+    };
+    const kinds = new Set<number>();
+    for (const hex of [{ q: 0, r: 0 }, { q: 1, r: 0 }, { q: 0, r: 1 }, { q: 5, r: 3 }, { q: -3, r: 2 }, { q: 2, r: 2 }]) {
+      const tile = kit.tile('building', 0, hex);
+      const box = new THREE.Box3().setFromObject(named(tile, 'lid')).union(new THREE.Box3().setFromObject(named(tile, 'house')));
+      expect(box.max.y).toBeGreaterThan(0.7);
+      expect(box.max.y).toBeLessThan(1.05);
+      expect(box.max.z).toBeGreaterThan(0.6);                      // a whole house on the hex: it comes to the front
+      expect(box.min.z).toBeLessThan(-0.6);
+      expect(Math.max(-box.min.x, box.max.x)).toBeLessThan(0.87);  // inside the hex from side to side
+      for (const part of ['house', 'lid']) {
+        const at = named(tile, part).geometry.getAttribute('position');
+        expect(named(tile, part).geometry.getAttribute('aMat')).toBeDefined();
+        for (let i = 0; i < at.count; i++) {
+          // What a point hides is the ground 0.7 y to its north; the front of the mark of a man in the hex behind is 1.02 north.
+          expect(at.getZ(i) - 0.7 * at.getY(i)).toBeGreaterThan(-1.03);
+          // Its corners are cut along the hex's edges (a hex of circumradius 1, a corner along z), the eaves a little over.
+          expect(Math.abs(at.getZ(i)) + Math.abs(at.getX(i)) / Math.sqrt(3)).toBeLessThan(1.03);
+        }
+      }
+      kinds.add(tris(hex));
+    }
+    for (const [dq, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]]) {
+      expect(tris({ q: 2 + dq, r: 2 + dr })).not.toBe(tris({ q: 2, r: 2 }));     // another kind has other parts
+    }
+    expect(kinds.size).toBe(3);
+  });
+
+  it('takes the lid off a house while it is occupied, and puts it back; other tiles take no notice', () => {
+    const kit = dioramaKit();
+    const tile = kit.tile('building', 1, { q: 1, r: 1 });
+    const lid = named(tile, 'lid');
+    const shell = named(tile, 'house');
+    const seen = () => meshes(tile).filter((m) => m.visible).length;
+    expect(lid.visible).toBe(true);
+    const closed = seen();
+    kit.occupied!(tile, true);
+    expect(lid.visible).toBe(false);
+    expect(shell.visible).toBe(true);
+    // Open: the back and side walls stand to their full height, the front is down to a sill no higher than a base.
+    const at = shell.geometry.getAttribute('position');
+    let back = 0;
+    let front = 0;
+    for (let i = 0; i < at.count; i++) {
+      if (at.getZ(i) < -0.6) back = Math.max(back, at.getY(i));
+      if (at.getZ(i) > 0.55 && Math.abs(at.getX(i)) < 0.45) front = Math.max(front, at.getY(i));
+    }
+    expect(back).toBeGreaterThan(0.38);
+    expect(front).toBeLessThanOrEqual(0.0701);
+    kit.occupied!(tile, true);                                     // told twice: no harm
+    kit.occupied!(tile, false);
+    expect(lid.visible).toBe(true);
+    expect(seen()).toBe(closed);
+    for (const terrain of ['open', 'woods', 'crops']) {
+      const other = kit.tile(terrain, 0, { q: 0, r: 0 });
+      const before = meshes(other).map((m) => m.visible);
+      expect(() => kit.occupied!(other, true)).not.toThrow();
+      expect(meshes(other).map((m) => m.visible)).toEqual(before);
+    }
+    expect(lowpolyKit().occupied).toBeUndefined();
+  });
+
+  it('veils an opened house as the closed house: the board shuts it while the veil is copied', () => {
+    const kit = dioramaKit();
+    const tile = kit.tile('building', 0, { q: 3, r: 0 });
+    kit.occupied!(tile, true);
+    // What the board does (applyFog in ../index.ts): shut, copy, open again.
+    kit.occupied!(tile, false);
+    const veil = tile.clone(true);
+    kit.occupied!(tile, true);
+    expect(named(tile, 'lid').visible).toBe(false);
+    const copy = named(veil, 'lid');
+    expect(copy.visible).toBe(true);
+    expect(veiled(veil)).toContain(copy);                          // opaque: it wears the veil
+    kit.occupied!(veil, true);                                     // the copy is not a tile the kit opens
+    expect(copy.visible).toBe(true);
   });
 
   it('draws the same hex the same way twice, and another hex differently', () => {

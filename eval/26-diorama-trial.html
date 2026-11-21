@@ -42,13 +42,15 @@
 <main>
 <h1>Eval 26 — Diorama trial</h1>
 <p>A trial of another visual direction, as a second kit beside <code>lowpoly</code>: <b>the world is real, the information is drawn.</b>
-The diorama kit (<code>src/client/render/kits/diorama/</code>) makes three things itself: the light and air, open ground, and the rifleman.
-Everything else on its board is lowpoly's, asked for call by call. Both boards below are the real <code>createBoard</code>, each with its own kit,
+The diorama kit (<code>src/client/render/kits/diorama/</code>) made three things itself in this task: the light and air, open ground, and the rifleman.
+<b>Since task 27 it also makes woods and buildings</b> (see <code>eval/27-diorama-woods-and-buildings.html</code>), so the live boards below now show
+the diorama's own trees and house; the stills on this page are task 26's and still show lowpoly's. Crops, water, the works and the other units are
+lowpoly's, asked for call by call. Both boards below are the real <code>createBoard</code>, each with its own kit,
 showing the same <code>PlayerView</code>. Runs on Vite alone (<code>npx vite --port 5199 --strictPort</code>, then <code>/eval/26-diorama-trial.html</code>).</p>
 
 <h2 id="side-by-side">1. Side by side</h2>
-<p>A hand-made map, seven by five: open ground at levels 0, 1 and 2 (the hill at the back left), and woods, a building, crops and water for
-the fallback. The state is <code>createMatch</code>'s and the view <code>viewFor</code>'s for Blue, then changed by hand: the men are put in each
+<p>A hand-made map, seven by five: open ground at levels 0, 1 and 2 (the hill at the back left), and woods, a building, crops and water
+(crops and water are the fallback now; woods and the building were, when this page's stills were taken). The state is <code>createMatch</code>'s and the view <code>viewFor</code>'s for Blue, then changed by hand: the men are put in each
 status, every unit is shown (a real view leaves out enemies it cannot see), and four hexes at the top right are taken out of sight
 (<b>F1, G1, G2, G3</b>: open, open, crops, water under the veil). Blue (bar): ready on the hill at <b>C2</b> (selected, with a planned move to D3),
 pinned at <b>B3</b> (with a target mark on E3), down at <b>A4</b>, dug in at <b>C4</b>, ready at <b>C5</b> and at <b>E5</b> (second pass: a man standing in the mist), and a gunner (lowpoly's man, on the diorama's base) at <b>B5</b>.
@@ -186,7 +188,7 @@ own. One rifleman was added to the scene (E5), so the first-pass stills show one
   him, and the sea round the board is a flat tone with blotches. At dawn 0 it is closer to blue haze than to milk lying in hollows.</li>
   <li><b>The ground is flat-topped hexes with a good texture.</b> The steps are still prisms; the tufts are sparse and vanish at the opening zoom; there is no
   relief, no mud, no puddle that really reflects. Tufts stand up through the rust burst of a pinned man.</li>
-  <li><b>Two kits in one picture.</b> Lowpoly's woods, house, crops, water and gunner sit in the new light and sink in the mist, but they are flat-shaded and
+  <li><b>Two kits in one picture</b> (as it was in task 26; task 27 gave the kit its own woods and houses). Lowpoly's woods, house, crops, water and gunner sit in the new light and sink in the mist, but they are flat-shaded and
   ink-outlined beside physically based grass; the gunner's base is lit where the rifleman's is not. That is the fallback working, and it shows what is left to do.</li>
   <li><b>The drawn layer may be too loud at dawn 0.</b> Unlit bases in full palette colour against a moonlit board pop, as asked, but the blue and plum
   discs are the brightest things in the picture; they could follow the dawn a little without losing their colour.</li>

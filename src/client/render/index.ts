@@ -7,6 +7,7 @@ import { WORKS } from '../../content';
 import type { GameEvent, GameMap, Hex, HexKey, Objective, PlayerId, PlayerView, TerrainId, Unit, UnitId } from '../../shared/types';
 import { hexToPixel, key, parseKey } from '../../shared/hex';
 import type { KitCtx, UnitVisual, VisualKit } from './kit';
+import { createOccupancy } from './occupancy';
 import { createPlayback } from './playback';
 
 export type { VisualKit, UnitVisual, KitCtx } from './kit';
@@ -111,6 +112,14 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
       if (playing) invalidate();
     });
   }
+
+  // ---- occupied hexes (27): a kit that wants to know is told when a hex gains or loses a shown unit
+
+  const occupied = createOccupancy((k, on) => {
+    const tile = tiles.get(k);
+    if (tile) kit.occupied?.(tile.object, on);
+    invalidate();
+  });
 
   // ---- the dawn (19): the kit's light follows the view's `dawn`, eased over about a second
 
@@ -280,6 +289,7 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
   }
 
   function buildMap(m: GameMap): void {
+    occupied.reset();                        // new tiles: each unit shown again tells its hex
     tileLayer.clear();
     veilLayer.clear();
     objectiveLayer.clear();
@@ -354,7 +364,8 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
     tileLayer.add(object);
     const hidden = tile.veil?.visible ?? false;
     tile.veil?.removeFromParent();
-    const veil = tile.veil ? makeVeil(object) : null;
+    const veil = tile.veil ? makeVeil(object) : null;   // made before the new tile is told of anyone on it
+    if (occupied.has(k)) kit.occupied?.(object, true);
     if (veil) { veil.visible = hidden; veilLayer.add(veil); }
     tiles.set(k, { object, veil, terrain });
     invalidate();
@@ -395,7 +406,11 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
     for (const [k, tile] of tiles) {
       const hidden = !visible.has(k);
       if (hidden && !tile.veil) {
+        // (27) The veil is a copy of the tile as nobody stands on it, whatever stands on it now.
+        const open = occupied.has(k) && kit.occupied !== undefined;
+        if (open) kit.occupied!(tile.object, false);
         tile.veil = makeVeil(tile.object);
+        if (open) kit.occupied!(tile.object, true);
         veilLayer.add(tile.veil);
       }
       if (tile.veil) tile.veil.visible = hidden;
@@ -420,12 +435,14 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
     piece.visual.object.position.copy(hexToWorld(unit.pos));
     piece.visual.setStatus(unit.status);
     piece.visual.setDugIn?.(unit.dugIn === true && unit.status !== 'down');   // (24)
+    if (kit.occupied) occupied.place(unit.id, key(unit.pos));                 // (27)
     invalidate();
   }
 
   function hideUnit(id: UnitId): void {
     pieces.get(id)?.visual.object.removeFromParent();
     pieces.delete(id);
+    if (kit.occupied) occupied.remove(id);
     invalidate();
   }
 
@@ -441,7 +458,11 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
   // ---- playback: one round at a time
 
   const playback = createPlayback({
-    effect: kit.effect ? (event, c) => kit.effect!(event, c) : undefined,
+    effect: kit.effect ? (event, c) => {
+      // (27) A piece setting off counts on the hex it is going to from its first stride.
+      if (kit.occupied && event.t === 'move' && pieces.has(event.unit)) occupied.heading(event.unit, key(event.to));
+      return kit.effect!(event, c);
+    } : undefined,
     ctx,
     viewer: () => view?.player ?? null,
     units,

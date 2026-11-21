@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 27 — Diorama: woods and buildings</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the boards, both kits, the match and the views on this page are the real ones */
+  body { padding: var(--s-3); }
+  main { max-width: 1760px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 100ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  .bar { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; margin: var(--s-2) 0; }
+  .bar button { font: inherit; padding: var(--s-2) var(--s-3); background: var(--khaki); color: var(--ink); border: var(--w-outline) solid var(--ink); cursor: pointer; min-height: 40px; }
+  .bar button:disabled { opacity: 0.5; cursor: default; }
+  .bar button.on { background: var(--amber); }
+  .bar input[type=range] { width: 280px; }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; min-height: 1.5em; }
+  .bad { border-left-color: var(--rust); }
+  .pair { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  .side { flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: var(--s-1); }
+  .stage { position: relative; width: 100%; height: 520px; border: var(--w-frame) solid var(--ink); background: var(--slate); box-sizing: content-box; }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  body.phone .side { flex: none; }
+  body.phone .stage { width: 844px; height: 390px; max-width: none; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: var(--s-3); margin: var(--s-2) 0; }
+  .shots figure { margin: 0; }
+  .shots img { display: block; width: 100%; height: auto; border: var(--w-frame) solid var(--ink); }
+  .shots figcaption { font-size: var(--t-1); }
+  /* `?shot=diorama|lowpoly`: one board alone, filling the window, for a headless screenshot */
+  body.shot { padding: 0; margin: 0; overflow: hidden; }
+  body.shot main > *:not(#shot-stage) { display: none; }
+  body.shot #shot-stage { position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; }
+  #shot-stage { display: none; }
+  body.shot #shot-stage { display: block; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 27 — Diorama: woods and buildings</h1>
+<p>The diorama kit's own <code>woods</code> and <code>building</code> tiles (<code>src/client/render/kits/diorama/woods.ts</code>, <code>buildings.ts</code>),
+in the light, mist and drawn layer of task 26. Crops, walls, water, works and the other units are still lowpoly's. Both boards below are the real
+<code>createBoard</code>, each with its own kit, showing the same <code>PlayerView</code>. Runs on Vite alone (<code>npx vite --port 5199 --strictPort</code>,
+then <code>/eval/27-diorama-woods-and-buildings.html</code>).</p>
+
+<h2 id="side-by-side">1. Side by side</h2>
+<p>A hand-made map, eight by six. <b>The wood</b>: twelve hexes at the left (A1–C1, A2–C2, A3, B3 seen, four of them on level 1: A1, B1, A2, B2;
+A4, B4 and A5, B5 unseen under the veil). <b>The hamlet</b> (second pass: whole houses whose roof and front wall lift off while a unit the board shows is inside): at <b>E2</b> a house with
+Blue's rifleman in it, so <b>open</b>; at <b>G2</b> an empty one, <b>closed</b>; at <b>G3</b>, next to it, one with a man of Plum's inside whom Blue does not
+see (he is in the state, not in the view), so <b>closed</b>; and a fourth at <b>H1</b> out of sight under the veil. Objective A is the area <b>E2–F2</b>.
+The state is <code>createMatch</code>'s and the view <code>viewFor</code>'s for Blue, then changed by hand (every unit shown but the man in G3, the unseen
+hexes chosen). Blue (bar): riflemen in the wood at <b>B2</b> (on the hill, selected, a planned move to C2), <b>C1</b> (dug in) and <b>B3</b>, one in the house at
+<b>E2</b>, one in the open at <b>F3</b>, and a gunner (lowpoly's man) at <b>D2</b>. Plum (chevron): a rifleman in the open at <b>H3</b>, and the unseen one in G3.
+Drag to pan, wheel or pinch to zoom: each board has its own camera.</p>
+<div class="bar">
+  <label for="dawn">Dawn <b id="dawn-out">0.00</b></label>
+  <input type="range" id="dawn" min="0" max="1" step="0.01" value="0" />
+  <button type="button" data-dawn="0">0 — first light</button>
+  <button type="button" data-dawn="0.5">0.5</button>
+  <button type="button" data-dawn="1">1 — full day</button>
+  <button type="button" id="phone">Phone frame (844 × 390)</button>
+  <button type="button" id="closer">Closer</button>
+  <button type="button" id="whole">Whole map</button>
+</div>
+<div class="bar">
+  <button type="button" id="play">Play a short round</button>
+  <button type="button" id="reset">Reset</button>
+</div>
+<div class="observed" id="log" role="status">Loading the boards.</div>
+<div class="pair">
+  <div class="side"><span class="cap">lowpoly</span><div class="stage" id="stage-lowpoly"></div></div>
+  <div class="side"><span class="cap">diorama</span><div class="stage" id="stage-diorama"></div></div>
+</div>
+<div class="stage" id="shot-stage"></div>
+<p><b>Playback.</b> Real <code>GameEvent</code>s given to <code>board.play</code> on both boards. In the first step Blue's man in E2 walks out to F2 (his
+house <b>closes</b> behind him when he has arrived), the man at F3 walks into G2 (it <b>opens</b> as he sets off), and the man at B3 leaves the wood for C3; in the
+second he goes on to D3, Plum's man at H3 fires at him, and he is hit and pinned. After it, both boards take the view of the state that follows.
+Lowpoly has no <code>occupied</code> hook: its houses do not change.</p>
+
+<h2 id="stills">2. Stills of the diorama board</h2>
+<p>Taken with headless Chromium (software WebGL, SwiftShader) from this page's own shot mode
+(<code>?shot=diorama&amp;dawn=0</code>, the window being the board), at 1280 × 720 and at 844 × 390, device pixel ratio 1; and closer in
+(<code>&amp;zoom=4&amp;at=B2</code>).</p>
+<div class="shots" id="shots"></div>
+<h2 id="real-match">3. In a real match</h2>
+<p><code>npm run dev</code> and <code>npm run server</code>, then <code>http://localhost:5173/dev.html?kit=diorama</code>: the query reaches every
+frame (<code>/?slot=dev1&amp;kit=diorama</code>), and the play screen and the manual make their kit with <code>makeKit(kitFromUrl())</code>.
+Without <code>?kit=diorama</code> everything is lowpoly, and lowpoly looks as it did (the kit does not implement <code>renderer</code>).
+A single client: <code>http://localhost:5173/?kit=diorama</code>.</p>
+
+<h2 id="notes">4. Notes: what was judged, what was not, what falls short</h2>
+<div id="notes-body">
+<p><b>Second pass: houses that open when a man is seen inside.</b></p>
+<ul>
+  <li><b>The hook.</b> <code>occupied?(tile, occupied)</code> on the kit. The board keeps a small tracker (<code>src/client/render/occupancy.ts</code>) and feeds
+  it what it does with its pieces: a piece shown on a hex (<code>setView</code>, and every time playback shows a unit: a move's end, <code>spotted</code>,
+  <code>return</code>, a hit), a piece taken off (<code>lost</code>, an enemy who goes down, a unit gone from a view), and a piece setting off on a
+  <code>move</code>. A hex is occupied while a piece the board draws stands on it or is on its way to it; the kit is told only when that changes.
+  So a house opens as a man sets off for it and shuts once he has arrived on the next hex: he never walks through a roof. Only pieces count, and pieces are
+  the view's units: an enemy the player does not see opens nothing. A kit without the hook is not tracked at all (lowpoly: a still of the lowpoly board is
+  byte for byte the one taken in task 26).</li>
+  <li><b>The closed house</b> fills the hex: walls round an eight-sided plan (long front and back, gable ends at the sides, the four corners cut along the hex's
+  edges), the ridge east-west and set back, so it is tallest towards the north and its long front slope faces the camera, with the label stencilled on it.
+  The three kinds are kept: stone farmhouse under slate with a chimney on one gable, rendered barn under tile with a cart door, cottage with a low boarded
+  lean-to at one end (a third roof slope falling outwards). The back wall is 0.42 high and the ridge about 0.8: a test checks every vertex against the
+  sight line to the mark of a man in the hex behind.</li>
+  <li><b>The open house</b> is the same tile with its <i>lid</i> hidden. A house is two geometries: the <i>shell</i> (back and side walls inside and out with
+  their tops, a sill 0.07 high where the front walls were, the floor of flags or boards, the hearth and flue on the gable under the chimney, two small windows
+  in the back wall) and the <i>lid</i> (the roof slopes with their edges and ridge, the front walls above the sill with the door, windows and shutters, and
+  the cottage's upper gable over its lean-to). Two draw calls closed, one open. The change is instant: no lift is animated. With the lid off the label is
+  small on the ground at the hex's south point, the one place the man and his base do not cover.</li>
+  <li><b>The veil</b> is a copy of the tile made when the hex is first unseen. If the tile is open at that moment (a man just left the view from it), the board
+  tells the kit <i>unoccupied</i>, copies, and tells it <i>occupied</i> again, so the veil is always the closed house; the copy is not a tile the kit knows,
+  so nothing opens it later. Seen in the still of H1.</li>
+</ul>
+<p><b>Judged in the new stills:</b> at board scale the houses now read as houses, each a different one; the open house frames the man, his base and mark
+plain, and reads as a cut-away, not a ruin (clean pale wall tops, no debris). After the round the house the man left is whole again and the one the other
+walked into is open. The unseen enemy's house at G3 stays shut. Roof labels read at desktop and phone size.</p>
+<p><b>Not judged, second pass:</b> the moment of opening and closing in motion (only the states before and after; it is a pop, not a lift); a real match with
+a server, where occupancy comes from real views and real <code>spotted</code> and <code>lost</code> events (the tests replay those through the real playback and
+the real kit, but wired to the tracker by the test, since <code>createBoard</code> needs WebGL); a house on level 1 or 2 with a man in it; a work built on
+a building hex (<code>retile</code> tells the new tile, by reading, not by running).</p>
+<p><b>Still short, second pass.</b></p>
+<ul>
+  <li><b>From this camera a closed house is mostly roof.</b> The long front slope is what is seen; the front wall with its door and windows is a thin strip
+  under the eave, and the back is hidden. The roof at dawn 1 is in shade (the sun is behind it).</li>
+  <li><b>The open house reads as a walled plan more than as a room.</b> The side walls are seen edge on, the back wall is low (it must be, for the hex behind),
+  and the base covers nearly all the floor. The hearth is on a gable wall and hard to see.</li>
+  <li><b>It pops.</b> Roof on, roof off, in one frame.</li>
+  <li><b>The open label is small</b> (about 60% of the usual size) and sits outside the house; under an objective wash it is fainter still.</li>
+  <li>An objective wash on a building hex is under the roof when the house is shut: only its rim shows (the flag still stands over it).</li>
+  <li>Still no chipped corners; the eaves overhang the hex's edge by about 0.03.</li>
+</ul>
+<p><b>Deviations, second pass.</b> (1) A house opens when a piece <i>sets off</i> for its hex in a <code>move</code>, not when it arrives; it shuts on arrival at the
+next hex, as the doc says. (2) No hook call is made for a kit without <code>occupied</code>, and none in a round's playback for a kit without <code>effect</code>
+before the arrival. (3) The label of an open house is on the ground in front of it, not inside. (4) <code>playback.ts</code> is unchanged: the board's own
+<code>showUnit</code>, <code>hideUnit</code> and its wrapper round the kit's effect feed the tracker.</p>
+<hr />
+<p><b>First pass</b> (the houses described below were replaced by the second pass; the woods stand as described).</p>
+
+<p><b>How they are made.</b></p>
+<ul>
+  <li><b>Trees.</b> A broadleaf (oak: broad, dark; beech: taller, paler, grey bark) is a trunk, a fork, a few boughs and a crown of up to seven
+  <i>clumps</i>: lumpy balls of eighty faces, as a modeller builds a tree of foliage clumps on a wire frame. A clump's normals lean out from the heart of
+  its crown, so a crown is lit as one mass with lumps on it; the paint is baked darker beneath, lighter above, and the leaves material breaks it up leaf by
+  leaf from the noise texture. About one tree in seven is a fir: a stem and four ragged tiers. Round them, knee-high undergrowth. All of a hex's growth is
+  <b>one opaque geometry, one draw call</b> (and one in the shadow pass); no leaf cards, no cut-outs.</li>
+  <li><b>Where they stand</b> follows from the camera (from the south, 55 degrees down: a thing <i>y</i> high hides the ground 0.7 <i>y</i> north of it). The
+  middle and a lane north of it are clear (the man, the label); the two tall trees stand at the sides with their crowns out over the hex's edge, so
+  neighbouring hexes close into one wood; lower trees at the back corners and south corners; only undergrowth on the south rim. Then the rule is made sure
+  of leaf by leaf: the growth is capped along a slope so nothing hides the mark of a man in the hex behind, and anything leaning in over the lane is moved
+  out to its edge. A test checks every vertex of four hexes against those sight lines.</li>
+  <li><b>The floor</b> is the ground material's: the prism carries a number (1 at the middle, 0.5 at the corners) that the shader turns into leaf litter and
+  moss, ragged by noise, so it thins towards the rim and runs on into turf with no edge but the grid line.</li>
+  <li><b>Houses.</b> Three kinds, chosen as (q + 2r) mod 3 so that no two of a hex's six neighbours share one: a long stone farmhouse under slate with a
+  chimney at one gable; a rendered barn under old tile with a cart door and a loft hatch; a cottage with a boarded lean-to and a chimney mid-ridge. Each is
+  then mirrored or not, turned a few degrees, and given its own length, height, stone, roof and shutter colour by the hex's stream. Geometry is plain faces
+  (walls, gables, a roof with eaves, verges and thickness, lintels, sills, shutters, a step) in <b>one opaque geometry, one draw call</b>. The stone courses,
+  the render fallen away in patches, slates in courses with the odd slipped one, moss, damp rising from the ground and streaks from the eaves are drawn by
+  the masonry material from each point's place on its wall or roof; the courses fade out when they are under a pixel, so they do not shimmer far out.
+  The house stands at the back of the hex on a yard of trodden earth, and is at most 0.85 high with its chimney pot (lowpoly's is 0.8).</li>
+  <li><b>The veil.</b> Everything here is opaque and front-faced, so the board's <code>makeVeil</code> copies all of it: an unseen wood is its trees' own shapes
+  in flat hatched near-black, an unseen house its own block. Nothing see-through was used, so nothing is left unveiled (a test holds that the growth and the
+  house are among the meshes the veil wears). The veil is drawn after the mist, so mist never lies on an unseen wood.</li>
+  <li><b>Cost.</b> <code>WOODS = { desktop: { trees: 7, clumps: 7 }, phone: { trees: 5, clumps: 4 } }</code> in <code>diorama/woods.ts</code>, the phone setting by the
+  same coarse-pointer test as the mist's. A woods hex is about 4,000 triangles on the desktop setting and about 1,900 on the phone's (counted); a house 90 to 200. A woods or building hex is 3 draw
+  calls of geometry (ground, growth or house, and tufts on a building hex) besides its grid line and label.</li>
+</ul>
+<p><b>Judged in the stills</b> (headless Chromium, software WebGL, device pixel ratio 1):</p>
+<ul>
+  <li>The wood reads as one wood: crowns close over the hex edges, and the floor is dark under them. The men at B2, C1 and B3 stand between trunks with
+  their bases and marks plain; the labels of empty woods hexes (A1, B1, A2, A3) read.</li>
+  <li>At dawn 0 the crowns stand dark above the mist and the trunks and undergrowth at C2 fade into it; at dawn 1 the wood throws long shadows over the
+  open ground east of it, and the grid and labels there still read (they are unlit).</li>
+  <li>The unseen wood (A4–B5) is clearly unknown, and does not hide the mark of the man at B3 in front of it (it did, before the back trees were lowered).</li>
+  <li>The three seen houses are of three kinds and look like neighbours. At phone size they read as houses with roofs.</li>
+  <li>Playback: the still after the round shows the walker out of the wood, kneeling on the burst at D3.</li>
+</ul>
+<p><b>Not judged.</b> A real phone and frame rate (the wood is the heaviest thing in the kit now: a 17 × 13 map with forty woods hexes is about 160,000
+triangles on the desktop setting, twice with the shadow pass); the phone setting itself (not emulated; it has fewer trees and smaller crowns, and was not looked at);
+woods and houses on level 2 (the tests build them; no still); the motion of playback; a real match with a server.</p>
+<p><b>Where it falls short.</b></p>
+<ul>
+  <li><b>The houses are small and mostly hidden.</b> A man in a building hex stands in front of the door and covers half the front; what the player
+  sees is mainly the roof, and from the south the lit side of the roof is the far one at dawn 1, so the near slope is dark. The stone, the shutters and the
+  render are there but only show close in. The chipped corners the doc asks for are not there: corners are sharp.</li>
+  <li><b>The trees are a modeller's clump trees, not botany.</b> Oak and beech differ in shape and colour, not in leaf; the crowns are lumpy balls close
+  in, and where a crown was trimmed for a sight line it has a flat face (over the lane, and sloping at the back).</li>
+  <li><b>A lane in every hex.</b> The clear strip for the man and the label is the same in every woods hex; over a big wood it may show as a pattern.
+  Seven trees a hex is also not thick: from above, floor shows between the crowns.</li>
+  <li><b>Trees still hide ground.</b> The mark of a man is kept clear in his own hex and from the hex in front; the back of his base, and the label of the
+  hex behind a wood, can be under a crown.</li>
+  <li><b>The label of a building hex is at the front</b>, and a man standing there covers part of it, as a man covers the label of any hex.</li>
+  <li>Shadows inside the wood at dawn 1 are deep: the floor under the trees is close to black, though nothing drawn is lost in it.</li>
+</ul>
+<p><b>Deviations from the task doc.</b> (1) The label of a building hex lies at the front (south) of the hex, not at the back as on the open tile: the house
+stands there. (2) No chipped corners. (3) The kit's <code>Sculpt</code> helper moved from <code>units.ts</code> to its own file so that the trees can use it.
+(4) The ground material and prism gained a floor number (wood, yard), which the open tile sets to zero. No change to lowpoly.</p>
+<p>Stills: as on eval 26, e.g. <code>chrome-headless-shell --use-angle=swiftshader --enable-unsafe-swiftshader --hide-scrollbars --virtual-time-budget=6000
+--window-size=1280,720 --screenshot=eval/assets/27/dawn-0-man-in-wood.png "http://localhost:5199/eval/27-diorama-woods-and-buildings.html?shot=diorama&amp;dawn=0&amp;zoom=3.2&amp;at=B2"</code>.</p>
+</div>
+</main>
+
+<script type="module">
+  import { createBoard } from '/src/client/render/index.ts';
+  import { makeKit } from '/src/client/render/kits/index.ts';
+  import { loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
+  import { createMatch } from '/src/rules/match.ts';
+  import { viewFor } from '/src/rules/sight.ts';
+  import { tinyMap, hex } from '/src/manual/lesson.ts';
+  import { key } from '/src/shared/hex.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const say = (text, bad = false) => { $('log').innerHTML = text; $('log').classList.toggle('bad', bad); };
+  addEventListener('error', (e) => say('Error: ' + esc(e.message), true));
+  addEventListener('unhandledrejection', (e) => say('Error: ' + esc(String(e.reason?.stack ?? e.reason)), true));
+  const params = new URLSearchParams(location.search);
+
+  // ---- the scene: a real match on a hand-made map, the view then changed by hand
+  const map = tinyMap({
+    id: 'eval-27',
+    terrain: ['w w w . . . . b', ' w w w . b . b .', 'w w . . . . b .', ' w w . . . . . .', 'w w . . ~ . c c', ' . . . . . . . .'],
+    elevation: ['1 1 . . . . . .', ' 1 1 . . . . . .', '. . . . . . . .', ' . . . . . . . .', '. . . . . . . .', ' . . . . . . . .'],
+    marks: ['. . . . . . . .', ' . . . . A A . .', '. . . . . . . .', ' . . . . . . . .', '. . . . . . . .', ' . . . . . . . .'],
+    objectives: { A: { kind: 'village', value: 2 } },
+  });
+  // Where each seat's men stand, in squad order: createMatch sets them down on its spawn zones.
+  const BLUE = ['B2', 'C1', 'B3', 'E2', 'D2', 'F3'];
+  const PLUM = ['H3', 'G3'];
+  const UNSEEN_MEN = ['1-1'];        // in the state, not in Blue's view: the man inside the house at G3
+  map.spawns = [BLUE.map(hex), PLUM.map(hex)];
+  map.seatSpawns = { 2: [0, 1] };
+  const match = createMatch(map, [
+    { player: 0, units: ['rifleman', 'rifleman', 'rifleman', 'rifleman', 'gunner', 'rifleman'] },
+    { player: 1, units: ['rifleman', 'rifleman'] },
+  ]);
+  const UNSEEN = ['H1', 'A4', 'B4', 'A5', 'B5', 'H5'].map((l) => key(hex(l)));
+  const set = (state, id, change) => ({ ...state, units: state.units.map((u) => (u.id === id ? { ...u, ...change } : u)) });
+  let start = match;
+  start = set(start, '0-1', { dugIn: true });
+  let after = set(start, '0-2', { pos: hex('D3'), status: 'pinned', pinnedRound: 1 });
+  after = set(after, '0-3', { pos: hex('F2') });
+  after = set(after, '0-5', { pos: hex('G2') });
+  const EVENTS = [
+    { t: 'phase', phase: 'move' },
+    { t: 'move', step: 1, unit: '0-3', from: hex('E2'), to: hex('F2') },
+    { t: 'move', step: 1, unit: '0-5', from: hex('F3'), to: hex('G2') },
+    { t: 'move', step: 1, unit: '0-2', from: hex('B3'), to: hex('C3') },
+    { t: 'move', step: 2, unit: '0-2', from: hex('C3'), to: hex('D3') },
+    { t: 'phase', phase: 'assault' },
+    { t: 'fire', unit: '1-0', from: hex('H3'), target: hex('D3'), blast: 0, ambush: false, action: 'rifle' },
+    { t: 'hit', unit: '0-2', at: hex('D3'), result: 'pinned' },
+  ];
+  const MARKS = [
+    { kind: 'select', hex: hex('B2') },
+    { kind: 'path', from: hex('B2'), path: [hex('C2')], dash: false },
+    { kind: 'target', from: hex('E2'), hex: hex('H3'), blast: 0 },
+  ];
+  /** Blue's real view of a state, then: every unit shown, four hexes unseen, and the dawn the slider asks for. */
+  function viewOf(state, dawn) {
+    const view = viewFor(state, 0);
+    return { ...view, units: state.units.filter((u) => !UNSEEN_MEN.includes(u.id)).map((u) => ({ ...u })), visible: Object.keys(map.cells).filter((k) => !UNSEEN.includes(k)), dawn };
+  }
+
+  // ---- boards
+  let dawn = Number(params.get('dawn') ?? 0);
+  let state = params.get('state') === 'after' ? after : start;
+  const boards = [];   // { kit, board, canvas }
+  function mount(kit, stage) {
+    const canvas = document.createElement('canvas');
+    stage.replaceChildren(canvas);
+    const board = createBoard(canvas, makeKit(kit));
+    board.resize();
+    boards.push({ kit, board, canvas });
+    return board;
+  }
+  const wheel = (canvas, factor) => canvas.dispatchEvent(new WheelEvent('wheel', {
+    clientX: canvas.getBoundingClientRect().left + canvas.clientWidth / 2, clientY: canvas.getBoundingClientRect().top + canvas.clientHeight / 2,
+    deltaY: -Math.log(factor) / 0.0015, bubbles: true, cancelable: true,
+  }));
+  function show() {
+    for (const { board } of boards) {
+      board.setView(viewOf(state, dawn));
+      board.setMarks(MARKS);
+    }
+    $('dawn').value = String(dawn);
+    $('dawn-out').textContent = dawn.toFixed(2);
+    for (const b of document.querySelectorAll('[data-dawn]')) b.classList.toggle('on', Number(b.dataset.dawn) === dawn);
+    document.body.dataset.dawn = String(dawn);
+  }
+  function frame(zoom, at) {
+    for (const { board, canvas } of boards) {
+      wheel(canvas, 0.001);                      // right out: the whole map
+      if (zoom > 1) { board.focus(at); wheel(canvas, zoom); board.focus(at); }
+    }
+  }
+
+  let playing = false;
+  async function play() {
+    if (playing) return;
+    playing = true;
+    $('play').disabled = true;
+    state = start;
+    show();
+    say(`Playing ${EVENTS.length} events on both boards...`);
+    const t0 = performance.now();
+    await Promise.all(boards.map(({ board }) => board.play(EVENTS)));
+    state = after;
+    show();
+    playing = false;
+    $('play').disabled = false;
+    say(`Played in ${((performance.now() - t0) / 1000).toFixed(1)} s; both boards then took the view that follows: the man from C5 is pinned at D3 in the open; E2 has closed and G2 has opened. Press Reset to see the start again.`);
+    document.body.dataset.played = 'yes';
+  }
+
+  async function begin() {
+    await loadKitFonts();
+    const shot = params.get('shot');
+    if (shot) {
+      // One board alone, for a still.
+      document.body.classList.add('shot');
+      mount(shot === 'lowpoly' ? 'lowpoly' : 'diorama', $('shot-stage'));
+      show();
+      frame(Number(params.get('zoom')) || 1, hex(params.get('at') ?? 'D3'));
+      if (params.get('play')) await play();
+    } else {
+      mount('lowpoly', $('stage-lowpoly'));
+      mount('diorama', $('stage-diorama'));
+      show();
+      say('Ready: dawn 0, the first round\'s light. Move the slider (the boards ease to a new light over about a second), or play the round.');
+    }
+    addEventListener('resize', () => boards.forEach(({ board }) => board.resize()));
+    $('dawn').addEventListener('input', () => { dawn = Number($('dawn').value); show(); });
+    for (const b of document.querySelectorAll('[data-dawn]')) b.addEventListener('click', () => { dawn = Number(b.dataset.dawn); show(); });
+    $('phone').addEventListener('click', () => {
+      const on = document.body.classList.toggle('phone');
+      $('phone').classList.toggle('on', on);
+      boards.forEach(({ board }) => board.resize());
+      say(on ? 'Both boards at 844 × 390 CSS pixels, a phone on its side.' : 'Both boards at the page\'s width.');
+    });
+    $('closer').addEventListener('click', () => frame(3, hex('D3')));
+    $('whole').addEventListener('click', () => frame(1, hex('D3')));
+    $('play').addEventListener('click', play);
+    $('reset').addEventListener('click', () => { if (!playing) { state = start; show(); say('Back at the start.'); } });
+    window.dawnEval = { boards, play, show };
+    document.body.dataset.ready = 'yes';
+  }
+  begin().catch((e) => say('Error starting the boards: ' + esc(e.stack ?? e), true));
+
+  // ---- the stills
+  {
+    const stills = [
+      ['dawn-1-hamlet.png', 'Second pass. Dawn 1, close: the open house at E2 with its man, the closed ones at G2 (empty) and G3 (an unseen enemy inside)'],
+      ['dawn-0-hamlet.png', 'Second pass. Dawn 0, close: the same'],
+      ['dawn-1-hamlet-played.png', 'Second pass. Dawn 1, after the round: E2 closed behind the man now at F2, G2 open round the man who walked in'],
+      ['dawn-0-desktop.png', 'Dawn 0 (round 1), 1280 × 720'],
+      ['dawn-05-desktop.png', 'Dawn 0.5, 1280 × 720'],
+      ['dawn-1-desktop.png', 'Dawn 1 (full day), 1280 × 720'],
+      ['dawn-0-phone.png', 'Dawn 0, phone 844 × 390'],
+      ['dawn-05-phone.png', 'Dawn 0.5, phone 844 × 390'],
+      ['dawn-1-phone.png', 'Dawn 1, phone 844 × 390'],
+      ['dawn-0-man-in-wood.png', 'Dawn 0, close: the men in the wood at B2 (on the hill), C1 (dug in) and B3'],
+      ['dawn-05-veiled-wood.png', 'Dawn 0.5: the unseen wood at A4–B5 under the veil, beside the seen wood'],
+      ['dawn-1-veiled-house.png', 'Dawn 1: the unseen house at H1 under the veil: the closed shape'],
+      ['dawn-1-wood.png', 'Dawn 1, close: the wood in the low sun'],
+      ['dawn-0-played.png', 'Dawn 0, after the round was played'],
+      ['lowpoly-dawn-1-desktop.png', 'For comparison: lowpoly at dawn 1, same view'],
+      ['dawn-1-hamlet-pass1.png', 'First pass, for comparison: the hamlet at dawn 1, close (a different set of men)'],
+      ['dawn-1-desktop-pass1.png', 'First pass: dawn 1, 1280 × 720'],
+      ['dawn-0-desktop-pass1.png', 'First pass: dawn 0, 1280 × 720'],
+      ['dawn-0-phone-pass1.png', 'First pass: dawn 0, phone'],
+    ];
+    $('shots').innerHTML = stills.map(([file, text]) =>
+      `<figure><a href="assets/27/${file}"><img src="assets/27/${file}" alt="${esc(text)}" loading="lazy" /></a><figcaption>${esc(text)}</figcaption></figure>`).join('');
+  }
+</script>
+</body>
+</html>

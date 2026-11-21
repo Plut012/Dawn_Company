@@ -39,6 +39,7 @@ section *v2* below; each task folds what it changes into the v1 sections when it
 **Visual trial (jig, 2026-11-21).** A second kit beside `lowpoly`, chosen by `?kit=`; render only.
 
 - [x] 26 Diorama trial — "the world is real, the information is drawn": one realistic rifleman, one grass tile, a dark foggy dawn; everything else falls back to lowpoly (needs 25)
+- [x] 27 Diorama woods and buildings — the diorama kit's own `woods` and `building` tiles (needs 26)
 
 ## Dependencies
 
@@ -730,6 +731,7 @@ interface VisualKit {
   effect?(event: GameEvent, ctx: KitCtx): Promise<void>;   // 07; `capture` (16): the flag turns over to the new owner's colour
   light?(scene: THREE.Scene, dawn: number): void;       // (19) 0 = first light, 1 = full day; environment() is full day
   renderer?(r: THREE.WebGLRenderer): void;              // (26) called once by createBoard, before environment() and the first render: tone mapping, shadow type, exposure
+  occupied?(tile: THREE.Object3D, occupied: boolean): void;   // (27) a shown unit stands on this hex, or no longer does; the kit may change the tile
 }
 interface UnitVisual { object: THREE.Object3D; setStatus(s: UnitStatus): void; setDugIn?(dug: boolean): void }   // (24) a ring of sandbags
 interface KitCtx {
@@ -764,6 +766,15 @@ rig with lowpoly's `setRig`, so lowpoly's effects drive it; lowpoly's `burst` is
 Second pass (26): the mist is `MIST_LAYERS` sheets (`diorama/look.ts`: 9, or 4 for a coarse pointer) drawn first in the see-through pass, over a thin haze by
 height on world materials; every drawn piece is in that pass after them (the kit's own copies of lowpoly's unlit materials: lowpoly's are not changed), so the
 mist never covers information. Every unit of the kit, lowpoly's fallbacks too, stands on the diorama's base, whose disc and mark dim with the dawn (hue kept).
+Woods and buildings (27): the diorama kit makes `woods` (`diorama/woods.ts`: clump trees and undergrowth, one opaque geometry a hex; `WOODS` is the cost, 7
+trees a hex or 5 for a coarse pointer) and `building` (`diorama/buildings.ts`: three kinds by `(q + 2r) mod 3`, so no two neighbours alike; one opaque geometry)
+itself, on the ground material's wood floor or yard. A woods hex keeps a lane clear for the man, his mark and the label, and caps its growth so that it does not
+hide the mark of a man in the hex behind. Being opaque, both are wholly covered by the board's veil.
+Occupied hexes (27, second pass): the board keeps `createOccupancy` (`src/client/render/occupancy.ts`) for a kit that has `occupied`, fed by its own `showUnit`
+(place), `hideUnit` (remove) and its wrapper round the kit's `effect` (a `move`: heading); a hex is occupied while a piece the board draws stands on it or is on
+its way to it, and the kit is told only on a change. Pieces are the view's units, so an unseen enemy opens nothing. The veil of an unseen hex is copied with the
+tile told unoccupied. The diorama's house fills its hex and is a shell and a lid (roof and front walls); `occupied` hides the lid. Its label is on the roof, or
+on the ground at the hex's south point when open. `playback.ts` is unchanged.
 
 ### Client UI — `src/client/` (08, used by 09 and 10)
 

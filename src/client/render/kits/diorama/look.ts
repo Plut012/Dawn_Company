@@ -105,12 +105,15 @@ function addMist(shader: Shader, uniforms: Record<string, THREE.IUniform>): void
 
 const GROUND_VERTEX_PARS = `
 attribute float aDepth;
+attribute float aFloor;
 varying float vDepth;
+varying float vFloor;
 varying vec3 vGroundN;
 `;
 const GROUND_VERTEX = `
 vGroundN = normalize(mat3(modelMatrix) * objectNormal);
 vDepth = aDepth;
+vFloor = aFloor;
 `;
 const GROUND_FRAGMENT_PARS = `
 uniform vec3 uLush;
@@ -118,7 +121,10 @@ uniform vec3 uDry;
 uniform vec3 uDamp;
 uniform vec3 uEarth;
 uniform vec3 uStone;
+uniform vec3 uLitter;
+uniform vec3 uMoss;
 varying float vDepth;
+varying float vFloor;
 varying vec3 vGroundN;
 `;
 // Turf on top: lush and dry grass in patches, damp hollows that shine a little, bare worn earth, and a
@@ -139,6 +145,15 @@ gTurf = mix(gTurf, uDamp, gDamp * 0.55);
 float gWorn = smoothstep(0.63, 0.8, gWear * 0.78 + gGrain * 0.22);
 gTurf = mix(gTurf, uEarth * (0.75 + 0.5 * gGrain), gWorn);
 gTurf *= (0.84 + 0.32 * gFine) * (0.88 + 0.24 * gWear);
+// (27) vFloor > 0: a wood's floor, leaf litter and moss, ragged where it thins towards the hex's rim.
+// vFloor < 0: a yard of trodden earth round a house.
+float gWood = smoothstep(0.34, 0.62, vFloor + (gPatches - 0.5) * 0.55 + (gGrain - 0.5) * 0.2);
+float gLeaf = texture2D(uNoise, gp * 3.7 + vec2(0.4, 0.9)).a;
+vec3 gLitter = uLitter * (0.7 + 0.6 * gGrain) + vec3(0.05, 0.022, 0.0) * smoothstep(0.6, 0.75, gLeaf);
+gLitter = mix(gLitter, uMoss * (0.75 + 0.5 * gFine), smoothstep(0.45, 0.7, gWear) * 0.8);
+gTurf = mix(gTurf, gLitter, gWood);
+float gYard = smoothstep(0.3, 0.62, -vFloor + (gPatches - 0.5) * 0.5) * 0.85;
+gTurf = mix(gTurf, uEarth * (0.7 + 0.45 * gGrain) * (0.85 + 0.3 * gLeaf), gYard);
 float gStrata = texture2D(uNoise, vec2((gp.x + gp.y) * 0.6, vMistPos.y * 2.2)).g;
 float gGrit = texture2D(uNoise, vec2((gp.x - gp.y) * 2.3, vMistPos.y * 5.0)).a;
 vec3 gEarth = mix(uEarth * 0.5, uEarth * 1.2, gStrata) * (0.65 + 0.7 * gGrit);
@@ -146,7 +161,7 @@ gEarth = mix(gEarth, uStone, smoothstep(0.74, 0.86, gGrit * 0.6 + gStrata * 0.4)
 float gLip = 1.0 - smoothstep(0.035, 0.07 + 0.09 * gGrain, vDepth);
 gEarth = mix(gEarth, gTurf * 0.6, gLip);
 diffuseColor.rgb = mix(gTurf, gEarth, gSide);
-float gRough = mix(mix(0.96, 0.42, gDamp), 0.92, max(gWorn * (1.0 - gDamp * 0.7), gSide));
+float gRough = mix(mix(0.96, 0.42, gDamp), 0.92, max(max(gWorn * (1.0 - gDamp * 0.7), gSide), max(gWood, gYard)));
 `;
 const GROUND_NORMAL = `
 if (gSide < 0.5) {
@@ -188,6 +203,81 @@ const SHEET_FRAGMENT = `
 `;
 
 const PAINT_VERTEX_PARS = 'attribute vec2 aSurface;\nvarying vec2 vSurface;\n';
+
+// (27) Foliage: the paint broken up leaf by leaf, from the noise read in three dimensions.
+const LEAVES_COLOR = `
+{
+  float lfBig = texture2D(uNoise, vMistPos.xz * 1.9 + vMistPos.y * vec2(1.1, 1.7)).b;
+  float lfSmall = texture2D(uNoise, vMistPos.xz * 5.3 + vMistPos.y * vec2(3.1, 2.3)).a;
+  diffuseColor.rgb *= 0.62 + 0.42 * lfBig + 0.42 * lfSmall;
+}
+`;
+
+// (27) Masonry: a house's surfaces, drawn from where a point is on its wall or roof (aMat: u, v in world
+// units along and up the surface; kind). Kind 0..0.9 is a wall, the fraction how much render covers its
+// stones; 1 a roof of slates or tiles in courses, mossy; 2 boards; 3 plain. Detail fades out when a course
+// is under a pixel, so it does not shimmer at the opening zoom.
+const MASONRY_VERTEX_PARS = 'attribute vec3 aMat;\nvarying vec3 vMat;\n';
+const MASONRY_FRAGMENT_PARS = `
+varying vec3 vMat;
+float mHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+`;
+const MASONRY_COLOR = `
+{
+  vec2 mUv = vMat.xy;
+  float mKind = vMat.z;
+  float mSoft = texture2D(uNoise, mUv * 0.9 + vMistPos.xz * 0.21).r;
+  float mGrain = texture2D(uNoise, mUv * 4.3).a;
+  vec3 mCol = diffuseColor.rgb;
+  if (mKind < 0.95) {
+    // Rubble stone in rough courses, the mortar pale; render over it where it has not fallen away.
+    float mH = 0.046;
+    float mRow = floor(mUv.y / mH);
+    float mU = mUv.x / (mH * (1.5 + mHash(vec2(mRow, 3.0)))) + mHash(vec2(mRow, 7.0));
+    vec2 mCell = vec2(floor(mU), mRow);
+    vec2 mIn = vec2(fract(mU), fract(mUv.y / mH));
+    float mSeen = 1.0 - smoothstep(0.35, 0.9, fwidth(mUv.y / mH));
+    float mJoint = smoothstep(0.0, 0.1, mIn.x) * smoothstep(1.0, 0.9, mIn.x) * smoothstep(0.0, 0.16, mIn.y) * smoothstep(1.0, 0.84, mIn.y);
+    vec3 mStone = mCol * (0.62 + 0.62 * mHash(mCell)) * mix(vec3(1.0), vec3(1.08, 0.98, 0.86), mHash(mCell + 9.0));
+    mStone = mix(mCol * 0.86, mix(mCol * 1.25 + 0.03, mStone, mJoint), mSeen);
+    float mCover = smoothstep(0.02, 0.2, mKind + (mSoft - 0.62) * 0.9 + (mGrain - 0.5) * 0.12);
+    vec3 mRender = (mCol * 1.5 + vec3(0.07, 0.065, 0.05)) * (0.86 + 0.2 * mGrain);
+    mCol = mix(mStone, mRender, mCover * step(0.01, mKind));
+    // Weather: damp and moss rising from the ground, dark streaks down from the eaves.
+    float mStreak = texture2D(uNoise, vec2(mUv.x * 2.6, mUv.y * 0.22)).g;
+    mCol *= 1.0 - 0.38 * smoothstep(0.5, 0.8, mStreak) * smoothstep(0.1, 0.4, mUv.y);
+    float mDamp = (1.0 - smoothstep(0.02, 0.16, mUv.y + (mSoft - 0.5) * 0.12));
+    mCol = mix(mCol, vec3(0.045, 0.06, 0.03), mDamp * 0.7);
+  } else if (mKind < 1.5) {
+    // Courses up the slope, each slate a little its own colour, a dark line under each course; moss in drifts.
+    float mH = 0.046;
+    float mRow = floor(mUv.y / mH);
+    float mU = mUv.x / 0.058 + mod(mRow, 2.0) * 0.5;
+    vec2 mIn = vec2(fract(mU), fract(mUv.y / mH));
+    float mSeen = 1.0 - smoothstep(0.35, 0.9, fwidth(mUv.y / mH));
+    float mEach = mHash(vec2(floor(mU), mRow));
+    vec3 mSlate = mCol * (0.8 + 0.4 * mEach);
+    mSlate *= 1.0 - 0.45 * (1.0 - smoothstep(0.0, 0.22, mIn.y));
+    mSlate *= 1.0 - 0.25 * (1.0 - smoothstep(0.0, 0.08, mIn.x));
+    mSlate = mix(mCol * 0.9, mSlate, mSeen);
+    mSlate = mix(mSlate, mCol * 0.35, step(0.99, mEach) * mSeen);            // a slipped slate, the batten dark behind
+    float mMoss = smoothstep(0.52, 0.78, mSoft * 0.75 + mGrain * 0.25 + (0.35 - mUv.y) * 0.25);
+    mCol = mix(mSlate, vec3(0.085, 0.12, 0.04) * (0.7 + 0.6 * mGrain), mMoss * 0.85);
+    float mStreak = texture2D(uNoise, vec2(mUv.x * 3.1, mUv.y * 0.3)).g;
+    mCol *= 1.0 - 0.25 * smoothstep(0.55, 0.85, mStreak);
+  } else if (mKind < 2.5) {
+    // Boards, the paint worn off them.
+    float mB = mUv.x / 0.042;
+    float mSeen = 1.0 - smoothstep(0.35, 0.9, fwidth(mB));
+    float mGap = 1.0 - smoothstep(0.0, 0.1, fract(mB)) * smoothstep(1.0, 0.9, fract(mB));
+    mCol *= (0.75 + 0.4 * mHash(vec2(floor(mB), 1.0))) * (0.8 + 0.4 * mGrain);
+    mCol *= 1.0 - 0.6 * mGap * mSeen;
+  } else {
+    mCol *= 0.85 + 0.3 * mGrain;
+  }
+  diffuseColor.rgb = mCol;
+}
+`;
 const PAINT_FRAGMENT_PARS = 'uniform vec4 uFade;\nvarying vec2 vSurface;\n';
 
 // The veil over unseen ground: flat, dark, hatched in ink like the shading on a printed map. World-space lines,
@@ -211,6 +301,9 @@ export interface Look {
   blades: THREE.Material;                    // grass tufts (vertex colours, `aSurface`)
   paint: THREE.Material;                     // the figure (vertex colours, `aSurface`: roughness, metalness)
   faded: THREE.Material;                     // the figure when down
+  leaves: THREE.Material;                    // (27) trees and undergrowth (vertex colours, `aSurface`), mottled leaf by leaf
+  masonry: THREE.Material;                   // (27) a house (vertex colours, `aSurface`, `aMat`: stone, render, slates, boards)
+  coarse: boolean;                           // a phone (a coarse pointer): the cheap setting of every cost constant
   sea: THREE.Material;                       // what lies round and under the board
   mist: THREE.Group;                         // the sheets of mist; the kit adds it to the scene
   veil(): THREE.Material;
@@ -241,7 +334,7 @@ export function createLook(): Look {
     addMist(shader, uniforms);
     Object.assign(shader.uniforms, {
       uLush: { value: lin('#3f5a30') }, uDry: { value: lin('#66683f') }, uDamp: { value: lin('#2b3823') },
-      uEarth: { value: lin('#54432f') }, uStone: { value: lin('#8a8778') },
+      uEarth: { value: lin('#54432f') }, uLitter: { value: lin('#3d3122') }, uMoss: { value: lin('#35472a') }, uStone: { value: lin('#8a8778') },
     });
     shader.vertexShader = GROUND_VERTEX_PARS + shader.vertexShader
       .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>${GROUND_VERTEX}`);
@@ -252,7 +345,7 @@ export function createLook(): Look {
   };
   ground.customProgramCacheKey = () => 'diorama-ground';
 
-  function painted(fade: number, side: THREE.Side = THREE.FrontSide): THREE.MeshStandardMaterial {
+  function painted(fade: number, side: THREE.Side = THREE.FrontSide, detail: 'none' | 'leaves' | 'masonry' = 'none'): THREE.MeshStandardMaterial {
     const m = new THREE.MeshStandardMaterial({ color: '#ffffff', vertexColors: true, side });
     const uFade = { value: new THREE.Vector4(...lin('#4b5a66').toArray(), fade) };
     m.onBeforeCompile = (shader) => {
@@ -261,15 +354,21 @@ export function createLook(): Look {
       shader.vertexShader = PAINT_VERTEX_PARS + shader.vertexShader
         .replace('#include <begin_vertex>', '#include <begin_vertex>\nvSurface = aSurface;\n');
       shader.fragmentShader = PAINT_FRAGMENT_PARS + shader.fragmentShader
-        .replace('#include <color_fragment>', '#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, uFade.rgb, uFade.a);\n')
+        .replace('#include <color_fragment>', `#include <color_fragment>${detail === 'leaves' ? LEAVES_COLOR : detail === 'masonry' ? MASONRY_COLOR : ''}\ndiffuseColor.rgb = mix(diffuseColor.rgb, uFade.rgb, uFade.a);\n`)
         .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\nroughnessFactor = vSurface.x;\n')
         .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nmetalnessFactor = vSurface.y * (1.0 - uFade.a);\n');
+      if (detail === 'masonry') {
+        shader.vertexShader = MASONRY_VERTEX_PARS + shader.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\nvMat = aMat;\n');
+        shader.fragmentShader = MASONRY_FRAGMENT_PARS + shader.fragmentShader;
+      }
     };
-    m.customProgramCacheKey = () => 'diorama-paint';
+    m.customProgramCacheKey = () => `diorama-paint-${detail}`;
     return m;
   }
   const paint = painted(0, THREE.FrontSide);
   const faded = painted(0.8, THREE.FrontSide);
+  const leaves = painted(0, THREE.FrontSide, 'leaves');
+  const masonry = painted(0, THREE.FrontSide, 'masonry');
   const blades = painted(0, THREE.FrontSide);   // tiles.ts gives every blade both its faces, so both are lit from above
 
   const sea = new THREE.MeshLambertMaterial({ color: AIR[2].table });
@@ -278,7 +377,7 @@ export function createLook(): Look {
 
   // A lowpoly lit material, copied once and given the mist.
   const misted = new WeakMap<THREE.Material, THREE.Material>();
-  const mine = new Set<THREE.Material>([ground, paint, faded, blades, sea]);
+  const mine = new Set<THREE.Material>([ground, paint, faded, blades, leaves, masonry, sea]);
   function mistedCopy(m: THREE.Material): THREE.Material {
     if (mine.has(m) || !(m as THREE.MeshLambertMaterial).isMeshLambertMaterial) return m;
     let copy = misted.get(m);
@@ -353,7 +452,7 @@ export function createLook(): Look {
   }
 
   return {
-    ground, blades, paint, faded, sea, mist,
+    ground, blades, paint, faded, leaves, masonry, sea, mist, coarse,
 
     drawn(color, dims = 0) {
       const id = `${color}/${dims}`;

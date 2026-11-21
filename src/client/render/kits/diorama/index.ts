@@ -1,7 +1,7 @@
 // The diorama kit (26): a trial of another direction. "The world is real, the information is drawn."
 //
-// It makes three things itself: the light and air (environment, light, renderer, fog), open ground, and the
-// rifleman. Everything else it asks of a lowpoly kit it holds, call by call, and then dresses for this
+// It makes these itself: the light and air (environment, light, renderer, fog), open ground, woods and
+// buildings (27), and the rifleman. Everything else it asks of a lowpoly kit it holds, call by call, and then dresses for this
 // light (look.dress): lit parts sink into the mist, drawn parts keep the palette's colours.
 //
 // A kit is made per board, as lowpoly's is: its sun follows the tiles asked for, its air that board's dawn.
@@ -12,7 +12,9 @@ import type { KitCtx, VisualKit } from '../../kit';
 import { lowpolyKit } from '../lowpoly';
 import { createLook } from './look';
 import type { Lights } from './look';
+import { buildingTile, openHouse } from './buildings';
 import { openTile } from './tiles';
+import { woodsTile } from './woods';
 import { base, rifleman } from './units';
 
 /** Phones: the side of the sun's one shadow map, in texels (lowpoly's is 2048). */
@@ -125,6 +127,8 @@ export function dioramaKit(): VisualKit {
       reach.expandByPoint(new THREE.Vector3(p.x, 0, p.y));
       aimSun();
       if (terrain === 'open') return openTile(look, elevation, hex);
+      if (terrain === 'woods') return woodsTile(look, elevation, hex);
+      if (terrain === 'building') return buildingTile(look, elevation, hex);
       return look.dress(lowpoly.tile(terrain, elevation, hex));
     },
 
@@ -151,6 +155,9 @@ export function dioramaKit(): VisualKit {
       return marker;
     },
     fog: () => look.veil(),
+
+    // (27) A house's roof and front wall come off while somebody the board shows is inside. Other tiles take no notice.
+    occupied: (tile, occupied) => openHouse(tile, occupied),
 
     effect(event, ctx) {
       const on: KitCtx = stage ? { ...ctx, scene: stage } : ctx;
