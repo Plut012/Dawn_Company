@@ -44,7 +44,7 @@ const standing = (units: Iterable<Unit>): string[] =>
 describe('the lessons', () => {
   it('are the thirty-two of the tasks, in order, with unique url-safe ids', () => {
     expect(LESSONS.map((l) => l.id)).toEqual([
-      'sight', 'stealth', 'creep', 'reveal', 'dawn', 'move-dash', 'collide', 'pass', 'hit', 'cover', 'dig-in', 'dash-risk', 'move-fire',
+      'sight', 'stealth', 'creep', 'reveal', 'dawn', 'move-dash', 'ford', 'collide', 'pass', 'hit', 'cover', 'dig-in', 'dash-risk', 'move-fire',
       'gunner', 'sniper', 'mortar', 'medic', 'works', 'ambush', 'pinned', 'phases', 'score', 'flags',
       'supply', 'coming-back', 'buy-back', 'cut-off', 'hill', 'crossroads', 'depot', 'last-stand', 'last-stand-tie',
     ]);

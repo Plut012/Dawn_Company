@@ -72,7 +72,7 @@ export const LESSONS: Lesson[] = [
     id: 'sight',
     group: 'Seeing',
     title: 'Line of sight',
-    text: 'Woods and hills block the line of sight. From high enough ground a unit sees over them.',
+    text: 'Woods, buildings and hills block the line of sight; crops do not. From high enough ground a unit sees over them.',
     map: tinyMap({
       id: 'sight',
       terrain: [
@@ -222,7 +222,7 @@ export const LESSONS: Lesson[] = [
     id: 'move-dash',
     group: 'Moving',
     title: 'Move and dash',
-    text: `A rifleman moves up to ${rifleman.move} hexes; a dash takes him up to ${rifleman.move * 2}. Nobody crosses water.`,
+    text: `A rifleman moves up to ${rifleman.move} hexes; a dash takes him up to ${rifleman.move * 2}.`,
     map: tinyMap({
       id: 'move-dash',
       terrain: [
@@ -242,6 +242,31 @@ export const LESSONS: Lesson[] = [
     expect: [
       { unit: '0-0', at: 'C1' },
       { unit: '1-0', at: 'E3' },
+    ],
+  },
+  {
+    id: 'ford',
+    group: 'Moving',
+    title: 'Fords',
+    text: 'Nobody crosses water except at a ford, where open ground or crops run through it. A river turns an approach into a few crossings, and whoever watches a ford watches the way over.',
+    map: tinyMap({
+      id: 'ford',
+      terrain: [
+        '. . ~ . .',
+        ' . . . . .',
+        '. . ~ . .',
+      ],
+    }),
+    units: [
+      { owner: 0, type: 'rifleman', at: 'B2' },
+      { owner: 1, type: 'rifleman', at: 'E1' },
+    ],
+    rounds: [[[move('0-0', 'C2', 'D2')], []]],
+    notes: { move: 'The only way over is the ford at C2. He wades through it and is across.' },
+    viewAs: 'umpire',
+    fogMatters: false,
+    expect: [
+      { unit: '0-0', at: 'D2' },
     ],
   },
   {
@@ -724,7 +749,7 @@ export const LESSONS: Lesson[] = [
     id: 'phases',
     group: 'Timing',
     title: 'The six phases',
-    text: 'Every round runs in the same order: treat, fire, movement, assault, mortars, score. Each phase starts from what the one before left.',
+    text: 'Every round runs in the same order, each phase starting from what the one before left: treat, fire, movement, assault, mortars, score. The score phase puts up works, takes flags, pays supply, buys men back and brings them in, digs in whoever kept still, and gets earlier-pinned men up.',
     map: tinyMap({
       id: 'phases',
       terrain: [
@@ -1128,7 +1153,7 @@ export const LESSONS: Lesson[] = [
     id: 'last-stand',
     group: 'Last Stand',
     title: 'Last Stand',
-    text: 'In Last Stand nobody comes back, and flags earn nothing: the score is the men still standing. When one squad has men left and the rest have none, it has won.',
+    text: 'In Last Stand nobody comes back, flags earn nothing, and there is no mortar or engineer: the score is the men still standing. When one squad has men left and the rest have none, it has won.',
     mode: 'last-stand',
     map: lastStandMap('last-stand', true),
     units: [
