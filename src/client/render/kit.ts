@@ -28,6 +28,9 @@
 // - occupied(): the board calls it with a tile it got from tile() when a unit it is drawing comes to stand on
 //   that hex (or sets off for it during playback), and again when the last one has gone; never twice the same.
 //   A tile starts unoccupied. The veil of an unseen hex is always a copy of the tile as unoccupied.
+// - tile()'s `around` (28): the board always passes it, from the terrain it has drawn on the neighbours. When a
+//   hex's terrain changes (a work), the board asks again for that hex and for its six neighbours, keeping each
+//   one's veil and occupied state. A kit may ignore it.
 // An id the kit does not know must give a plain placeholder, never an error.
 
 import type * as THREE from 'three';
@@ -39,7 +42,7 @@ import type { Mark } from './index';
 export interface VisualKit {
   tokens: Record<string, string>;                       // palette from docs/design.md
   environment(scene: THREE.Scene): void;                // sun, mist, background
-  tile(terrain: TerrainId, elevation: number, hex: Hex): THREE.Object3D;
+  tile(terrain: TerrainId, elevation: number, hex: Hex, around?: Around): THREE.Object3D;   // (28) around: what lies on the six neighbours
   unit(type: UnitTypeId, owner: PlayerId): UnitVisual;
   mark(mark: Mark, ctx: KitCtx): THREE.Object3D;
   objective(obj: Objective, owner: PlayerId | null): THREE.Object3D;   // the area, and a flag in the owner's colour
@@ -49,6 +52,9 @@ export interface VisualKit {
   renderer?(r: THREE.WebGLRenderer): void;              // (26) called once by createBoard, before the first render: tone mapping, shadow type, exposure
   occupied?(tile: THREE.Object3D, occupied: boolean): void;   // (27) a shown unit stands on this hex, or no longer does; the kit may change the tile
 }
+
+/** (28) The six neighbours of a hex, in `neighbors()` order (E, NE, NW, W, SW, SE); null = no hex there. */
+export type Around = ({ terrain: TerrainId; elevation: number } | null)[];
 
 export interface UnitVisual {
   object: THREE.Object3D;

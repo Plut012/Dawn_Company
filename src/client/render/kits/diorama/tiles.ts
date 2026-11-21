@@ -6,6 +6,7 @@
 
 import * as THREE from 'three';
 import type { Hex } from '../../../../shared/types';
+import type { Around } from '../../kit';
 import { label } from '../../../../shared/hex';
 import { TOKENS, layFlat, text } from '../lowpoly/parts';
 import type { Look } from './look';
@@ -177,19 +178,95 @@ export function scatter(hex: Hex, count = TUFTS): THREE.BufferGeometry {
 export const levelOf = (elevation: number): number => (Number.isFinite(elevation) ? Math.max(0, elevation) : 0);
 
 /**
- * The ground of a hex and what is drawn on it: the prism with this floor, the grid, the contour rings, the
- * tufts (`tufts` of them; 0 for none) and the stencilled label, `labelZ` from the middle (north is negative;
- * null: no label on the ground, the tile puts its own elsewhere).
+ * (28) A hex prism whose top carries a number that varies across it (`aEdge`): `rim` gives it at the six corners and
+ * the six edge middles in turn (corner 0, edge 0, corner 1, ...; corner i is at angle 60 i from the south, edge i
+ * lies between corners i and i + 1), `inner` on a ring 0.7 out, `middle` at the centre. The ground material reads
+ * it as how much of a field is there (a headland where it falls to 0); the water material as how near the bank is.
+ * `floor` is the ground material's `aFloor` over the whole top. `top` is the surface's height.
  */
-export function groundTile(look: Look, elevation: number, hex: Hex, kind: Floor, tufts: number, labelZ: number | null): THREE.Group {
+export function ringedPrism(top: number, elevation: number, middle: number, inner: number, rim: number[], floor = 0): { body: THREE.BufferGeometry; edges: THREE.BufferGeometry } {
+  const position: number[] = [];
+  const normal: number[] = [];
+  const depth: number[] = [];
+  const edge: number[] = [];
+  const floors: number[] = [];
+  const lines: number[] = [];
+  const at = (j: number, r: number): [number, number] => {      // rim point j of 12, at radius r of the hex's own
+    const i = Math.floor(j / 2) % 6;
+    const [ax, az] = corner(i, r);
+    if (j % 2 === 0) return [ax, az];
+    const [bx, bz] = corner(i + 1, r);
+    return [(ax + bx) / 2, (az + bz) / 2];
+  };
+  const tri = (pts: [number, number, number][]) => {
+    for (const [x, z, e] of pts) {
+      position.push(x, top, z);
+      normal.push(0, 1, 0);
+      depth.push(0);
+      edge.push(e);
+      floors.push(floor);
+    }
+  };
+  for (let j = 0; j < 12; j++) {
+    const k = (j + 1) % 12;
+    const [ax, az] = at(j, 0.7);
+    const [bx, bz] = at(k, 0.7);
+    const [cx, cz] = at(j, 1);
+    const [dx, dz] = at(k, 1);
+    tri([[0, 0, middle], [ax, az, inner], [bx, bz, inner]]);
+    tri([[ax, az, inner], [cx, cz, rim[j]], [dx, dz, rim[k]]]);
+    tri([[ax, az, inner], [dx, dz, rim[k]], [bx, bz, inner]]);
+  }
+  for (let i = 0; i < 6; i++) {
+    const [ax, az] = corner(i);
+    const [bx, bz] = corner(i + 1);
+    const [nx, nz] = corner(i + 0.5);
+    position.push(ax, top, az, ax, -DEPTH, az, bx, -DEPTH, bz, ax, top, az, bx, -DEPTH, bz, bx, top, bz);
+    for (let v = 0; v < 6; v++) { normal.push(nx, 0, nz); edge.push(0); floors.push(0); }
+    depth.push(0, top + DEPTH, top + DEPTH, 0, top + DEPTH, 0);
+    lines.push(ax, top + 0.004, az, bx, top + 0.004, bz);
+    if (elevation > 0) lines.push(ax, top, az, ax, 0, az);
+  }
+  const body = new THREE.BufferGeometry();
+  body.setAttribute('position', new THREE.Float32BufferAttribute(position, 3));
+  body.setAttribute('normal', new THREE.Float32BufferAttribute(normal, 3));
+  body.setAttribute('aDepth', new THREE.Float32BufferAttribute(depth, 1));
+  body.setAttribute('aFloor', new THREE.Float32BufferAttribute(floors, 1));
+  body.setAttribute('aEdge', new THREE.Float32BufferAttribute(edge, 1));
+  const edges = new THREE.BufferGeometry();
+  edges.setAttribute('position', new THREE.Float32BufferAttribute(lines, 3));
+  return { body, edges };
+}
+
+/**
+ * (28) The rim numbers for `ringedPrism` from a hex's neighbours: `of(neighbour)` is the number across each edge
+ * (edge i faces neighbour (i + 5) mod 6 of `neighbors()`' order); a corner takes the larger of its two edges'.
+ */
+export function rimFrom(around: Around | undefined, of: (n: Around[number]) => number): number[] {
+  const across = Array.from({ length: 6 }, (_, i) => of(around?.[(i + 5) % 6] ?? null));
+  return Array.from({ length: 12 }, (_, j) => {
+    const i = Math.floor(j / 2);
+    return j % 2 === 1 ? across[i] : Math.max(across[i], across[(i + 5) % 6]);
+  });
+}
+
+/**
+ * A tile from a ground prism and what is drawn on it: the grid, the contour rings, the tufts (`tufts` of them; 0
+ * for none) and the stencilled label, `labelZ` from the middle (north is negative; null: no label on the ground,
+ * the tile puts its own elsewhere). `surface` is where the label and contours lie, if not at the level's top.
+ */
+export function tileOn(
+  look: Look, prismOf: { body: THREE.BufferGeometry; edges: THREE.BufferGeometry }, material: THREE.Material,
+  elevation: number, hex: Hex, tufts: number, labelZ: number | null, surface?: number,
+): THREE.Group {
   const level = levelOf(elevation);
-  const top = level * LEVEL;
+  const top = surface ?? level * LEVEL;
   const tile = new THREE.Group();
-  const { body, edges } = prism(level, kind);
-  const mesh = new THREE.Mesh(body, look.ground);
+  const mesh = new THREE.Mesh(prismOf.body, material);
   mesh.receiveShadow = true;
   mesh.castShadow = level > 0;
-  tile.add(mesh, new THREE.LineSegments(edges, gridLine));
+  mesh.name = 'ground';
+  tile.add(mesh, new THREE.LineSegments(prismOf.edges, gridLine));
 
   if (tufts > 0) {
     const growth = new THREE.Mesh(scatter(hex, tufts), look.blades);
@@ -214,6 +291,11 @@ export function groundTile(look: Look, elevation: number, hex: Hex, kind: Floor,
     tile.add(name);
   }
   return tile;
+}
+
+/** The ground of a hex with one of the plain floors, and what is drawn on it (see `tileOn`). */
+export function groundTile(look: Look, elevation: number, hex: Hex, kind: Floor, tufts: number, labelZ: number | null): THREE.Group {
+  return tileOn(look, prism(levelOf(elevation), kind), look.ground, elevation, hex, tufts, labelZ);
 }
 
 /** Open ground at a level. The label as lowpoly places it: at the far corner, where no hill in front can cover it. */

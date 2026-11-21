@@ -6,6 +6,8 @@ import { kitFromUrl, makeKit } from './index';
 import { dioramaKit } from './diorama';
 import { lowpolyKit } from './lowpoly';
 import { rigOf } from './lowpoly/units';
+import { CROPS, corn } from './diorama/crops';
+import { wallRuns } from './diorama/walls';
 import type { UnitStatus } from '../../../shared/types';
 
 const meshes = (o: THREE.Object3D): THREE.Mesh[] => {
@@ -75,12 +77,12 @@ describe('diorama kit', () => {
     expect(() => kit.tile('open', Number.NaN, { q: 0, r: 0 })).not.toThrow();
   });
 
-  it('hands crops and the gunner to lowpoly: the same shapes', () => {
+  it('hands the works and the gunner to lowpoly: the same shapes', () => {
     const kit = dioramaKit();
     const low = lowpolyKit();
     const hex = { q: 3, r: 2 };
-    expect(shape(kit.tile('crops', 1, hex))).toEqual(shape(low.tile('crops', 1, hex)));
-    for (const terrain of ['wall', 'water', 'sandbags', 'wire', 'nest']) {
+    expect(shape(kit.tile('wire', 1, hex))).toEqual(shape(low.tile('wire', 1, hex)));
+    for (const terrain of ['sandbags', 'wire', 'nest']) {
       expect(shape(kit.tile(terrain, 0, hex))).toEqual(shape(low.tile(terrain, 0, hex)));
     }
     // The gunner is lowpoly's man (every part after its base) on the diorama's base.
@@ -276,7 +278,7 @@ describe('diorama kit', () => {
     kit.occupied!(tile, false);
     expect(lid.visible).toBe(true);
     expect(seen()).toBe(closed);
-    for (const terrain of ['open', 'woods', 'crops']) {
+    for (const terrain of ['open', 'woods', 'water', 'wall']) {
       const other = kit.tile(terrain, 0, { q: 0, r: 0 });
       const before = meshes(other).map((m) => m.visible);
       expect(() => kit.occupied!(other, true)).not.toThrow();
@@ -299,6 +301,153 @@ describe('diorama kit', () => {
     expect(veiled(veil)).toContain(copy);                          // opaque: it wears the veil
     kit.occupied!(veil, true);                                     // the copy is not a tile the kit opens
     expect(copy.visible).toBe(true);
+  });
+
+  // ---- (28) water, crops and walls: tiles that know their neighbours
+
+  const cell = (terrain: string, elevation = 0) => ({ terrain, elevation });
+  const all = (terrain: string | null) => Array.from({ length: 6 }, () => (terrain === null ? null : cell(terrain)));
+  /** Around with these directions (E, NE, NW, W, SW, SE = 0..5) set, the rest open ground. */
+  const withAt = (set: Record<number, string | null>) => all('open').map((n, i) => (i in set ? (set[i] === null ? null : cell(set[i]!)) : n));
+  const pts = (m: THREE.Mesh): [number, number, number][] => {
+    const at = m.geometry.getAttribute('position');
+    return Array.from({ length: at.count }, (_, i) => [at.getX(i), at.getY(i), at.getZ(i)]);
+  };
+  const near = (m: THREE.Mesh, x: number, z: number, within = 0.12): boolean => pts(m).some(([px, , pz]) => Math.hypot(px - x, pz - z) < within);
+
+  it('gives lowpoly the same tile with or without neighbours', () => {
+    const low = lowpolyKit();
+    for (const terrain of ['open', 'woods', 'building', 'crops', 'wall', 'water', 'sandbags']) {
+      expect(shape(low.tile(terrain, 1, { q: 2, r: 3 }, all('wall')))).toEqual(shape(low.tile(terrain, 1, { q: 2, r: 3 })));
+    }
+  });
+
+  it('makes water, crops and walls itself: the same hex and neighbours, the same tile; other neighbours, another', () => {
+    const low = lowpolyKit();
+    const hex = { q: 2, r: 3 };
+    for (const terrain of ['water', 'crops', 'wall']) {
+      const around = withAt({ 0: terrain, 3: terrain, 1: 'building' });
+      const a = dioramaKit().tile(terrain, 1, hex, around);
+      expect(shape(a)).toEqual(shape(dioramaKit().tile(terrain, 1, hex, around)));
+      expect(shape(a)).not.toEqual(shape(low.tile(terrain, 1, hex, around)));
+      expect(shape(dioramaKit().tile(terrain, 1, hex, all('open')))).not.toEqual(shape(a));
+      expect(() => dioramaKit().tile(terrain, 0, hex)).not.toThrow();           // no neighbours told: still a tile
+      expect(veiled(a).length).toBeGreaterThanOrEqual(1);
+      expect(veiled(a).length).toBeLessThanOrEqual(3);                           // few draw calls a hex
+    }
+  });
+
+  it('lays water below the ground, shallow towards each bank and deep where water runs on', () => {
+    const kit = dioramaKit();
+    const tile = kit.tile('water', 1, { q: 0, r: 0 }, withAt({ 0: 'water', 3: null }));     // water east, the board's edge west
+    const ground = named(tile, 'ground');
+    const edge = ground.geometry.getAttribute('aEdge');
+    const at = ground.geometry.getAttribute('position');
+    let top = -9;
+    const shoreAt = (x: number, z: number): number => {
+      let best = -1; let d = 9;
+      for (let i = 0; i < at.count; i++) {
+        const dd = Math.hypot(at.getX(i) - x, at.getZ(i) - z) + Math.abs(at.getY(i) - top) * 9;
+        if (dd < d) { d = dd; best = edge.getX(i); }
+      }
+      return best;
+    };
+    for (let i = 0; i < at.count; i++) top = Math.max(top, at.getY(i));
+    expect(top).toBeCloseTo(0.5 - 0.14, 5);
+    expect(shoreAt(0.866, 0)).toBe(0);           // east: water runs on
+    expect(shoreAt(-0.866, 0)).toBe(0);          // west: off the board, it runs on
+    expect(shoreAt(0.433, -0.75)).toBe(1);       // north-east: a bank
+    expect(shoreAt(0, 0)).toBe(0);
+    // Reeds only along banks, and low.
+    const reeds = named(tile, 'reeds');
+    expect(near(reeds, 0.8, 0, 0.2)).toBe(false);
+    expect(near(reeds, 0.38, -0.66, 0.3) || near(reeds, -0.38, 0.66, 0.3)).toBe(true);
+    for (const [, y, z] of pts(reeds)) expect(z - 0.7 * (y - 0.14)).toBeGreaterThan(-1.03);
+    // A pond of one's own neighbours all water: no banks, no reeds.
+    expect(meshes(kit.tile('water', 0, { q: 0, r: 0 }, all('water'))).some((m) => m.name === 'reeds')).toBe(false);
+  });
+
+  it('stands the corn in the map\'s rows, ends the field at its edge, and keeps a man, his mark and the hex behind clear', () => {
+    const kit = dioramaKit();
+    const hex = { q: 1, r: 2 };
+    const tile = kit.tile('crops', 0, hex, withAt({ 0: 'crops', 3: 'crops', 5: 'crops' }));     // the field ends to the north and south-west
+    const field = named(tile, 'field');
+    const middle = named(tile, 'middle');
+    expect(field.geometry.getAttribute('position').count).toBeGreaterThan(1000);
+    // The headland: nothing against the north-east edge, corn right up to the east one.
+    expect(near(field, 0.42, -0.72, 0.05)).toBe(false);
+    expect(near(field, 0.8, 0, 0.1)).toBe(true);
+    for (const [x, y, z] of pts(field)) {
+      const hides = z - 0.7 * y;
+      expect(hides).toBeGreaterThan(-1.03);                                   // the mark of a man in the hex behind
+      if (y > 0.03) {
+        expect(Math.hypot(x, z)).toBeGreaterThan(0.64);                       // not where his base goes
+        if (Math.abs(x) < 0.36 && z > 0.1) expect(hides).toBeGreaterThan(0.5);  // not in front of his mark
+      }
+      expect(y).toBeLessThan(0.5);                                            // to his waist
+    }
+    // The middle is the corn where he would stand: there while the hex is empty, gone while he is in it.
+    expect(near(middle, 0, 0, 0.15)).toBe(true);
+    expect(middle.visible).toBe(true);
+    kit.occupied!(tile, true);
+    expect(middle.visible).toBe(false);
+    expect(field.visible).toBe(true);
+    kit.occupied!(tile, false);
+    expect(middle.visible).toBe(true);
+    // One field: a stalk's place is the map's, so neighbouring hexes' rows line up (the same offset across the rows).
+    const turn = 0.32; const apart = 0.105;
+    const rowOf = (m: THREE.Mesh, h: { q: number; r: number }) => {
+      const cx = Math.sqrt(3) * (h.q + h.r / 2); const cz = 1.5 * h.r;
+      const [x, , z] = pts(m)[0];
+      const t = ((cx + x) * Math.sin(turn) + (cz + z) * Math.cos(turn)) / apart;
+      return Math.abs(t - Math.floor(t) - 0.5);
+    };
+    const next = named(kit.tile('crops', 0, { q: 2, r: 2 }, all('crops')), 'field');
+    expect(rowOf(field, hex)).toBeLessThan(0.2);
+    expect(rowOf(next, { q: 2, r: 2 })).toBeLessThan(0.2);
+    // The phone's field is the same rows, sparser: about half the stalks.
+    expect(corn(hex, all('crops'), CROPS.phone).field.getAttribute('position').count)
+      .toBeLessThan(corn(hex, all('crops'), CROPS.desktop).field.getAttribute('position').count * 0.7);
+  });
+
+  it('runs a wall to its wall and building neighbours and nowhere else', () => {
+    // Alone: a short length across the north of the hex, clear of the corners.
+    expect(wallRuns(all('open'))).toEqual({ east: null, west: null, northEast: null, northWest: null, downEast: null, downWest: null });
+    const alone = named(dioramaKit().tile('wall', 0, { q: 0, r: 0 }, all('open')), 'wall');
+    expect(near(alone, 0, -0.76)).toBe(true);
+    expect(near(alone, 0.866, -0.5)).toBe(false);
+    expect(near(alone, -0.866, -0.5)).toBe(false);
+    // A wall to the east: out to the east corner, where that hex's own wall begins; not to the west one.
+    const east = named(dioramaKit().tile('wall', 0, { q: 0, r: 0 }, withAt({ 0: 'wall' })), 'wall');
+    expect(near(east, 0.866, -0.5)).toBe(true);
+    expect(near(east, -0.866, -0.5)).toBe(false);
+    expect(near(east, 0, -1)).toBe(false);
+    // North-west: a spur to the north corner. South-east: down the east side to the lower corner.
+    const turn = named(dioramaKit().tile('wall', 0, { q: 0, r: 0 }, withAt({ 2: 'wall', 5: 'wall' })), 'wall');
+    expect(near(turn, 0, -1)).toBe(true);
+    expect(near(turn, 0.866, 0.5)).toBe(true);
+    expect(near(turn, -0.866, 0.5)).toBe(false);
+    // South-west: down the west side, unless the hex to the west is a wall (the side is its east side, and its to draw).
+    expect(wallRuns(withAt({ 4: 'wall' })).downWest).toBe('wall');
+    expect(wallRuns(withAt({ 4: 'wall', 3: 'wall' })).downWest).toBeNull();
+    expect(wallRuns(withAt({ 4: 'wall', 3: 'building' })).downWest).toBe('wall');
+    // A building: the wall is carried on to the house's wall, past the corner.
+    expect(wallRuns(withAt({ 0: 'building', 1: 'building' }))).toMatchObject({ east: 'house', northEast: 'house' });
+    const toHouse = named(dioramaKit().tile('wall', 0, { q: 0, r: 0 }, withAt({ 0: 'building', 5: 'building' })), 'wall');
+    expect(near(toHouse, 0.866 + 0.13, -0.5)).toBe(true);
+    expect(near(toHouse, 0.866, 0.85)).toBe(true);
+    expect(near(east, 0.866 + 0.13, -0.5, 0.06)).toBe(false);
+    // Low, behind the man, and hiding nobody's mark: his own (its front 0.5 south) or the hex behind's.
+    for (const wallMesh of [alone, east, turn, toHouse]) {
+      for (const [x, y, z] of pts(wallMesh)) {
+        expect(y).toBeLessThan(0.3);
+        expect(Math.hypot(x, z)).toBeGreaterThan(0.66);
+        expect(z - 0.7 * y).toBeGreaterThan(-1.2);
+        if (Math.abs(Math.abs(x) - 0.866) < 0.33) expect(z - 0.7 * y).toBeGreaterThan(-1.03);
+      }
+    }
+    // A hex off the board is no wall.
+    expect(wallRuns(all(null))).toEqual(wallRuns(all('open')));
   });
 
   it('draws the same hex the same way twice, and another hex differently', () => {

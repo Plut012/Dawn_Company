@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 28 — Diorama: water, crops and walls</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the boards, both kits, the match and the views on this page are the real ones */
+  body { padding: var(--s-3); }
+  main { max-width: 1760px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 100ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  .bar { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; margin: var(--s-2) 0; }
+  .bar button { font: inherit; padding: var(--s-2) var(--s-3); background: var(--khaki); color: var(--ink); border: var(--w-outline) solid var(--ink); cursor: pointer; min-height: 40px; }
+  .bar button:disabled { opacity: 0.5; cursor: default; }
+  .bar button.on { background: var(--amber); }
+  .bar input[type=range] { width: 280px; }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; min-height: 1.5em; }
+  .bad { border-left-color: var(--rust); }
+  .pair { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  .side { flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: var(--s-1); }
+  .stage { position: relative; width: 100%; height: 520px; border: var(--w-frame) solid var(--ink); background: var(--slate); box-sizing: content-box; }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  body.phone .side { flex: none; }
+  body.phone .stage { width: 844px; height: 390px; max-width: none; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: var(--s-3); margin: var(--s-2) 0; }
+  .shots figure { margin: 0; }
+  .shots img { display: block; width: 100%; height: auto; border: var(--w-frame) solid var(--ink); }
+  .shots figcaption { font-size: var(--t-1); }
+  /* `?shot=diorama|lowpoly`: one board alone, filling the window, for a headless screenshot */
+  body.shot { padding: 0; margin: 0; overflow: hidden; }
+  body.shot main > *:not(#shot-stage) { display: none; }
+  body.shot #shot-stage { position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; }
+  #shot-stage { display: none; }
+  body.shot #shot-stage { display: block; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 28 — Diorama: water, crops and walls</h1>
+<p>Dawn Company's diorama kit gets its own <code>water</code>, <code>crops</code> and <code>wall</code> tiles (<code>src/client/render/kits/diorama/water.ts</code>,
+<code>crops.ts</code>, <code>walls.ts</code>), and the board starts telling every tile what lies on its six neighbours. The works and the other units are
+still lowpoly's. Both boards below are the real <code>createBoard</code>, each with its own kit, showing the same <code>PlayerView</code>. Runs on Vite alone
+(<code>npx vite --port 5199 --strictPort</code>, then <code>/eval/28-diorama-water-crops-walls.html</code>).</p>
+
+<h2 id="side-by-side">1. Side by side</h2>
+<p>A hand-made map, nine by seven. <b>The stream</b> winds down the board, D1, C2, D3, then a <b>ford</b> of open ground at D4, then D5, C6 and D6, C7.
+<b>The field</b>: ten hexes of crops at the left (A3–B3, A4–C4, A5–C5, A6–B6), ending against the stream, the open ground and the board's edge.
+<b>The hamlet</b>: houses at G3 and H3 ringed by low walls (F2, G2, H2 to the north, F3 to the west, I3 and I4 to the east, G4 and H5 to the south),
+with gaps at F4 and H4; and a single wall hex at C3 by the field. The state is <code>createMatch</code>'s and the view <code>viewFor</code>'s for Blue,
+then changed by hand (every unit shown but one, the unseen hexes chosen). Blue (bar): riflemen in the corn at <b>A4</b> (selected, a planned move to C4),
+<b>C5</b> and <b>A6</b>, on the ford at <b>D4</b>, behind the wall at <b>G2</b>, in the house at <b>G3</b>, and a gunner (lowpoly's man) at <b>E5</b>.
+Plum (chevron): riflemen at <b>E3</b> and behind the wall at <b>I4</b>, and one in the corn at <b>B3</b> whom Blue does not see (in the state, not in the
+view): that hex's corn stands whole. Unseen under the veil: crops at A3, water at C7, the wall at I3, open ground at I1 and I2, woods at H7 and I7.
+Objective A is the two houses.
+Drag to pan, wheel or pinch to zoom: each board has its own camera.</p>
+<div class="bar">
+  <label for="dawn">Dawn <b id="dawn-out">0.00</b></label>
+  <input type="range" id="dawn" min="0" max="1" step="0.01" value="0" />
+  <button type="button" data-dawn="0">0 — first light</button>
+  <button type="button" data-dawn="0.5">0.5</button>
+  <button type="button" data-dawn="1">1 — full day</button>
+  <button type="button" id="phone">Phone frame (844 × 390)</button>
+  <button type="button" id="closer">Closer</button>
+  <button type="button" id="whole">Whole map</button>
+</div>
+<div class="bar">
+  <button type="button" id="play">Play a short round</button>
+  <button type="button" id="reset">Reset</button>
+</div>
+<div class="observed" id="log" role="status">Loading the boards.</div>
+<div class="pair">
+  <div class="side"><span class="cap">lowpoly</span><div class="stage" id="stage-lowpoly"></div></div>
+  <div class="side"><span class="cap">diorama</span><div class="stage" id="stage-diorama"></div></div>
+</div>
+<div class="stage" id="shot-stage"></div>
+<p><b>Playback.</b> Real <code>GameEvent</code>s given to <code>board.play</code> on both boards: Blue's man at A6 walks through the field, A6 → B5 → B4, and
+on to the wall at C3; the corn opens round him on each hex as he sets off for it and closes behind him. Plum's man at E3 fires at C3 and he is hit and
+pinned behind the wall. After it, both boards take the view of the state that follows.</p>
+
+<h2 id="stills">2. Stills of the diorama board</h2>
+<p>Taken with headless Chromium (software WebGL, SwiftShader) from this page's own shot mode
+(<code>?shot=diorama&amp;dawn=0</code>, the window being the board), at 1280 × 720 and at 844 × 390, device pixel ratio 1; and closer in
+(<code>&amp;zoom=3&amp;at=D4</code>).</p>
+<div class="shots" id="shots"></div>
+<h2 id="real-match">3. In a real match</h2>
+<p><code>npm run dev</code> and <code>npm run server</code>, then <code>http://localhost:5173/dev.html?kit=diorama</code>: the query reaches every
+frame (<code>/?slot=dev1&amp;kit=diorama</code>), and the play screen and the manual make their kit with <code>makeKit(kitFromUrl())</code>.
+Without <code>?kit=diorama</code> everything is lowpoly, and lowpoly looks as it did (the kit does not implement <code>renderer</code>).
+A single client: <code>http://localhost:5173/?kit=diorama</code>.</p>
+
+<h2 id="notes">4. Notes: what was judged, what was not, what falls short</h2>
+<div id="notes-body">
+<p><b>Neighbours.</b> <code>tile(terrain, elevation, hex, around?)</code>: <code>around</code> is the six neighbours in <code>neighbors()</code> order
+(E, NE, NW, W, SW, SE), each <code>{ terrain, elevation }</code> or null where there is no hex. The board now keeps what it has drawn on each hex in a small
+module, <code>src/client/render/tiling.ts</code> (<code>createTiling(kit)</code>), which asks the kit for every hex of a map with its neighbours and, when a
+hex's terrain changes (a work, in playback or in a new view), asks again for that hex and for each of its neighbours on the map; the board puts each new
+tile where the old one was and keeps its veil's state and whoever stands on it, as <code>retile</code> did for the one hex. The neighbours are taken from what
+is <i>drawn</i>, which in playback is ahead of the last view's map. Lowpoly ignores the argument: stills of the lowpoly boards of eval 26 and eval 27 taken
+now are byte for byte the committed ones.</p>
+<p><b>How they are made.</b></p>
+<ul>
+  <li><b>Water.</b> A hex prism whose top is 0.14 below the ground's, in its own material: dark, smooth (roughness 0.07 in the open), reflecting the small
+  sky the kit already renders, drawn from world position so that water hexes run together without a seam. The land beside it shows its earth side as a bank
+  by itself. The prism's top carries a number per rim point from <code>around</code> (1 across an edge with land beyond, 0 where water runs on or the board
+  ends): the shader turns it into shallows, murky and less smooth, and mud at the very edge. Along each bank, three to nine clumps of reed and sometimes a
+  stone (one geometry, about 300 triangles with banks all round; <code>REEDS = { desktop: 9, phone: 5 }</code>). The water takes only 30% of the haze by
+  height, or it would be a grey hole; the mist's sheets lie over it as over all low ground.</li>
+  <li><b>Crops.</b> The rows are the map's: one direction (18 degrees off east-west) and one spacing (0.105), in world space, and every stalk's place and
+  colour come from where it is on the map, so hexes of crops are one field, ripening in drifts. The ground under it is the ground material's tilled soil
+  in the same rows. Towards a neighbour that is not crops the stalks stop 0.08 to 0.2 short and the ground goes to trodden earth and turf: a headland.
+  A stalk is a tuft of two crossed blades (four triangles), about 570 a hex (<code>CROPS = { desktop: { along: 0.05 }, phone: { along: 0.09 } }</code>:
+  how far apart along a row; about 2,300 triangles a hex, 1,250 on the phone setting). <b>A man in the corn:</b> the tile is two geometries. The <i>field</i>
+  is all that may stand whoever is there: the rim, to his knee and waist, cut low to the south so nothing is in front of his base or mark. The <i>middle</i>
+  is the corn where his base goes and the tall corn to the south; the kit's <code>occupied</code> hook (27) hides it while a unit the board shows is in the
+  hex. So an empty field is whole, and so is one with an enemy the player does not see in it (B3 here): the corn gives nothing away. The label lies on top
+  of the corn, moved south by what its height shifts it north on screen, so it reads where every label does; it goes with the middle.</li>
+  <li><b>Walls.</b> Dry stone: two rough courses and a coping of stones on edge, about half of them mossed, 0.2 to 0.24 high (boxes knocked out of square,
+  painted in vertex colours; 750 to 1,700 triangles, one draw call). The line is a shallow bow across the north of the hex, behind the base. Walls join at
+  the hexes' <i>corners</i>: to an east or west neighbour the bow runs out to that corner, where the neighbour's bow begins; to a north-east or north-west
+  one a spur goes up to the north corner; to a south-east or south-west one the wall turns down the hex's side to the lower corner, where that neighbour's
+  spur comes up. (The first attempt ran round a ring to each edge's middle: a row of wall hexes came out as a row of round pens. It was thrown away.)
+  Towards a building the last length is carried 0.13 to 0.35 further, onto the house's own wall. The west side of a hex is drawn by the hex to the west if
+  that is a wall, so no length is built twice.</li>
+  <li><b>The veil.</b> All three are opaque, so the board's veil copies them whole (A3 crops, C7 water, I3 wall). A crops veil is copied with the tile told
+  unoccupied, as a house's is.</li>
+</ul>
+<p><b>Judged in the stills</b> (headless Chromium, software WebGL, device pixel ratio 1): the stream reads as one dark water with banks, the ford as a way
+across; at dawn 0 mist lies on it. The ten crops hexes read as one field with an edge; the men at A4 and C5 stand in it with bases and marks plain; B3 is whole.
+The walls ring the two houses, joined, with the gaps at F4 and H4, and meet the houses' walls. The man at G2 stands in front of his wall with base and mark plain.
+After the round the walker is at the wall at C3, pinned, and the corn has closed behind him.</p>
+<p><b>Not judged.</b> A real phone and frame rate (a big field is the cost: 30 crops hexes are about 70,000 triangles on the desktop setting, none of them
+in the shadow pass); the phone settings (counted, not seen); the corn opening and closing in motion; a work going up next to a wall or a field in a real
+match (the neighbours' re-asking is tested through <code>createTiling</code> with a recording kit, and the board's use of it only by this page running);
+water, crops and walls on levels 1 and 2 (built by the tests, no still); a real map (crossroads) with the kit.</p>
+<p><b>Where it falls short.</b></p>
+<ul>
+  <li><b>The reflection is too faint to see.</b> The water is dark and has a sheen close in, but it does not visibly mirror the sky, and at dawn 1 a stream is
+  nearly black from the board's distance. No current, no ripple (the board draws on demand).</li>
+  <li><b>The corn is spikes close in.</b> At board scale it reads as a field; at three times closer each stalk is plainly a triangle, with no ears. It is
+  gold-green all over rather than green going to gold in a way one would notice.</li>
+  <li><b>A man in the corn stands in a round clearing</b> the size of his base, not among stalks to his waist: the base is 1.3 across in a hex 1.7 across.
+  The corn round the clearing is to his knee and waist, and that is all the "in the corn" there is.</li>
+  <li><b>The wall's wave.</b> A straight map wall is a row of shallow bows, and where it turns south it runs down a hex's side, so a ring is all corners.
+  The lengths that go down to a house (between F2 and G2, G2 and H2 here) make the north wall look like a comb.</li>
+  <li><b>The wall's label</b> is 0.3 further south than other hexes', and under a man's base when one stands there.</li>
+  <li>Every hex is re-asked when a neighbour changes, whether or not its tile would differ: seven tiles rebuilt for one work.</li>
+</ul>
+<p><b>Deviations from the task doc.</b> (1) The wall does not run from near the hex's centre to each neighbour: it bows across the north and joins at corners,
+for the reason above. (2) The corn's middle uses the <code>occupied</code> hook, which the doc does not ask for: without it every crops hex would have a
+permanent clearing. (3) The label of a crops hex floats on the corn; a wall hex's is moved south. (4) Off the board counts as more field and more water
+(no headland, no bank at the map's edge), and as no wall. (5) The board's tile bookkeeping moved into <code>tiling.ts</code> so that it can be tested
+without WebGL; <code>index.ts</code> keeps the layers, veils and occupied state.</p>
+<p>Stills: as on eval 26 and 27, e.g. <code>chrome-headless-shell --use-angle=swiftshader --enable-unsafe-swiftshader --hide-scrollbars --virtual-time-budget=6000
+--window-size=1280,720 --screenshot=eval/assets/28/dawn-1-field.png "http://localhost:5199/eval/28-diorama-water-crops-walls.html?shot=diorama&amp;dawn=1&amp;zoom=2.6&amp;at=B4"</code>.</p>
+</div>
+</main>
+
+<script type="module">
+  import { createBoard } from '/src/client/render/index.ts';
+  import { makeKit } from '/src/client/render/kits/index.ts';
+  import { loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
+  import { createMatch } from '/src/rules/match.ts';
+  import { viewFor } from '/src/rules/sight.ts';
+  import { tinyMap, hex } from '/src/manual/lesson.ts';
+  import { key } from '/src/shared/hex.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const say = (text, bad = false) => { $('log').innerHTML = text; $('log').classList.toggle('bad', bad); };
+  addEventListener('error', (e) => say('Error: ' + esc(e.message), true));
+  addEventListener('unhandledrejection', (e) => say('Error: ' + esc(String(e.reason?.stack ?? e.reason)), true));
+  const params = new URLSearchParams(location.search);
+
+  // ---- the scene: a real match on a hand-made map, the view then changed by hand
+  const map = tinyMap({
+    id: 'eval-28',
+    terrain: [
+      '. . . ~ . . . . .',
+      ' . . ~ . . = = = .',
+      'c c = ~ . = b b =',
+      ' c c c . . . = . =',
+      'c c c ~ . . . = .',
+      ' c c ~ ~ . . . . .',
+      '. . ~ . . . . w w',
+    ],
+    marks: [
+      '. . . . . . . . .',
+      ' . . . . . . . . .',
+      '. . . . . . A A .',
+      ' . . . . . . . . .',
+      '. . . . . . . . .',
+      ' . . . . . . . . .',
+      '. . . . . . . . .',
+    ],
+    objectives: { A: { kind: 'village', value: 2 } },
+  });
+  // Where each seat's men stand, in squad order: createMatch sets them down on its spawn zones.
+  const BLUE = ['A6', 'A4', 'C5', 'G2', 'D4', 'E5', 'G3'];
+  const PLUM = ['E3', 'I4', 'B3'];
+  const UNSEEN_MEN = ['1-2'];        // in the state, not in Blue's view: the man in the corn at B3
+  map.spawns = [BLUE.map(hex), PLUM.map(hex)];
+  map.seatSpawns = { 2: [0, 1] };
+  const match = createMatch(map, [
+    { player: 0, units: ['rifleman', 'rifleman', 'rifleman', 'rifleman', 'rifleman', 'gunner', 'rifleman'] },
+    { player: 1, units: ['rifleman', 'rifleman', 'rifleman'] },
+  ]);
+  const UNSEEN = ['A3', 'C7', 'I3', 'I1', 'I2', 'H7', 'I7'].map((l) => key(hex(l)));
+  const set = (state, id, change) => ({ ...state, units: state.units.map((u) => (u.id === id ? { ...u, ...change } : u)) });
+  const start = match;
+  const after = set(start, '0-0', { pos: hex('C3'), status: 'pinned', pinnedRound: 1 });
+  const EVENTS = [
+    { t: 'phase', phase: 'move' },
+    { t: 'move', step: 1, unit: '0-0', from: hex('A6'), to: hex('B5') },
+    { t: 'move', step: 2, unit: '0-0', from: hex('B5'), to: hex('B4') },
+    { t: 'move', step: 3, unit: '0-0', from: hex('B4'), to: hex('C3') },
+    { t: 'phase', phase: 'assault' },
+    { t: 'fire', unit: '1-0', from: hex('E3'), target: hex('C3'), blast: 0, ambush: false, action: 'rifle' },
+    { t: 'hit', unit: '0-0', at: hex('C3'), result: 'pinned' },
+  ];
+  const MARKS = [
+    { kind: 'select', hex: hex('A4') },
+    { kind: 'path', from: hex('A4'), path: [hex('B4'), hex('C4')], dash: false },
+    { kind: 'target', from: hex('D4'), hex: hex('E3'), blast: 0 },
+  ];
+  /** Blue's real view of a state, then: every unit shown, four hexes unseen, and the dawn the slider asks for. */
+  function viewOf(state, dawn) {
+    const view = viewFor(state, 0);
+    return { ...view, units: state.units.filter((u) => !UNSEEN_MEN.includes(u.id)).map((u) => ({ ...u })), visible: Object.keys(map.cells).filter((k) => !UNSEEN.includes(k)), dawn };
+  }
+
+  // ---- boards
+  let dawn = Number(params.get('dawn') ?? 0);
+  let state = params.get('state') === 'after' ? after : start;
+  const boards = [];   // { kit, board, canvas }
+  function mount(kit, stage) {
+    const canvas = document.createElement('canvas');
+    stage.replaceChildren(canvas);
+    const board = createBoard(canvas, makeKit(kit));
+    board.resize();
+    boards.push({ kit, board, canvas });
+    return board;
+  }
+  const wheel = (canvas, factor) => canvas.dispatchEvent(new WheelEvent('wheel', {
+    clientX: canvas.getBoundingClientRect().left + canvas.clientWidth / 2, clientY: canvas.getBoundingClientRect().top + canvas.clientHeight / 2,
+    deltaY: -Math.log(factor) / 0.0015, bubbles: true, cancelable: true,
+  }));
+  function show() {
+    for (const { board } of boards) {
+      board.setView(viewOf(state, dawn));
+      board.setMarks(MARKS);
+    }
+    $('dawn').value = String(dawn);
+    $('dawn-out').textContent = dawn.toFixed(2);
+    for (const b of document.querySelectorAll('[data-dawn]')) b.classList.toggle('on', Number(b.dataset.dawn) === dawn);
+    document.body.dataset.dawn = String(dawn);
+  }
+  function frame(zoom, at) {
+    for (const { board, canvas } of boards) {
+      wheel(canvas, 0.001);                      // right out: the whole map
+      if (zoom > 1) { board.focus(at); wheel(canvas, zoom); board.focus(at); }
+    }
+  }
+
+  let playing = false;
+  async function play() {
+    if (playing) return;
+    playing = true;
+    $('play').disabled = true;
+    state = start;
+    show();
+    say(`Playing ${EVENTS.length} events on both boards...`);
+    const t0 = performance.now();
+    await Promise.all(boards.map(({ board }) => board.play(EVENTS)));
+    state = after;
+    show();
+    playing = false;
+    $('play').disabled = false;
+    say(`Played in ${((performance.now() - t0) / 1000).toFixed(1)} s; both boards then took the view that follows: the man from C5 is pinned behind the wall at C3. Press Reset to see the start again.`);
+    document.body.dataset.played = 'yes';
+  }
+
+  async function begin() {
+    await loadKitFonts();
+    const shot = params.get('shot');
+    if (shot) {
+      // One board alone, for a still.
+      document.body.classList.add('shot');
+      mount(shot === 'lowpoly' ? 'lowpoly' : 'diorama', $('shot-stage'));
+      show();
+      frame(Number(params.get('zoom')) || 1, hex(params.get('at') ?? 'E4'));
+      if (params.get('play')) await play();
+    } else {
+      mount('lowpoly', $('stage-lowpoly'));
+      mount('diorama', $('stage-diorama'));
+      show();
+      say('Ready: dawn 0, the first round\'s light. Move the slider (the boards ease to a new light over about a second), or play the round.');
+    }
+    addEventListener('resize', () => boards.forEach(({ board }) => board.resize()));
+    $('dawn').addEventListener('input', () => { dawn = Number($('dawn').value); show(); });
+    for (const b of document.querySelectorAll('[data-dawn]')) b.addEventListener('click', () => { dawn = Number(b.dataset.dawn); show(); });
+    $('phone').addEventListener('click', () => {
+      const on = document.body.classList.toggle('phone');
+      $('phone').classList.toggle('on', on);
+      boards.forEach(({ board }) => board.resize());
+      say(on ? 'Both boards at 844 × 390 CSS pixels, a phone on its side.' : 'Both boards at the page\'s width.');
+    });
+    $('closer').addEventListener('click', () => frame(3, hex('E4')));
+    $('whole').addEventListener('click', () => frame(1, hex('E4')));
+    $('play').addEventListener('click', play);
+    $('reset').addEventListener('click', () => { if (!playing) { state = start; show(); say('Back at the start.'); } });
+    window.dawnEval = { boards, play, show };
+    document.body.dataset.ready = 'yes';
+  }
+  begin().catch((e) => say('Error starting the boards: ' + esc(e.stack ?? e), true));
+
+  // ---- the stills
+  {
+    const stills = [
+      ['dawn-0-stream.png', 'Dawn 0, close: the stream and the ford at D4, the mist lying on the water'],
+      ['dawn-1-field.png', 'Dawn 1, close: the field, the men standing in the corn at A4 and C5; the corn at B3 whole over an unseen enemy'],
+      ['dawn-1-hamlet.png', 'Dawn 1, close: the two houses ringed by walls, the gaps at F4 and H4, a man behind the wall at G2'],
+      ['dawn-0-desktop.png', 'Dawn 0 (round 1), 1280 × 720'],
+      ['dawn-05-desktop.png', 'Dawn 0.5, 1280 × 720'],
+      ['dawn-1-desktop.png', 'Dawn 1 (full day), 1280 × 720'],
+      ['dawn-0-phone.png', 'Dawn 0, phone 844 × 390'],
+      ['dawn-05-phone.png', 'Dawn 0.5, phone 844 × 390'],
+      ['dawn-1-phone.png', 'Dawn 1, phone 844 × 390'],
+      ['dawn-1-stream.png', 'Dawn 1, close: the stream in the low sun'],
+      ['dawn-1-played.png', 'Dawn 1, after the round: the walker out of the field, pinned behind the wall at C3'],
+      ['lowpoly-dawn-1-desktop.png', 'For comparison: lowpoly at dawn 1, same view'],
+    ];
+    $('shots').innerHTML = stills.map(([file, text]) =>
+      `<figure><a href="assets/28/${file}"><img src="assets/28/${file}" alt="${esc(text)}" loading="lazy" /></a><figcaption>${esc(text)}</figcaption></figure>`).join('');
+  }
+</script>
+</body>
+</html>

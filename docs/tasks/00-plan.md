@@ -40,6 +40,7 @@ section *v2* below; each task folds what it changes into the v1 sections when it
 
 - [x] 26 Diorama trial — "the world is real, the information is drawn": one realistic rifleman, one grass tile, a dark foggy dawn; everything else falls back to lowpoly (needs 25)
 - [x] 27 Diorama woods and buildings — the diorama kit's own `woods` and `building` tiles (needs 26)
+- [x] 28 Diorama water, crops and walls — the kit's own `water`, `crops` and `wall` tiles; tiles learn their neighbours (needs 27)
 
 ## Dependencies
 
@@ -723,7 +724,7 @@ zoom (4 world units across the short side) is as before. Hex labels are drawn
 interface VisualKit {
   tokens: Record<string, string>;                       // palette from docs/design.md
   environment(scene: THREE.Scene): void;                // sun, mist, background
-  tile(terrain: TerrainId, elevation: number, hex: Hex): THREE.Object3D;
+  tile(terrain: TerrainId, elevation: number, hex: Hex, around?: Around): THREE.Object3D;   // (28) around: the six neighbours
   unit(type: UnitTypeId, owner: PlayerId): UnitVisual;
   mark(mark: Mark, ctx: KitCtx): THREE.Object3D;
   objective(obj: Objective, owner: PlayerId | null): THREE.Object3D;   // (16) the area washed amber, a flag in the owner's colour and mark (plain bone for nobody; an HQ's taller)
@@ -733,6 +734,7 @@ interface VisualKit {
   renderer?(r: THREE.WebGLRenderer): void;              // (26) called once by createBoard, before environment() and the first render: tone mapping, shadow type, exposure
   occupied?(tile: THREE.Object3D, occupied: boolean): void;   // (27) a shown unit stands on this hex, or no longer does; the kit may change the tile
 }
+type Around = ({ terrain: TerrainId; elevation: number } | null)[];   // (28) in `neighbors()` order (E, NE, NW, W, SW, SE); null = no hex there
 interface UnitVisual { object: THREE.Object3D; setStatus(s: UnitStatus): void; setDugIn?(dug: boolean): void }   // (24) a ring of sandbags
 interface KitCtx {
   scene: THREE.Scene;
@@ -775,6 +777,12 @@ Occupied hexes (27, second pass): the board keeps `createOccupancy` (`src/client
 its way to it, and the kit is told only on a change. Pieces are the view's units, so an unseen enemy opens nothing. The veil of an unseen hex is copied with the
 tile told unoccupied. The diorama's house fills its hex and is a shell and a lid (roof and front walls); `occupied` hides the lid. Its label is on the roof, or
 on the ground at the hex's south point when open. `playback.ts` is unchanged.
+Neighbours (28): the board keeps what it has drawn in `createTiling(kit)` (`src/client/render/tiling.ts`), which passes every `tile()` its `around` (from the
+terrain drawn, not the last view's map) and, on a change of terrain (`retile`: a work), asks again for the hex and its six neighbours; the board keeps each
+one's veil and occupied state. Lowpoly ignores `around`. The diorama kit makes `water` (`diorama/water.ts`: 0.14 below the ground, shallows and reeds along
+banks; `REEDS`), `crops` (`diorama/crops.ts`: stalks in the map's rows, `ROWS` in `look.ts`, a headland where the field ends; a field and a middle, the middle
+hidden by `occupied` while a shown unit stands there; `CROPS`) and `wall` (`diorama/walls.ts`: a bow across the north of the hex, joined to wall and building
+neighbours at the hexes' corners). Only the works and the units other than the rifleman still fall back to lowpoly.
 
 ### Client UI — `src/client/` (08, used by 09 and 10)
 

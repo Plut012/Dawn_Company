@@ -9,8 +9,9 @@ import { hexToPixel, key, parseKey } from '../../shared/hex';
 import type { KitCtx, UnitVisual, VisualKit } from './kit';
 import { createOccupancy } from './occupancy';
 import { createPlayback } from './playback';
+import { createTiling } from './tiling';
 
-export type { VisualKit, UnitVisual, KitCtx } from './kit';
+export type { VisualKit, UnitVisual, KitCtx, Around } from './kit';
 
 export interface Board {
   setView(view: PlayerView): void;               // snap the board to this view
@@ -61,7 +62,7 @@ const TAP_SLOP = 8;                      // px a finger may wander and still be 
 export const START_SCALE = 28;
 const CLOSEST = 4;                       // world units across the short side at full zoom
 
-interface Tile { object: THREE.Object3D; veil: THREE.Object3D | null; terrain: TerrainId }
+interface Tile { object: THREE.Object3D; veil: THREE.Object3D | null }
 interface Piece { visual: UnitVisual; type: string; owner: number }
 
 export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
@@ -86,6 +87,7 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
   let mapSign = '';
   let marks: Mark[] = [];
   const tiles = new Map<HexKey, Tile>();
+  const tiling = createTiling(kit);        // (28) what is drawn on each hex; it tells every tile its neighbours
   const pieces = new Map<UnitId, Piece>();
   const units = new Map<UnitId, Unit>();   // the board's own copies: playback moves them
   const flags = new Map<string, { object: THREE.Object3D; owner: PlayerId | null }>();   // objective id -> what is drawn
@@ -297,15 +299,14 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
     centres.length = 0;
     map = m;
     let first = true;
-    for (const k of Object.keys(m.cells)) {
+    for (const { key: k, object } of tiling.build(m.cells)) {
       const hex = parseKey(k);
       const cell = m.cells[k];
-      const object = kit.tile(cell.terrain, cell.elevation, hex);
       const p = hexToPixel(hex, 1);
       object.position.set(p.x, 0, p.y);
       object.userData.hex = hex;
       tileLayer.add(object);
-      tiles.set(k, { object, veil: null, terrain: cell.terrain });
+      tiles.set(k, { object, veil: null });
       centres.push({ x: p.x, z: p.y });
       if (first) {
         bounds.minX = bounds.maxX = p.x;
@@ -350,32 +351,36 @@ export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
     drawObjective(objective, owner);
   }
 
-  /** (25) Ask the kit again for a hex whose terrain is not what was drawn there (a work went up). Keeps its veil's state. */
+  /**
+   * (25) A hex's terrain is not what was drawn there (a work went up): the kit is asked again for it and, (28)
+   * since a tile knows its neighbours, for the hexes round it. Each new tile takes the old one's place and keeps
+   * its veil's state and whoever stands on it.
+   */
   function retile(k: HexKey, terrain: TerrainId): void {
-    const tile = tiles.get(k);
-    const cell = map?.cells[k];
-    if (!tile || !cell || tile.terrain === terrain) return;
-    const hex = parseKey(k);
-    const object = kit.tile(terrain, cell.elevation, hex);
-    const p = hexToPixel(hex, 1);
-    object.position.set(p.x, 0, p.y);
-    object.userData.hex = hex;
-    tile.object.removeFromParent();
-    tileLayer.add(object);
-    const hidden = tile.veil?.visible ?? false;
-    tile.veil?.removeFromParent();
-    const veil = tile.veil ? makeVeil(object) : null;   // made before the new tile is told of anyone on it
-    if (occupied.has(k)) kit.occupied?.(object, true);
-    if (veil) { veil.visible = hidden; veilLayer.add(veil); }
-    tiles.set(k, { object, veil, terrain });
+    for (const { key: at, object } of tiling.retile(k, terrain)) {
+      const tile = tiles.get(at);
+      if (!tile) continue;
+      const hex = parseKey(at);
+      const p = hexToPixel(hex, 1);
+      object.position.set(p.x, 0, p.y);
+      object.userData.hex = hex;
+      tile.object.removeFromParent();
+      tileLayer.add(object);
+      const hidden = tile.veil?.visible ?? false;
+      tile.veil?.removeFromParent();
+      const veil = tile.veil ? makeVeil(object) : null;   // made before the new tile is told of anyone on it
+      if (occupied.has(at)) kit.occupied?.(object, true);
+      if (veil) { veil.visible = hidden; veilLayer.add(veil); }
+      tiles.set(at, { object, veil });
+    }
     invalidate();
   }
 
   /** (25) Every hex of this map whose terrain differs from what was drawn there, drawn again. */
   function retileAll(m: GameMap): void {
-    for (const [k, tile] of tiles) {
+    for (const k of tiles.keys()) {
       const cell = m.cells[k];
-      if (cell && cell.terrain !== tile.terrain) retile(k, cell.terrain);
+      if (cell && cell.terrain !== tiling.terrainOf(k)) retile(k, cell.terrain);
     }
   }
 

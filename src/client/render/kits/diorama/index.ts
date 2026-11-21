@@ -1,7 +1,7 @@
 // The diorama kit (26): a trial of another direction. "The world is real, the information is drawn."
 //
 // It makes these itself: the light and air (environment, light, renderer, fog), open ground, woods and
-// buildings (27), and the rifleman. Everything else it asks of a lowpoly kit it holds, call by call, and then dresses for this
+// buildings (27), water, crops and low walls (28), and the rifleman. Everything else it asks of a lowpoly kit it holds, call by call, and then dresses for this
 // light (look.dress): lit parts sink into the mist, drawn parts keep the palette's colours.
 //
 // A kit is made per board, as lowpoly's is: its sun follows the tiles asked for, its air that board's dawn.
@@ -13,7 +13,10 @@ import { lowpolyKit } from '../lowpoly';
 import { createLook } from './look';
 import type { Lights } from './look';
 import { buildingTile, openHouse } from './buildings';
+import { cropsTile, standIn } from './crops';
 import { openTile } from './tiles';
+import { wallTile } from './walls';
+import { waterTile } from './water';
 import { woodsTile } from './woods';
 import { base, rifleman } from './units';
 
@@ -121,7 +124,7 @@ export function dioramaKit(): VisualKit {
       aimSun();
     },
 
-    tile(terrain, elevation, hex) {
+    tile(terrain, elevation, hex, around) {
       const p = hexToPixel(hex, 1);
       if (!reach.containsPoint(new THREE.Vector3(p.x, 0, p.y))) seed = (Math.imul(seed ^ (hex.q * 31 + hex.r), 2654435761) >>> 0) % 100003;
       reach.expandByPoint(new THREE.Vector3(p.x, 0, p.y));
@@ -129,6 +132,9 @@ export function dioramaKit(): VisualKit {
       if (terrain === 'open') return openTile(look, elevation, hex);
       if (terrain === 'woods') return woodsTile(look, elevation, hex);
       if (terrain === 'building') return buildingTile(look, elevation, hex);
+      if (terrain === 'water') return waterTile(look, elevation, hex, around);
+      if (terrain === 'crops') return cropsTile(look, elevation, hex, around);
+      if (terrain === 'wall') return wallTile(look, elevation, hex, around);
       return look.dress(lowpoly.tile(terrain, elevation, hex));
     },
 
@@ -156,8 +162,9 @@ export function dioramaKit(): VisualKit {
     },
     fog: () => look.veil(),
 
-    // (27) A house's roof and front wall come off while somebody the board shows is inside. Other tiles take no notice.
-    occupied: (tile, occupied) => openHouse(tile, occupied),
+    // (27) A house's roof and front wall come off while somebody the board shows is inside; (28) the corn where a
+    // man stands in a field is taken away. Other tiles take no notice.
+    occupied: (tile, occupied) => { openHouse(tile, occupied); standIn(tile, occupied); },
 
     effect(event, ctx) {
       const on: KitCtx = stage ? { ...ctx, scene: stage } : ctx;
