@@ -1,0 +1,383 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Eval 26 — Diorama trial</title>
+<link rel="stylesheet" href="/src/client/ui/kit.css" />
+<style>
+  /* eval-page furniture only; the boards, both kits, the match and the views on this page are the real ones */
+  body { padding: var(--s-3); }
+  main { max-width: 1760px; }
+  h1 { font-size: var(--t-4); }
+  h2 { font-size: var(--t-3); }
+  p, li { max-width: 100ch; }
+  code { background: rgba(30,36,32,0.5); padding: 0 var(--s-1); }
+  .bar { display: flex; flex-wrap: wrap; gap: var(--s-2) var(--s-3); align-items: center; margin: var(--s-2) 0; }
+  .bar button { font: inherit; padding: var(--s-2) var(--s-3); background: var(--khaki); color: var(--ink); border: var(--w-outline) solid var(--ink); cursor: pointer; min-height: 40px; }
+  .bar button:disabled { opacity: 0.5; cursor: default; }
+  .bar button.on { background: var(--amber); }
+  .bar input[type=range] { width: 280px; }
+  .observed { background: var(--ink); border-left: 8px solid var(--khaki); padding: var(--s-2) var(--s-3); max-width: 100ch; min-height: 1.5em; }
+  .bad { border-left-color: var(--rust); }
+  .pair { display: flex; flex-wrap: wrap; gap: var(--s-3); align-items: flex-start; }
+  .side { flex: 1 1 520px; min-width: 0; display: flex; flex-direction: column; gap: var(--s-1); }
+  .stage { position: relative; width: 100%; height: 520px; border: var(--w-frame) solid var(--ink); background: var(--slate); box-sizing: content-box; }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  body.phone .side { flex: none; }
+  body.phone .stage { width: 844px; height: 390px; max-width: none; }
+  .shots { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: var(--s-3); margin: var(--s-2) 0; }
+  .shots figure { margin: 0; }
+  .shots img { display: block; width: 100%; height: auto; border: var(--w-frame) solid var(--ink); }
+  .shots figcaption { font-size: var(--t-1); }
+  /* `?shot=diorama|lowpoly`: one board alone, filling the window, for a headless screenshot */
+  body.shot { padding: 0; margin: 0; overflow: hidden; }
+  body.shot main > *:not(#shot-stage) { display: none; }
+  body.shot #shot-stage { position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; }
+  #shot-stage { display: none; }
+  body.shot #shot-stage { display: block; }
+</style>
+</head>
+<body>
+<main>
+<h1>Eval 26 — Diorama trial</h1>
+<p>A trial of another visual direction, as a second kit beside <code>lowpoly</code>: <b>the world is real, the information is drawn.</b>
+The diorama kit (<code>src/client/render/kits/diorama/</code>) makes three things itself: the light and air, open ground, and the rifleman.
+Everything else on its board is lowpoly's, asked for call by call. Both boards below are the real <code>createBoard</code>, each with its own kit,
+showing the same <code>PlayerView</code>. Runs on Vite alone (<code>npx vite --port 5199 --strictPort</code>, then <code>/eval/26-diorama-trial.html</code>).</p>
+
+<h2 id="side-by-side">1. Side by side</h2>
+<p>A hand-made map, seven by five: open ground at levels 0, 1 and 2 (the hill at the back left), and woods, a building, crops and water for
+the fallback. The state is <code>createMatch</code>'s and the view <code>viewFor</code>'s for Blue, then changed by hand: the men are put in each
+status, every unit is shown (a real view leaves out enemies it cannot see), and four hexes at the top right are taken out of sight
+(<b>F1, G1, G2, G3</b>: open, open, crops, water under the veil). Blue (bar): ready on the hill at <b>C2</b> (selected, with a planned move to D3),
+pinned at <b>B3</b> (with a target mark on E3), down at <b>A4</b>, dug in at <b>C4</b>, ready at <b>C5</b> and at <b>E5</b> (second pass: a man standing in the mist), and a gunner (lowpoly's man, on the diorama's base) at <b>B5</b>.
+Plum (chevron): ready at <b>E3</b>, pinned at <b>E4</b>, dug in at <b>E2</b>, down at <b>F3</b>. Objective A is the area <b>F5–G5</b>.
+Drag to pan, wheel or pinch to zoom: each board has its own camera.</p>
+<div class="bar">
+  <label for="dawn">Dawn <b id="dawn-out">0.00</b></label>
+  <input type="range" id="dawn" min="0" max="1" step="0.01" value="0" />
+  <button type="button" data-dawn="0">0 — first light</button>
+  <button type="button" data-dawn="0.5">0.5</button>
+  <button type="button" data-dawn="1">1 — full day</button>
+  <button type="button" id="phone">Phone frame (844 × 390)</button>
+  <button type="button" id="closer">Closer</button>
+  <button type="button" id="whole">Whole map</button>
+</div>
+<div class="bar">
+  <button type="button" id="play">Play a short round</button>
+  <button type="button" id="reset">Reset</button>
+</div>
+<div class="observed" id="log" role="status">Loading the boards.</div>
+<div class="pair">
+  <div class="side"><span class="cap">lowpoly</span><div class="stage" id="stage-lowpoly"></div></div>
+  <div class="side"><span class="cap">diorama</span><div class="stage" id="stage-diorama"></div></div>
+</div>
+<div class="stage" id="shot-stage"></div>
+<p><b>Playback.</b> The round is real <code>GameEvent</code>s (two steps, a shot, a hit, a dig, and the phases between) given to <code>board.play</code> on both boards: Blue's man at C5 walks
+C5 → D5 → D4, Plum's man at E3 fires at D4, the walker is hit and pinned, and Blue's man on the hill at C2 digs in. The effects are lowpoly's;
+on the diorama board they drive the new figure through the rig he registers (<code>setRig</code>): he kneels as the burst opens, and the scrape and
+sandbags rise round the man on the hill. After it, both boards take the view of the state that follows.</p>
+
+<h2 id="stills">2. Stills of the diorama board</h2>
+<p>Taken with headless Chromium (software WebGL, SwiftShader) from this page's own shot mode
+(<code>?shot=diorama&amp;dawn=0</code>, the window being the board), at 1280 × 720 and at 844 × 390, device pixel ratio 1; and closer in
+(<code>&amp;zoom=</code>). The commands are in the notes.</p>
+<div class="shots" id="shots"></div>
+<h3>The first pass, for comparison</h3>
+<p>The same views before the second pass (one man fewer: E5 was empty): the mist was a tint on surfaces by height, and the bases were drawn at full colour in every light.</p>
+<div class="shots" id="shots-pass1"></div>
+
+<h2 id="real-match">3. In a real match</h2>
+<p><code>npm run dev</code> and <code>npm run server</code>, then <code>http://localhost:5173/dev.html?kit=diorama</code>: the query reaches every
+frame (<code>/?slot=dev1&amp;kit=diorama</code>), and the play screen and the manual make their kit with <code>makeKit(kitFromUrl())</code>.
+Without <code>?kit=diorama</code> everything is lowpoly, and lowpoly looks as it did (the kit does not implement <code>renderer</code>).
+A single client: <code>http://localhost:5173/?kit=diorama</code>.</p>
+
+<h2 id="notes">4. Notes: what was judged, what was not, what falls short</h2>
+<div id="notes-body">
+<p><b>Second pass (the direction approved): the mist becomes air, the bases calm down.</b></p>
+<ul>
+  <li><b>The mist is now sheets in the air, over a thin haze on surfaces.</b> Nine thin, gently rolling sheets (<code>MIST_LAYERS.desktop</code>; four on a
+  phone) lie between 0.06 and 0.74 above level-0 ground. Each is cut into banks and gaps by the noise texture in world space, offset by a seed made from
+  the map's hexes; a higher sheet keeps only the heart of each bank, so a bank is a mound. The whole depth is shared out among the sheets, so the phone
+  setting is coarser, not thinner. They are drawn after everything solid, so they lie in front of whatever stands in them. Level 2 (1.0) is above every
+  sheet; level 1 (0.5) has two thin ones over it at dawn 0 and none from about dawn 0.5; at dawn 1 three low sheets with wide gaps are left.
+  Sheets above the mist's top for the dawn are not drawn at all.</li>
+  <li><b>Why sheets and not a depth-aware screen pass:</b> the board renders straight to its canvas, on demand; a screen pass needs a second render target and
+  a depth texture, which is a change to the board, not to a kit, and a larger cost on a phone than four layers. What a screen pass would give that this does
+  not is a perfectly soft meeting with every surface; here that is done by three things together: each sheet is a small share of the depth, the sheets roll
+  (so no cut is a straight line), and no sheet lies within its roll of the flat top of the first step or of level-0 ground. The first pass's tint by
+  height stays, at under half its strength, as the haze under the sheets.</li>
+  <li><b>The drawn layer is above the mist by draw order.</b> The sheets are the first things in the see-through pass; every drawn piece (bases, marks, grid,
+  labels, objective washes and flags, the veil, effects) is in that pass after them. Lowpoly's unlit materials are no longer changed in place: the kit dresses
+  each lowpoly piece with its own copies (no tone mapping, see-through pass), so the first pass's fourth deviation is gone. The veil is drawn over the mist,
+  hard-edged and hatched; mist never lies on an unseen hex.</li>
+  <li><b>Bases:</b> the disc is drawn at 50% of its colour at dawn 0, 80% at 0.5 and full at 1 (the hue and saturation kept; a test holds that), the paper mark at
+  about 78% at dawn 0; ink rim, selection ring and rust burst are not dimmed. The gunner (and any other lowpoly unit) now stands on the diorama's base:
+  the kit takes lowpoly's lit base off the unit it is handed and puts its own on, the very same materials as the rifleman's.</li>
+</ul>
+<p><b>Judged in the new stills</b> (same headless Chromium, software WebGL, device pixel ratio 1): at dawn 0 a bank lies over D3–E5 and the water, with gaps
+over A3–C5; the hill stands clear; the man at E5 and the pinned man at E4 lose their legs to it while their bases, marks and the burst stay sharp; the
+blue and plum discs are no longer the brightest things, the amber ring and the rust bursts are. At 844 × 390 the bar and the chevron still read. Four sheets
+were tried by setting the desktop count to 4: no banding seen at the whole-map view or at three times closer.</p>
+<p><b>Still short, after the second pass.</b></p>
+<ul>
+  <li><b>Half-swallowed is legs, not waist.</b> The camera looks down at 55 degrees, so a standing man's chest is in front of less mist than his boots: he fades
+  from the feet up and his outline stays fairly firm above the knee. Thicker reads as a white board, which was tried and taken back.</li>
+  <li><b>Round the board the mist looks like cloud seen from above</b>: streaky and busy at the picture's edges, more than a table's surroundings should be.</li>
+  <li><b>Drawn on mist.</b> Labels and the grid over a thick bank read as paint on the mist rather than on the ground under it. That is the rule asked for, and
+  it looks a little odd in the thickest banks. Tufts under an objective wash show through as pale scratches.</li>
+  <li>A man lying down in a bank nearly disappears; his base and mark do not.</li>
+</ul>
+<p><b>Not judged, second pass:</b> a real phone and frame rate (the sheets are the new cost: up to nine, or four, see-through layers over most of the screen at
+dawn 0, three at dawn 1); whether a phone is really given four (the kit asks <code>matchMedia('(pointer: coarse)')</code>, which headless Chromium does not
+emulate); the mist while the camera is dragged or zoomed right in; a capture's new flag being dressed again after its effect (written, not watched).</p>
+<p><b>Deviations, second pass.</b> The fallback gunner's base is replaced, not re-lit: the kit removes the first child of the lowpoly unit (its base) and adds its
+own. One rifleman was added to the scene (E5), so the first-pass stills show one man fewer.</p>
+<hr />
+<p><b>First pass.</b></p>
+
+<p><b>The choices.</b></p>
+<ul>
+  <li><b>Tone mapping: ACES filmic</b>, exposure 0.92 to 0.95 by dawn. AgX was tried on the same stills: it kept more hue in the sunlit turf but lifted the shadows
+  and flattened the picture; ACES gives the deep blue-black of round 1 and holds the low sun at full day. The drawn layer (bases, marks, grid, labels, veil,
+  effects) is unlit and skips tone mapping, so the palette's colours are the same in every light.</li>
+  <li><b>Mist (first pass; see above for what it is now): a few lines at the end of each world material's shader</b>, not sheets: depth falls off with height above level-0 ground, broken up by two scales of
+  a noise texture in world space. It is right as a still (nothing moves), costs no overdraw, has no line where a sheet would cut a hillside, and by construction
+  never touches the drawn layer. The board stands on one big plane in the same mist, so its edge dissolves. The air has three keys (0, 0.5, 1) and is
+  interpolated between them: sky and bounce light, a moon that becomes the sun (colour, strength, direction, shadow depth), exposure, mist colour, depth and height.</li>
+  <li><b>Grass:</b> one physically based material for every open hex; turf, dry and damp patches (damp is darker and smoother), worn earth and a blade-length
+  grain are made in the shader from world position, so the ground runs on across hex edges; the sides are earth with strata, grit and a ragged lip of turf.
+  On top, per hex and seeded by its key: some forty to ninety three-bladed tufts in clumps and up to three stones, one draw call, casting no shadow.</li>
+  <li><b>The rifleman:</b> seven rigid pieces on joints (hips, trunk with arms and rifle, head, thighs, shins), each one merged geometry of lathes, tapered limbs and
+  boxes, painted in vertex colours with a zenithal highlight as a miniature is (lighter where a surface faces up), wool rough and steel a little metallic.
+  Three poses, blended by the same rig lowpoly's effects drive. The base is drawn: lowpoly's colours and mark outlines, unlit; only his shadow falls on it.</li>
+  <li><b>The veil</b> is flat near-black at 80% with fine slate hatching in world space and the hex's hard edge: unknown, not weather.</li>
+</ul>
+<p><b>What was judged</b>, in the stills above and others like them (headless Chromium, software WebGL, device pixel ratio 1):</p>
+<ul>
+  <li>Dawn 0 is dark, blue and foggy: the low ground lies under broken mist, the hill and the men on it stand out of it. The base colours and marks, the
+  rings and strokes, the grid and the labels read at 1280 × 720 and at 844 × 390. At phone size the labels are small, the same size as on lowpoly, and still legible in the still.</li>
+  <li>Dawn 0.5 is grey with the mist off the high ground; dawn 1 has a low warm sun, long cold shadows and thin mist left in the lowest ground.</li>
+  <li>Unseen hexes (top right) do not read as mist: darker than anything else, hatched, hard-edged.</li>
+  <li>Playback: a frame caught mid-round showed the walker arrived at D4 and the shooter's flash (amber, not tone-mapped); the still after the round shows him
+  kneeling on the burst and the man on the hill in his scrape. The real manual was opened with <code>/?manual=dig-in&amp;kit=diorama</code> and drew with the kit;
+  <code>dev.html?kit=diorama</code> was checked to give every frame <code>&amp;kit=diorama</code>.</li>
+</ul>
+<p><b>What was not judged.</b></p>
+<ul>
+  <li><b>No real phone, and no frame rate.</b> Everything was software-rendered; nothing here says how it runs on a phone's GPU. The costs are behind three
+  constants: <code>SHADOW_MAP</code> (2048, as lowpoly) and <code>SKY_REFLECTION</code> (one small sky rendered once at start, for reflections) in
+  <code>diorama/index.ts</code>, and <code>TUFTS</code> (64 a hex, about 400 triangles and one draw call a hex) in <code>diorama/tiles.ts</code>. The ground shader
+  reads the one 128 px noise texture nine times a pixel, the mist twice more. A standing rifleman is 12 draw calls (seven for the man, five for the base) before his shadow pass.</li>
+  <li><b>The motion.</b> Headless stills show a moment, not the movement: the kneel, the fall, the lean of a dash and the sandbags rising were not watched.
+  A unit fading in or out of sight (<code>spotted</code>, <code>lost</code>) uses lowpoly's ghost copies of the materials, which lose the mist and the paint's
+  roughness for that quarter second: not looked at.</li>
+  <li><b>A real match</b> with a server (the play screen's panels over this board, a 17 × 13 map, a whole squad) was not run. Device pixel ratio 2 and 3 were not tried.</li>
+  <li>The dawn slider's one-second ease between lights, and the two boards side by side in a real browser window.</li>
+</ul>
+<p><b>Where it falls short of the direction.</b></p>
+<ul>
+  <li><b>The figure is a good toy, not yet a well-painted miniature.</b> From the board's camera he is 50 to 60 px tall and reads well (helmet, webbing,
+  rifle, the pose), but close in he is plainly capsules and boxes: no face, no hands, no folds in the cloth; his arms are fixed to the rifle, so the man lying
+  down still holds it at the port. The kneel is a kneel, where lowpoly's pinned man lies flat: pinned and ready are told apart mainly by the rust burst.</li>
+  <li><b>The mist is paint on surfaces, not air.</b> It has no body between the eye and the ground: a man's legs fade into it, but nothing drifts in front of
+  him, and the sea round the board is a flat tone with blotches. At dawn 0 it is closer to blue haze than to milk lying in hollows.</li>
+  <li><b>The ground is flat-topped hexes with a good texture.</b> The steps are still prisms; the tufts are sparse and vanish at the opening zoom; there is no
+  relief, no mud, no puddle that really reflects. Tufts stand up through the rust burst of a pinned man.</li>
+  <li><b>Two kits in one picture.</b> Lowpoly's woods, house, crops, water and gunner sit in the new light and sink in the mist, but they are flat-shaded and
+  ink-outlined beside physically based grass; the gunner's base is lit where the rifleman's is not. That is the fallback working, and it shows what is left to do.</li>
+  <li><b>The drawn layer may be too loud at dawn 0.</b> Unlit bases in full palette colour against a moonlit board pop, as asked, but the blue and plum
+  discs are the brightest things in the picture; they could follow the dawn a little without losing their colour.</li>
+</ul>
+<p><b>Deviations from the task doc.</b> (1) The grid, contour rings and labels on diorama ground are <b>paper</b>, not ink: ink on dark turf cannot be read at
+dawn 0. Same lines, same face, same sizes and places. (2) <code>lowpoly/units.ts</code> gained two exports and no other change: <code>burst</code> (it was
+private) and <code>setRig</code>, so that the new figure can use lowpoly's burst and be driven by lowpoly's effects without copying either.
+(3) The dev server ran on port 5199: another project's server was on 5173.
+(The first pass also set <code>toneMapped</code> on lowpoly's shared unlit materials; the second pass copies them instead.)</p>
+<p><b>Next, if the direction is approved:</b> a real phone first (frame rate decides everything else); then the figure (a sculpted mesh, arms that move, a
+prone pose); woods and buildings in the new materials; mist with some body (a few soft cards in the hollows at dawn 0 only); the bases' brightness tied to the dawn.</p>
+<p>Stills: <code>~/.cache/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell --use-angle=swiftshader
+--enable-unsafe-swiftshader --hide-scrollbars --virtual-time-budget=6000 --window-size=1280,720 --screenshot=eval/assets/26/dawn-0-desktop.png
+"http://localhost:5199/eval/26-diorama-trial.html?shot=diorama&amp;dawn=0"</code>; the others with <code>dawn=0.5</code> or <code>1</code>,
+<code>--window-size=844,390</code>, <code>&amp;zoom=3&amp;at=C3</code>, <code>&amp;play=1</code> (budget 14000) and <code>shot=lowpoly</code>.</p>
+</div>
+</main>
+
+<script type="module">
+  import { createBoard } from '/src/client/render/index.ts';
+  import { makeKit } from '/src/client/render/kits/index.ts';
+  import { loadKitFonts } from '/src/client/render/kits/lowpoly/index.ts';
+  import { createMatch } from '/src/rules/match.ts';
+  import { viewFor } from '/src/rules/sight.ts';
+  import { tinyMap, hex } from '/src/manual/lesson.ts';
+  import { key } from '/src/shared/hex.ts';
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+  const say = (text, bad = false) => { $('log').innerHTML = text; $('log').classList.toggle('bad', bad); };
+  addEventListener('error', (e) => say('Error: ' + esc(e.message), true));
+  addEventListener('unhandledrejection', (e) => say('Error: ' + esc(String(e.reason?.stack ?? e.reason)), true));
+  const params = new URLSearchParams(location.search);
+
+  // ---- the scene: a real match on a hand-made map, the view then changed by hand
+  const map = tinyMap({
+    id: 'eval-26',
+    terrain: ['w w . . b . .', ' w . . . . . c', '. . . . . . ~', ' . . . . . ~ ~', '. . . . . . .'],
+    elevation: ['. 1 2 2 1 . .', ' 1 1 2 1 . . .', '. 1 1 . . . .', ' . . . . . . .', '. . . . . . .'],
+    marks: ['. . . . . . .', ' . . . . . . .', '. . . . . . .', ' . . . . . . .', '. . . . . A A'],
+    objectives: { A: { kind: 'depot', value: 2 } },
+  });
+  // Where each seat's men stand, in squad order: createMatch sets them down on its spawn zones.
+  const BLUE = ['C2', 'B3', 'A4', 'C4', 'B5', 'C5', 'E5'];
+  const PLUM = ['E3', 'E4', 'E2', 'F3'];
+  map.spawns = [BLUE.map(hex), PLUM.map(hex)];
+  map.seatSpawns = { 2: [0, 1] };
+  const match = createMatch(map, [
+    { player: 0, units: ['rifleman', 'rifleman', 'rifleman', 'rifleman', 'gunner', 'rifleman', 'rifleman'] },
+    { player: 1, units: ['rifleman', 'rifleman', 'rifleman', 'rifleman'] },
+  ]);
+  const UNSEEN = ['F1', 'G1', 'G2', 'G3'].map((l) => key(hex(l)));
+  const set = (state, id, change) => ({ ...state, units: state.units.map((u) => (u.id === id ? { ...u, ...change } : u)) });
+  let start = match;
+  start = set(start, '0-1', { status: 'pinned', pinnedRound: 1 });
+  start = set(start, '0-2', { status: 'down' });
+  start = set(start, '0-3', { dugIn: true });
+  start = set(start, '1-1', { status: 'pinned', pinnedRound: 1 });
+  start = set(start, '1-2', { dugIn: true });
+  start = set(start, '1-3', { status: 'down' });
+  let after = set(start, '0-5', { pos: hex('D4'), status: 'pinned', pinnedRound: 1 });
+  after = set(after, '0-0', { dugIn: true });
+  const EVENTS = [
+    { t: 'phase', phase: 'move' },
+    { t: 'move', step: 1, unit: '0-5', from: hex('C5'), to: hex('D5') },
+    { t: 'move', step: 2, unit: '0-5', from: hex('D5'), to: hex('D4') },
+    { t: 'phase', phase: 'assault' },
+    { t: 'fire', unit: '1-0', from: hex('E3'), target: hex('D4'), blast: 0, ambush: false, action: 'rifle' },
+    { t: 'hit', unit: '0-5', at: hex('D4'), result: 'pinned' },
+    { t: 'phase', phase: 'score' },
+    { t: 'dig', unit: '0-0' },
+  ];
+  const MARKS = [
+    { kind: 'select', hex: hex('C2') },
+    { kind: 'path', from: hex('C2'), path: [hex('D2'), hex('D3')], dash: false },
+    { kind: 'target', from: hex('B3'), hex: hex('E3'), blast: 0 },
+  ];
+  /** Blue's real view of a state, then: every unit shown, four hexes unseen, and the dawn the slider asks for. */
+  function viewOf(state, dawn) {
+    const view = viewFor(state, 0);
+    return { ...view, units: state.units.map((u) => ({ ...u })), visible: Object.keys(map.cells).filter((k) => !UNSEEN.includes(k)), dawn };
+  }
+
+  // ---- boards
+  let dawn = Number(params.get('dawn') ?? 0);
+  let state = params.get('state') === 'after' ? after : start;
+  const boards = [];   // { kit, board, canvas }
+  function mount(kit, stage) {
+    const canvas = document.createElement('canvas');
+    stage.replaceChildren(canvas);
+    const board = createBoard(canvas, makeKit(kit));
+    board.resize();
+    boards.push({ kit, board, canvas });
+    return board;
+  }
+  const wheel = (canvas, factor) => canvas.dispatchEvent(new WheelEvent('wheel', {
+    clientX: canvas.getBoundingClientRect().left + canvas.clientWidth / 2, clientY: canvas.getBoundingClientRect().top + canvas.clientHeight / 2,
+    deltaY: -Math.log(factor) / 0.0015, bubbles: true, cancelable: true,
+  }));
+  function show() {
+    for (const { board } of boards) {
+      board.setView(viewOf(state, dawn));
+      board.setMarks(MARKS);
+    }
+    $('dawn').value = String(dawn);
+    $('dawn-out').textContent = dawn.toFixed(2);
+    for (const b of document.querySelectorAll('[data-dawn]')) b.classList.toggle('on', Number(b.dataset.dawn) === dawn);
+    document.body.dataset.dawn = String(dawn);
+  }
+  function frame(zoom, at) {
+    for (const { board, canvas } of boards) {
+      wheel(canvas, 0.001);                      // right out: the whole map
+      if (zoom > 1) { board.focus(at); wheel(canvas, zoom); board.focus(at); }
+    }
+  }
+
+  let playing = false;
+  async function play() {
+    if (playing) return;
+    playing = true;
+    $('play').disabled = true;
+    state = start;
+    show();
+    say(`Playing ${EVENTS.length} events on both boards...`);
+    const t0 = performance.now();
+    await Promise.all(boards.map(({ board }) => board.play(EVENTS)));
+    state = after;
+    show();
+    playing = false;
+    $('play').disabled = false;
+    say(`Played in ${((performance.now() - t0) / 1000).toFixed(1)} s; both boards then took the view that follows: the man from C5 is pinned at D4, the man at C2 is dug in. Press Reset to see the start again.`);
+    document.body.dataset.played = 'yes';
+  }
+
+  async function begin() {
+    await loadKitFonts();
+    const shot = params.get('shot');
+    if (shot) {
+      // One board alone, for a still.
+      document.body.classList.add('shot');
+      mount(shot === 'lowpoly' ? 'lowpoly' : 'diorama', $('shot-stage'));
+      show();
+      frame(Number(params.get('zoom')) || 1, hex(params.get('at') ?? 'C3'));
+      if (params.get('play')) await play();
+    } else {
+      mount('lowpoly', $('stage-lowpoly'));
+      mount('diorama', $('stage-diorama'));
+      show();
+      say('Ready: dawn 0, the first round\'s light. Move the slider (the boards ease to a new light over about a second), or play the round.');
+    }
+    addEventListener('resize', () => boards.forEach(({ board }) => board.resize()));
+    $('dawn').addEventListener('input', () => { dawn = Number($('dawn').value); show(); });
+    for (const b of document.querySelectorAll('[data-dawn]')) b.addEventListener('click', () => { dawn = Number(b.dataset.dawn); show(); });
+    $('phone').addEventListener('click', () => {
+      const on = document.body.classList.toggle('phone');
+      $('phone').classList.toggle('on', on);
+      boards.forEach(({ board }) => board.resize());
+      say(on ? 'Both boards at 844 × 390 CSS pixels, a phone on its side.' : 'Both boards at the page\'s width.');
+    });
+    $('closer').addEventListener('click', () => frame(3, hex('C3')));
+    $('whole').addEventListener('click', () => frame(1, hex('C3')));
+    $('play').addEventListener('click', play);
+    $('reset').addEventListener('click', () => { if (!playing) { state = start; show(); say('Back at the start.'); } });
+    window.dawnEval = { boards, play, show };
+    document.body.dataset.ready = 'yes';
+  }
+  begin().catch((e) => say('Error starting the boards: ' + esc(e.stack ?? e), true));
+
+  // ---- the stills
+  {
+    const stills = [
+      ['dawn-0-man-in-mist.png', 'Second pass. Dawn 0, close: the rifleman at E5 standing in a bank of mist, his legs going into it; the pinned man beside him; bases, marks and labels clear of it'],
+      ['dawn-0-desktop.png', 'Dawn 0 (round 1), 1280 × 720'],
+      ['dawn-05-desktop.png', 'Dawn 0.5, 1280 × 720'],
+      ['dawn-1-desktop.png', 'Dawn 1 (full day), 1280 × 720'],
+      ['dawn-0-phone.png', 'Dawn 0, phone 844 × 390'],
+      ['dawn-05-phone.png', 'Dawn 0.5, phone 844 × 390'],
+      ['dawn-1-phone.png', 'Dawn 1, phone 844 × 390'],
+      ['dawn-0-close.png', 'Dawn 0, closer: the hill, the men on it and below it'],
+      ['dawn-1-close.png', 'Dawn 1, closer'],
+      ['dawn-0-played.png', 'Dawn 0, after the round was played: pinned at D4, dug in at C2'],
+      ['lowpoly-dawn-0-desktop.png', 'For comparison: lowpoly at dawn 0, same view'],
+    ];
+    // The first pass's stills, kept for comparison: the mist a tint on surfaces, the bases at full colour.
+    const pass1 = ['dawn-0-desktop', 'dawn-05-desktop', 'dawn-1-desktop', 'dawn-0-phone', 'dawn-05-phone', 'dawn-1-phone', 'dawn-0-close', 'dawn-1-close', 'dawn-0-played']
+      .map((name) => [`${name}-pass1.png`, `First pass: ${name}`]);
+    $('shots-pass1').innerHTML = pass1.map(([file, text]) =>
+      `<figure><a href="assets/26/${file}"><img src="assets/26/${file}" alt="${esc(text)}" loading="lazy" /></a><figcaption>${esc(text)}</figcaption></figure>`).join('');
+    $('shots').innerHTML = stills.map(([file, text]) =>
+      `<figure><a href="assets/26/${file}"><img src="assets/26/${file}" alt="${esc(text)}" loading="lazy" /></a><figcaption>${esc(text)}</figcaption></figure>`).join('');
+  }
+</script>
+</body>
+</html>

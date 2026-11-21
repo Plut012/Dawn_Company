@@ -12,7 +12,8 @@ import type { SeatStatus, ServerMsg } from '../../../shared/protocol';
 import type { Hex, HexKey, Order, OrderKind, PlayerView, Purchase, Unit, UnitId, WorkId } from '../../../shared/types';
 import { START_SCALE, createBoard } from '../../render';
 import type { Board, Mark } from '../../render';
-import { lowpolyKit, loadKitFonts } from '../../render/kits/lowpoly';
+import { kitFromUrl, makeKit } from '../../render/kits';
+import { loadKitFonts } from '../../render/kits/lowpoly';
 import { BEAT, moments } from '../../render/playback';
 import { ICONS, chit, el, key as keyButton, lamp, lever, playerMark, readout, report, unitCard } from '../components';
 import type { Chit, ChitState } from '../components';
@@ -802,7 +803,7 @@ export const playScreen: Screen = {
     let queue: Promise<void> = (async () => {
       await loadKitFonts();
       if (dead) return;
-      board = createBoard(canvas, lowpolyKit());
+      board = createBoard(canvas, makeKit(kitFromUrl()));
       board.onHexTap(tapHex);
       const watch = new ResizeObserver(() => board?.resize());
       watch.observe(boardBox);

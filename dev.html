@@ -48,11 +48,14 @@ Needs the game server (<code>npm run server</code>) next to <code>npm run dev</c
   let run = 0;                                   // a newer press cancels an older quick start
   const frames = [];                             // { slot, frame }
 
-  const plainUrl = (slot) => `/?slot=${slot}`;
-  const autoUrl = (slot, i) => `/?slot=${slot}&auto=${PRESETS[i % PRESETS.length].id}&name=${encodeURIComponent(`Dev ${i + 1}`)}`;
+  const kit = params.get('kit');                 // (26) `?kit=diorama` on this page reaches every frame
+  const kitQ = kit ? `&kit=${encodeURIComponent(kit)}` : '';
+  const plainUrl = (slot) => `/?slot=${slot}${kitQ}`;
+  const autoUrl = (slot, i) => `/?slot=${slot}${kitQ}&auto=${PRESETS[i % PRESETS.length].id}&name=${encodeURIComponent(`Dev ${i + 1}`)}`;
 
   function remember() {
     const q = new URLSearchParams({ seats: String(seats), shape });
+    if (kit) q.set('kit', kit);
     history.replaceState(null, '', `${location.pathname}?${q}`);
   }
 

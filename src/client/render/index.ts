@@ -66,7 +66,8 @@ interface Piece { visual: UnitVisual; type: string; owner: number }
 export function createBoard(canvas: HTMLCanvasElement, kit: VisualKit): Board {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  kit.renderer?.(renderer);
 
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 4 * CAMERA_DISTANCE);

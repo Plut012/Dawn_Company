@@ -36,6 +36,10 @@ section *v2* below; each task folds what it changes into the v1 sections when it
 - [x] 24 Dig in — a unit that held still a whole round is harder to hurt until it moves (needs 16)
 - [x] 25 Engineer and works — the engineer builds sandbags, wire and MG nests for supply (needs 18, 24)
 
+**Visual trial (jig, 2026-11-21).** A second kit beside `lowpoly`, chosen by `?kit=`; render only.
+
+- [x] 26 Diorama trial — "the world is real, the information is drawn": one realistic rifleman, one grass tile, a dark foggy dawn; everything else falls back to lowpoly (needs 25)
+
 ## Dependencies
 
 ```
@@ -725,6 +729,7 @@ interface VisualKit {
   fog(): THREE.Material;                                // veil over unseen hexes
   effect?(event: GameEvent, ctx: KitCtx): Promise<void>;   // 07; `capture` (16): the flag turns over to the new owner's colour
   light?(scene: THREE.Scene, dawn: number): void;       // (19) 0 = first light, 1 = full day; environment() is full day
+  renderer?(r: THREE.WebGLRenderer): void;              // (26) called once by createBoard, before environment() and the first render: tone mapping, shadow type, exposure
 }
 interface UnitVisual { object: THREE.Object3D; setStatus(s: UnitStatus): void; setDugIn?(dug: boolean): void }   // (24) a ring of sandbags
 interface KitCtx {
@@ -750,6 +755,15 @@ The lowpoly kit draws `sandbags` as two courses of paper bags where the wall til
 on ink posts with two strands, `nest` as most of a ring of paper bags with a khaki roof slab on two posts at the back.
 The v1 kit lives in `src/client/render/kits/lowpoly/`. An unknown terrain or
 unit id returns a plain placeholder, never an error.
+Kits (26): `src/client/render/kits/index.ts` has `type KitId = 'lowpoly' | 'diorama'`, `kitFromUrl(search?)` (`?kit=diorama`; anything else is
+`lowpoly`) and `makeKit(id)`; the play screen and the manual call `makeKit(kitFromUrl())`, and `dev.html?kit=diorama` passes the query to every frame.
+The board calls `kit.renderer?.(renderer)` once, right after it makes its renderer (which asks for `PCFShadowMap`) and before `environment()`.
+The diorama kit (`kits/diorama/`, a trial) makes the light and air, `tile('open', ...)` and `unit('rifleman', ...)` itself and asks a `lowpolyKit()` it holds
+for everything else, then dresses what comes back for its light (`look.dress`: lit parts take the mist, unlit parts skip tone mapping). Its figure registers a
+rig with lowpoly's `setRig`, so lowpoly's effects drive it; lowpoly's `burst` is exported for it. Its grid and labels are paper, not ink.
+Second pass (26): the mist is `MIST_LAYERS` sheets (`diorama/look.ts`: 9, or 4 for a coarse pointer) drawn first in the see-through pass, over a thin haze by
+height on world materials; every drawn piece is in that pass after them (the kit's own copies of lowpoly's unlit materials: lowpoly's are not changed), so the
+mist never covers information. Every unit of the kit, lowpoly's fallbacks too, stands on the diorama's base, whose disc and mark dim with the dawn (hue kept).
 
 ### Client UI — `src/client/` (08, used by 09 and 10)
 
@@ -1027,8 +1041,6 @@ Observations from task 10 (7,800 bot matches and scripted matches through
   40 px, the words on the order chits 11 px, and an eight-man squad shows about
   one and a half cards at a time in the squad row. A real phone has not been
   tried: steps are in `eval/10-match-in-a-box.html`.
-- three.js r187 warns on every board that `PCFSoftShadowMap` is gone and it
-  uses `PCFShadowMap`; `src/client/render/index.ts` could ask for that directly.
 - `dev.html` is served by Vite only; it is not in the build. The client's
   `auto` and `name` URL parameters work only for slots starting with `dev`
   (`src/client/dev.ts`).

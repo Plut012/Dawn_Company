@@ -186,7 +186,7 @@ const burstGeo = (() => {
 })();
 
 /** The rust burst under a pinned unit. */
-function burst(): THREE.Group {
+export function burst(): THREE.Group {
   const g = new THREE.Group();
   const edge = new THREE.Mesh(burstGeo, flat(TOKENS.ink, 1, true));
   edge.scale.setScalar(1.06);
@@ -233,6 +233,8 @@ export interface Rig {
 }
 const rigs = new WeakMap<THREE.Object3D, Rig>();
 export const rigOf = (object: THREE.Object3D | null): Rig | null => (object && rigs.get(object)) || null;
+/** (26) Another kit's unit gives its own rig, so that this kit's effects can drive it. */
+export const setRig = (object: THREE.Object3D, rig: Rig): void => { rigs.set(object, rig); };
 const leanAxis = new THREE.Vector3();
 
 export function unit(type: UnitTypeId, owner: PlayerId): UnitVisual {

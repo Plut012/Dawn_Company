@@ -17,7 +17,8 @@ import type { Stop, Viewpoint } from '../../../manual/show';
 import type { Phase } from '../../../shared/types';
 import { createBoard } from '../../render';
 import type { Board } from '../../render';
-import { lowpolyKit, loadKitFonts } from '../../render/kits/lowpoly';
+import { kitFromUrl, makeKit } from '../../render/kits';
+import { loadKitFonts } from '../../render/kits/lowpoly';
 import { el, key, panel, playerMark, report } from '../components';
 import type { Key } from '../components';
 import { lightWords } from '../light';
@@ -311,7 +312,7 @@ export function mountManual(root: HTMLElement, opts: ManualOptions = {}): () => 
   let queue: Promise<void> = (async () => {
     await loadKitFonts();
     if (dead) return;
-    board = createBoard(canvas, lowpolyKit());
+    board = createBoard(canvas, makeKit(kitFromUrl()));
     // The board refits by itself when its box changes shape (a phone turned over): the lesson, the step and
     // what is playing carry on. A tiny map that was framed stays framed; see `resize` in render.
     const watch = new ResizeObserver(() => {

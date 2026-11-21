@@ -23,6 +23,8 @@
 // - fog(): the board drapes this material over a copy of every solid mesh
 //   (opaque, not back-faced) of each unseen tile, so the veil takes the
 //   tile's shape. Lines and see-through parts are left as they are.
+// - renderer(): the board calls it once, right after it makes its renderer and
+//   before environment(). A kit without it gets the renderer as three makes it.
 // An id the kit does not know must give a plain placeholder, never an error.
 
 import type * as THREE from 'three';
@@ -41,6 +43,7 @@ export interface VisualKit {
   fog(): THREE.Material;                                // veil over unseen hexes
   effect?(event: GameEvent, ctx: KitCtx): Promise<void>;   // added by task 07
   light?(scene: THREE.Scene, dawn: number): void;       // (19) 0 = first light, 1 = full day; the board eases it
+  renderer?(r: THREE.WebGLRenderer): void;              // (26) called once by createBoard, before the first render: tone mapping, shadow type, exposure
 }
 
 export interface UnitVisual {
